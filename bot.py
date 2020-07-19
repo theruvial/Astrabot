@@ -9,12 +9,9 @@ from discord_webhook import DiscordWebhook, DiscordEmbed
 import json
 import random
 from config import config
-import tweepy
-import youtube_dl
-import os
+# import tweepy
 
-
-startup_extensions = ['cogs.house']
+startup_extensions = ['cogs.trello']
 ## Define BOT
 bot = commands.Bot(command_prefix=config['prefix']) ## THIS LINE CLASS CLIENT
 
@@ -47,12 +44,16 @@ bot = commands.Bot(command_prefix=config['prefix']) ## THIS LINE CLASS CLIENT
 
 @bot.event ## <--- DECORATOR. PUT INSIDE OF BOT.
 async def on_ready():
-    print('Bot logged in as:' + bot.user.name + "\n")
+    print('Logged in as')
+    print(bot.user.name)
+    print(bot.user.id)
 
 ## Example: $add 3 4 Returns: 7
 @bot.command()
 async def add(ctx, left:int, right: int): #### INPUT
     await ctx.send(left + right) ### OUTPUT
+
+
 
 ### Input: $hello
 ### Output: @brian Hello!
@@ -76,66 +77,6 @@ async def kick(ctx, user:discord.Member):
     await ctx.guild.kick(user)
 
 
-##Play Music
-
-@bot.command(pass_context = True, aliases = ['s','S','STOP'])
-async def stop(ctx):
-    channel = ctx.message.author.voice.channel
-    voice = get(bot.voice_clients, guild = ctx.guild)
-    if voice and voice.is_connected():
-        await voice.disconnect()
-    else:
-        await ctx.send(bot.user.name + f"is not currently connected to {channel}")
-
-@bot.command(pass_context = True, aliases = ['p', 'P', 'PLAY'])
-async def play(ctx, url: str):
-    voice = get(bot.voice_clients, guild = ctx.guild)
-    channel = ctx.message.author.voice.channel
-
-    if voice and voice.is_connected():
-        await voice.move_to(channel)
-    else:
-        voice = await channel.connect()
-
-    song_there = os.path.isfile('song.mp3')
-    try:
-        if song_there:
-            os.remove('song.mp3')
-            print('Removed old song file')
-    except PermissionError:
-        print('Cannot remove song file because it is in use')
-        await ctx.send('ERROR: Music Currently playing')
-        return
-    await ctx.send('One Moment Please')
-
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec':'mp3',
-            'preferredquality':'192',
-        }],
-    }
-
-    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-        print('Downloading audio now\n')
-        ydl.download([url])
-
-    for file in os.listdir('./'):
-        if file.endswith('.mp3'):
-            name = file
-            print(f"Renamed File: {file}\n")
-            os.rename(file, 'song.mp3')
-
-    voice.play(discord.FFmpegPCMAudio('song.mp3'), after = lambda e: print(f"{name} has finished playing"))
-    voice.source = discord.PCMVolumeTransformer(voice.source)
-    voice.source.volume = 0.5
-
-    nname = name.rsplit('-', 2)
-    await ctx.send(f"Playing: {nname}")
-    print('Playing Music\n')
-
-
 ## Dice rolling. Start with d6 and make more robust later.
 @bot.command()
 async def roll(ctx, *args):
@@ -149,7 +90,15 @@ async def roll(ctx, *args):
                 amount += random.randint(1,sides)
             await ctx.send(amount)
 
-
+## Deletes messages when given a number of messages
+@bot.command()
+@commands.has_permissions(manage_messages=True)
+async def purge(ctx, number):
+    mgs = [] #Empty list to put all the messages in the log
+    number = int(number) #Converting the amount of messages to delete to an integer
+    async for message in ctx.message.channel.history(limit=number):
+        mgs.append(message)
+    await ctx.message.channel.delete_messages(mgs)
 
 
 

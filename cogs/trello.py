@@ -63,20 +63,18 @@ class Trello(commands.Cog):
             # except TypeError:                
             #     label_color = 13158600
 
-            # Pulls label name out of card and applies it to a field on the discord embed
-            if not card.labels:
-                pass
-            else:
-                label_list = []
-                for label in card.labels:
-                    label_list.append(label.name)
-                labels = ', '.join(label_list)
-                embed.add_embed_field(name = "Labels", value = labels, inline = False)
-                                
+           # Pulls label color out of card and applies it to discord embed
+            try:
+                for labels in card.labels:
+                    if labels.name in self.label_colors.keys():
+                        label_color = self.label_colors[labels.name]
+            except TypeError:
+                label_color = 13158600
 
-            webhook = DiscordWebhook(url= hook)
-            embed = DiscordEmbed(title = card.name, url = card.short_url, color=label_color)
+            webhook = DiscordWebhook(url = hook)
+            embed = DiscordEmbed(title = card.name, url = card.short_url, color = label_color)
 
+            # Pulls label name out of card and applies it to a field on the discord embed            
             if not card.labels:
                 pass
             else:

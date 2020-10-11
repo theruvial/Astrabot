@@ -11,7 +11,7 @@ import random
 from config import config
 # import tweepy
 
-startup_extensions = ['cogs.trello']
+startup_extensions = ['cogs.tasks']
 ## Define BOT
 bot = commands.Bot(command_prefix=config['prefix']) ## THIS LINE CLASS CLIENT
 

@@ -108,7 +108,7 @@ class House(commands.Cog):
 
     ## Broadcast to houses. Need officer rank.
     @commands.command()
-    async def broadcast(self, ctx, house, message): #### INPUT
+    async def broadcast(self, ctx, hwouse, message): #### INPUT
         '''
         Webhook broadcasts a message to house channels.
         House: be, bl, gd, all

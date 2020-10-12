@@ -93,8 +93,7 @@ class Tasks(commands.Cog):
             time.localtime(ds)), inline=False)
         embed.add_field(
             name="Status", value=currentStatus, inline=False)
-        embed.add_field(name="Assigned By", value=config[str(
-            discordID)]["name"], inline=False)
+        embed.add_field(name="Assigned By", value=config[str(ctx.author.id)]["name"], inline=False)
         channel = self.bot.get_channel(config[str(discordID)]["channel_id"])
         msg = await channel.send(embed=embed)
         await msg.add_reaction(u"\u2705")
@@ -186,7 +185,7 @@ class Tasks(commands.Cog):
             embed.add_field(name="Time Completed", value=time.asctime(
                 time.localtime(localTime)), inline=False)
             embed.add_field(name="Status", value="Closed", inline=False)
-            embed.add_field(name="Completed By",
+            embed.add_field(name="Closed By",
                             value=config[str(ctx.author.id)]["name"])
             
             channel = self.bot.get_channel(config["completed"]["channel_id"])
@@ -291,7 +290,7 @@ class Tasks(commands.Cog):
                         time.localtime(localTime)), inline=False)
                     embed.add_field(
                         name="Status", value="Closed", inline=False)
-                    embed.add_field(name="Completed By",
+                    embed.add_field(name="Closed By",
                                     value=config[str(user.id)]["name"])
 
                     channel = self.bot.get_channel(config["completed"]["channel_id"])

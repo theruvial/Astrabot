@@ -170,6 +170,15 @@ class Tasks(commands.Cog):
         self.cursor.execute(query)
         self.conn.commit()
         await ctx.send(f"{taskName} completed")
+        async with aiohttp.ClientSession() as session:
+            webhook = Webhook.from_url(config["completed"]["webhook"], adapter=AsyncWebhookAdapter(session))
+            embed = discord.Embed(title = taskName, description = taskDescription, color = color)
+            embed.set_author(name = config[str(discordID)]["name"])
+            embed.add_field(name = "Time Completed", value = time.asctime(time.localtime(ds)), inline = False)
+            embed.add_field(name = "Status", value = "Inactive", inline = False)
+            embed.add_field(name = "Completed By", value = config[str(ctx.author.id)]["name"])
+            await webhook.send(embed = embed)
+        
 
     # Shows task embed when you ask for it in whatever channel you are in
 

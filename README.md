@@ -1,6 +1,6 @@
-# SothisBot
+# Thi
 ## Command List
-- Play command takes a url as an input and plays a song into a voice channel: 
+<!-- - Play command takes a url as an input and plays a song into a voice channel: 
 **!play url**
 
 - Leave command make the bot leave the voice channel: 
@@ -13,5 +13,5 @@
 **!sclip url timestamp_1 timestamp_2 filename**
 
 - CPlay command plays audio files out of the ./Saved Folder:
-**!cplay filename**
+**!cplay filename** -->
 

@@ -14,7 +14,7 @@ class Tasks(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.openColor = discord.Colour(3665255)
-        self.closedColor = discord.Colour(14885911)
+        self.closedColor = discord.Colour(4804175)
 
         self.conn = sqlite3.connect("tasks.db")
         self.cursor = self.conn.cursor()
@@ -250,9 +250,59 @@ class Tasks(commands.Cog):
             # print(f"TaskName: {selectedTaskName} \n Assigned User: {discordName.mention} \n Time Assigned: {time.localtime(localTime)} \n {isActive}")
             await ctx.send(embed=embed)
 
+
+
+    @commands.command(pass_context = True, aliases = ['u'])
+    @commands.has_role("Team Member")
+    async def update(self, ctx, taskName, *, updatedTaskDescription):
+        # Pulls relevant information out of tasks.db
+        query = f'''
+        with user_tasks as (select tasks.taskName, tasks.discordID, tasks.isActive, row_number() over(partition by tasks.taskName order by tasks.ds DESC) rnk
+        from tasks
+        where tasks.taskName = '{taskName}')
+
+        select taskName, discordID, isActive
+        from user_tasks        
+        where rnk = 1
+        and isActive = 1       
+        '''
+        self.cursor.execute(query)
+        queryResult = self.cursor.fetchall()
+        
+        
+        # Uses information from previous query and command arguments to update task in database
+        for result in queryResult:
+            selectedTaskName = result[0]
+            assignedTo = result[1]
+            isActive = True
+            ds = int(time.time())
+            updatedBy = ctx.author.id
+            query = f'''INSERT INTO TASKS (isActive, discordID, ds, taskName, description, assignedBy) VALUES ({isActive}, {assignedTo}, {ds}, '{selectedTaskName}', '{updatedTaskDescription}', '{updatedBy}')'''
+            self.cursor.execute(query)
+            self.conn.commit()            
+
+            # Sends updated task to assigned user
+            embed = discord.Embed(title=taskName, description=updatedTaskDescription, color=self.openColor)
+            embed.set_author(name=config[str(assignedTo)]["name"])
+            embed.add_field(name="Update Time", value=time.asctime(
+                time.localtime(ds)), inline=False)
+            embed.add_field(
+                name="Status", value="Open", inline=False)
+            embed.add_field(name="Updated by",
+                            value=config[str(ctx.author.id)]["name"])
+
+            channel = self.bot.get_channel(
+                config[str(assignedTo)]["channel_id"])
+            
+            # Sends message and reacts with a checkmark so Team Member can complete it at a later date
+            msg = await channel.send(embed=embed)
+            await msg.add_reaction(u"\u2705")
+
+
+
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction, user: discord.Member):
-        if(user != self.bot.user):
+        if(user != self.bot.user and reaction.message.author == self.bot.user):
             if(len(reaction.message.embeds) > 0):
                 channel = reaction.message.channel
                 taskName = reaction.message.embeds[0].title
@@ -284,7 +334,7 @@ class Tasks(commands.Cog):
                     msg = await channel.send(random.choice(completeMessages))
 
                     embed = discord.Embed(
-                        title=taskName, description=taskDescription, color=self.closedColor)
+                        title=taskName, description=taskDescription, color=self.openColor)
                     embed.set_author(name=config[str(discordID)]["name"])
                     embed.add_field(name="Time Completed", value=time.asctime(
                         time.localtime(localTime)), inline=False)

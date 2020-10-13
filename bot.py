@@ -9,39 +9,21 @@ from discord_webhook import DiscordWebhook, DiscordEmbed
 import json
 import random
 from config import config
+from taskConfig import config as taskConfig
 import sqlite3
 from sqlite3 import Error
 import random
 import asyncio
 import time
+import schedule
+import threading
 # import tweepy
 
 startup_extensions = ['cogs.tasks']
 ## Define BOT
 bot = commands.Bot(command_prefix=config['prefix']) ## THIS LINE CLASS CLIENT
 
-### TWITTER StreamListener
 
-
-
-# class MyStreamListener(tweepy.StreamListener):
-#     def on_status(self, status):
-#         webhook = DiscordWebhook(url=config['code_webhook'], content = f"{status.text}")
-#         webhook.execute()
-#
-#
-# tw_auth = tweepy.OAuthHandler(config['tw_consumer_key'], config['tw_consumer_secret'])
-# tw_auth.set_access_token(config['tw_access_key'],config['tw_access_secret'])
-#
-# tw_api = tweepy.API(tw_auth)
-#
-# myStreamListener = MyStreamListener()
-# myStream = tweepy.Stream(auth = tw_api.auth, listener=myStreamListener)
-#
-#
-# follow_list = ["python_tip","timmay237"]
-# follow_id_list = [str(tw_api.get_user(username).id) for username in follow_list]
-# myStream.filter(follow=follow_id_list, is_async=True)
 
 
 ################################# BOT STUFF
@@ -93,11 +75,11 @@ async def divide(ctx, left: float, right: float):
 async def hello(ctx):
 
     greeting_list = [
-    "Hello!",
-    "Beware!",
-    "Hello Minion.",
+    "Hello",
+    "Beware",
+    "Hello Minion",
     "Look out",
-    "is gay."
+    "is gay"
     ]
 
     await ctx.send(f"{ctx.author.mention} {random.choice(greeting_list)}!")
@@ -189,15 +171,17 @@ async def purge(ctx, number):
     await ctx.message.channel.delete_messages(msgs)
 
 
-
-if __name__ == "__main__":
+if __name__ == "__main__":    
     for extension in startup_extensions:
         try:
             bot.load_extension(extension)
         except Exception as e:
             exc = '{}: {}'.format(type(e).__name__, e)
             print('Failed to load extension {}\n{}'.format(extension, exc))
-    bot.run(config['token'])
+    bot.run(config['token'])        
+    
+    
+   
 
 
-#####
+

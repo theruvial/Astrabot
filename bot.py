@@ -19,9 +19,10 @@ import schedule
 import threading
 # import tweepy
 
-startup_extensions = ['cogs.tasks']
+startup_extensions = ['cogs.tasks', 'cogs.roles']
 ## Define BOT
-bot = commands.Bot(command_prefix=config['prefix']) ## THIS LINE CLASS CLIENT
+intents = discord.Intents().all()
+bot = commands.Bot(command_prefix=config['prefix'], intents = intents) ## THIS LINE CLASS CLIENT
 
 
 
@@ -126,12 +127,12 @@ async def unban(ctx, *, member):
         cursor.execute(query)
         queryResult = cursor.fetchall()
         banned_users = await ctx.guild.bans()
-    
+
         for ban_entry in banned_users:
             user = ban_entry.user
-            for result in queryResult:                
+            for result in queryResult:
                 if(user.name, user.discriminator) == (result[0], str(result[1])):
-                    await ctx.guild.unban(user)                    
+                    await ctx.guild.unban(user)
         ds = int(time.time())
         banned = False
         query = f'''INSERT INTO BANNEDUSERS(memberName, ds, banned, memberDiscrim) VALUES ('{memberName}', {ds}, {banned}, '{memberDiscrim}')'''
@@ -142,9 +143,9 @@ async def unban(ctx, *, member):
     except ValueError:
         embed = discord.Embed(title= "Please Enter Name Correctly", description= "name#1234, do not mention user", color = color)
         await ctx.send(embed = embed)
-    
 
-    
+
+
 
 
 ## Dice rolling. Start with d6 and make more robust later.
@@ -171,17 +172,11 @@ async def purge(ctx, number):
     await ctx.message.channel.delete_messages(msgs)
 
 
-if __name__ == "__main__":    
+if __name__ == "__main__":
     for extension in startup_extensions:
         try:
             bot.load_extension(extension)
         except Exception as e:
             exc = '{}: {}'.format(type(e).__name__, e)
             print('Failed to load extension {}\n{}'.format(extension, exc))
-    bot.run(config['token'])        
-    
-    
-   
-
-
-
+    bot.run(config['token'])

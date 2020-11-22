@@ -16,7 +16,7 @@ class Tasks(commands.Cog):
         self.openColor = discord.Colour(3665255)
         self.closedColor = discord.Colour(4804175)
 
-        self.conn = sqlite3.connect("tasks.db")
+        self.conn = sqlite3.connect("thi.db")
         self.cursor = self.conn.cursor()
         self.cursor.execute(
             '''

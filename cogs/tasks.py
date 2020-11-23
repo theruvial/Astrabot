@@ -299,56 +299,6 @@ class Tasks(commands.Cog):
             await msg.add_reaction(u"\u2705")
 
 
-
-    # @commands.Cog.listener()
-    # async def on_reaction_add(self, reaction, user: discord.Member):
-    #     if(user != self.bot.user and reaction.message.author == self.bot.user):
-    #         if(len(reaction.message.embeds) > 0):
-    #             channel = reaction.message.channel
-    #             taskName = reaction.message.embeds[0].title
-    #             query = f'''
-    #             with user_tasks as (select tasks.taskName, tasks.discordID, tasks.ds , tasks.description, row_number() over(partition by tasks.taskName order by tasks.ds DESC) rnk
-    #             from tasks
-    #             where tasks.taskName = '{taskName}')
-
-    #             select taskName, discordID, ds, description
-    #             from user_tasks
-    #             where rnk = 1
-    #             '''
-    #             self.cursor.execute(query)
-    #             queryResult = self.cursor.fetchall()
-
-    #             for result in queryResult:
-    #                 selectedTaskName = result[0]
-    #                 discordID = result[1]
-    #                 localTime = result[2]
-    #                 isActive = False
-    #                 taskDescription = result[3]
-    #                 query = f'''INSERT INTO TASKS (isActive, discordID, ds, taskName, description, assignedBy) VALUES ({isActive}, {discordID}, {localTime}, '{selectedTaskName}', '{taskDescription}', '{user}')'''
-
-    #                 self.cursor.execute(query)
-    #                 self.conn.commit()
-
-    #                 completeMessages = [
-    #                     f"https://imgur.com/dRehYPL \n **{taskName}** completed, Good job!"]
-    #                 msg = await channel.send(random.choice(completeMessages))
-
-    #                 embed = discord.Embed(
-    #                     title=taskName, description=taskDescription, color=self.openColor)
-    #                 embed.set_author(name=config[str(discordID)]["name"])
-    #                 embed.add_field(name="Time Completed", value=time.asctime(
-    #                     time.localtime(localTime)), inline=False)
-    #                 embed.add_field(
-    #                     name="Status", value="Closed", inline=False)
-    #                 embed.add_field(name="Closed By",
-    #                                 value=config[str(user.id)]["name"])
-
-    #                 channel = self.bot.get_channel(config["completed"]["channel_id"])
-    #                 await channel.send(embed=embed)
-    #                 await reaction.message.delete()
-    #                 await asyncio.sleep(10)
-    #                 await msg.delete()
-
     # Listens for reactions on tasks even after the bot has been restarted
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, reaction):
@@ -405,10 +355,3 @@ class Tasks(commands.Cog):
 
 def setup(bot):
     bot.add_cog(Tasks(bot))
-
-
-# Set active to dos (use mentions)
-# retrieve active to dos
-# complete to dos by checkmarking
-# channel with all open to dos,
-# channel with completed to dos

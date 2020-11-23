@@ -113,11 +113,17 @@ class Roles(commands.Cog):
     @commands.command(pass_context=True, aliases=['ra', 'all'])
     @commands.has_role('Team Member')
     async def roleAll(self, ctx, role: discord.Role):
-        guild = self.bot.get_channel(config["roles"]).guild        
-        for i in guild.get_members:
-            await i.add_roles(role)
-            print(f"Role added to {i.name}")
-            await asyncio.sleep(3)
+        guild = self.bot.get_channel(config["roles"]).guild
+        listMembers = await guild.fetch_members().flatten()        
+        for i in listMembers:
+            if not role in i.roles:
+                await i.add_roles(role)
+                print(f"Role added to {i.name}")
+            else:
+                print(f"{i.name} already has this role!")
+            # await asyncio.sleep(1)
+        print("Role added to all applicable members")
+            
 
     @commands.command(pass_context=True, aliases=['map', 'm'])
     @commands.has_role('Team Member')

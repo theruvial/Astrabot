@@ -1,5 +1,7 @@
 from asyncio.windows_events import NULL
 import discord
+from discord import mentions
+from discord.colour import Color
 from discord.ext import commands
 from discord.utils import get
 from discord_webhook import DiscordWebhook, DiscordEmbed
@@ -31,6 +33,24 @@ class Roles(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         print(f"ReactionRoles ready.")
+
+
+
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member):
+        guild = self.bot.get_channel(config["roles"]).guild
+        role = guild.get_role(config["defaultRole"])
+        member.add_roles(role)
+        channel = guild.get_channel(config["welcomeChannel"])
+        embed = discord.embed(
+            title = "Welcome!",
+            description = member.mention,
+            Color = discord.Colour(3665255))
+        msg = await channel.send(embed = embed)
+        await asyncio.sleep(10)
+        await msg.delete()
+
 
 
     # Adds role based on reaction
@@ -90,7 +110,14 @@ class Roles(commands.Cog):
             # print(type(role))
             await member.remove_roles(role)
 
-
+    @commands.command(pass_context=True, aliases=['ra', 'all'])
+    @commands.has_role('Team Member')
+    async def roleAll(self, ctx, role: discord.Role):
+        guild = self.bot.get_channel(config["roles"]).guild        
+        for i in guild.get_members:
+            await i.add_roles(role)
+            print(f"Role added to {i.name}")
+            await asyncio.sleep(3)
 
     @commands.command(pass_context=True, aliases=['map', 'm'])
     @commands.has_role('Team Member')

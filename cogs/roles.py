@@ -111,7 +111,7 @@ class Roles(commands.Cog):
             await member.remove_roles(role)
 
     @commands.command(pass_context=True, aliases=['ra', 'all'])
-    @commands.has_role('Team Member')
+    @commands.has_role('Admin')
     async def roleAll(self, ctx, role: discord.Role):
         guild = self.bot.get_channel(config["roles"]).guild
         listMembers = await guild.fetch_members().flatten()        

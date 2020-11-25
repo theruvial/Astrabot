@@ -19,7 +19,7 @@ import schedule
 import threading
 # import tweepy
 
-startup_extensions = ['cogs.tasks', 'cogs.roles']
+startup_extensions = ['cogs.tasks', 'cogs.roles','cogs.points']
 ## Define BOT
 intents = discord.Intents().all()
 bot = commands.Bot(command_prefix=config['prefix'], intents = intents) ## THIS LINE CLASS CLIENT

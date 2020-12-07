@@ -41,13 +41,9 @@ class Roles(commands.Cog):
     async def on_member_join(self, member: discord.Member):
         guild = self.bot.get_channel(config["roles"]).guild
         role = guild.get_role(config["defaultRole"])
-        member.add_roles(role)
-        channel = guild.get_channel(config["welcomeChannel"])
-        embed = discord.embed(
-            title = "Welcome!",
-            description = member.mention,
-            Color = discord.Colour(3665255))
-        msg = await channel.send(embed = embed)
+        await member.add_roles(role)
+        channel = guild.get_channel(config["welcomeChannel"])        
+        msg = await channel.send(f"Welcome {member.mention}!!")
         await asyncio.sleep(10)
         await msg.delete()
 
@@ -110,19 +106,24 @@ class Roles(commands.Cog):
             # print(type(role))
             await member.remove_roles(role)
 
-    @commands.command(pass_context=True, aliases=['ra', 'all'])
-    @commands.has_role('Admin')
+    @commands.command(pass_context=True, aliases=['ra', 'all'])   
     async def roleAll(self, ctx, role: discord.Role):
-        guild = self.bot.get_channel(config["roles"]).guild
-        listMembers = await guild.fetch_members().flatten()        
-        for i in listMembers:
-            if not role in i.roles:
-                await i.add_roles(role)
-                print(f"Role added to {i.name}")
-            else:
-                print(f"{i.name} already has this role!")
+        role = discord.utils.get(ctx.guild.roles, name="Admin")
+        if role in ctx.author.roles:
+            guild = self.bot.get_channel(config["roles"]).guild
+            listMembers = await guild.fetch_members().flatten()        
+            for i in listMembers:
+                if not role in i.roles:
+                    await i.add_roles(role)
+                    print(f"Role added to {i.name}")
+                else:
+                    print(f"{i.name} already has this role!")
             # await asyncio.sleep(1)
-        print("Role added to all applicable members")
+            print("Role added to all applicable members")
+        else:
+            msg = await ctx.send("You do not have permission to use this command!")
+            await asyncio.sleep(3)
+            await msg.delete()
             
 
     @commands.command(pass_context=True, aliases=['map', 'm'])

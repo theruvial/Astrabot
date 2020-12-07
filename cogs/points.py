@@ -96,19 +96,31 @@ class Points(commands.Cog):
 
 
     @commands.command()
-    @commands.has_role('Admin')
     async def award(self, ctx, user:discord.Member, points): #### INPUT
-        await self.add_points(user,points, type_value = 'award')
-        await ctx.send(f"{ctx.author.mention} has awarded {user.mention} {points} pts")
+        role = discord.utils.get(ctx.guild.roles, name="Admin")
+        if role in ctx.author.roles:
+            await self.add_points(user,points, type_value = 'award')
+            await ctx.send(f"{ctx.author.mention} has awarded {user.mention} {points} pts")
+        else:
+            msg = await ctx.send("You do not have permission to use this command!")
+            await asyncio.sleep(3)
+            await msg.delete()
+        
 
     # Move out of points.
     @commands.command()
-    @commands.has_role('Admin')
     async def speak(self, ctx, *, message: str): #### INPUT
-        channel = self.bot.get_channel(614971333473730572)
-        msg = ctx.message
-        await channel.send(message)
-        await msg.delete()
+        role = discord.utils.get(ctx.guild.roles, name="Admin")
+        channel = self.bot.get_channel(584936481924055050)
+        if role in ctx.author.roles:
+            msg = ctx.message
+            await channel.send(message)
+            await msg.delete()
+        else:
+            msg = await ctx.send("You do not have permission to use this command!")
+            await asyncio.sleep(3)
+            await msg.delete()
+        
 ## tricky towers
     @commands.Cog.listener()
     async def on_message(self, message):

@@ -25,7 +25,7 @@ class Points(commands.Cog):
                     'Reaper [ VII ]', 'Lich [ VIII ]',
                     'Demon Lord [ IX ]' ]
         # db_path = os.path.join(os.path.abspath(os.getcwd()), DB_NAME + ".db")
-        self.db = sqlite3.connect('lairbot.db')
+        self.db = sqlite3.connect('thi.db')
         self.db_cursor = self.db.cursor()
         self.db_cursor.execute(
         '''
@@ -83,7 +83,7 @@ class Points(commands.Cog):
         self.db_cursor.execute(sql)
         self.db.commit()
 
-        await self.promote(current_pts, pts, member)
+        # await self.promote(current_pts, pts, member)
 
 
     @commands.command()
@@ -96,19 +96,31 @@ class Points(commands.Cog):
 
 
     @commands.command()
-    @commands.has_role('Admin')
     async def award(self, ctx, user:discord.Member, points): #### INPUT
-        await self.add_points(user,points, type_value = 'award')
-        await ctx.send(f"{ctx.author.mention} has awarded {user.mention} {points} pts")
+        role = discord.utils.get(ctx.guild.roles, name="Admin")
+        if role in ctx.author.roles:
+            await self.add_points(user,points, type_value = 'award')
+            await ctx.send(f"{ctx.author.mention} has awarded {user.mention} {points} pts")
+        else:
+            msg = await ctx.send("You do not have permission to use this command!")
+            await asyncio.sleep(3)
+            await msg.delete()
+        
 
     # Move out of points.
     @commands.command()
-    @commands.has_role('Admin')
     async def speak(self, ctx, *, message: str): #### INPUT
-        channel = self.bot.get_channel(614971333473730572)
-        msg = ctx.message
-        await channel.send(message)
-        await msg.delete()
+        role = discord.utils.get(ctx.guild.roles, name="Admin")
+        channel = self.bot.get_channel(584936481924055050)
+        if role in ctx.author.roles:
+            msg = ctx.message
+            await channel.send(message)
+            await msg.delete()
+        else:
+            msg = await ctx.send("You do not have permission to use this command!")
+            await asyncio.sleep(3)
+            await msg.delete()
+        
 ## tricky towers
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -173,34 +185,34 @@ class Points(commands.Cog):
     #     else:
     #         return None
 
-    async def promote(self,old_pts,new_pts,member):
-        await self.bot.wait_until_ready()
+    # async def promote(self,old_pts,new_pts,member):
+    #     await self.bot.wait_until_ready()
 
-        old_rank = self.pts_to_rank(old_pts)
-        new_rank = self.pts_to_rank(new_pts)
-        if old_rank != new_rank and new_rank <= len(self.ranks):
-            # remove old rank
-            if old_rank > 0:
-                old_role = get(member.guild.roles, name = self.ranks[old_rank-1])
-                await member.remove_roles(old_role)
+    #     old_rank = self.pts_to_rank(old_pts)
+    #     new_rank = self.pts_to_rank(new_pts)
+    #     if old_rank != new_rank and new_rank <= len(self.ranks):
+    #         # remove old rank
+    #         if old_rank > 0:
+    #             old_role = get(member.guild.roles, name = self.ranks[old_rank-1])
+    #             await member.remove_roles(old_role)
 
-            new_role = get(member.guild.roles, name = self.ranks[new_rank-1])
-
-
-            quotes = [f"{member.mention} is now a {new_role.name.split(' [')[0]}. Slightly less pathetic. Still disgusting.",
-                      f"Pathetic. {member.mention} is now a {new_role.name.split(' [')[0]}.",
-                      f"A new {new_role.name.split(' [')[0]}. Not bad {member.mention}.",
-                      f"{member.mention} rise now as a {new_role.name.split(' [')[0]}!",
-                      f"{member.mention}. A {new_role.name.split(' [')[0]}? They grow up so fast.",
-                      f"{member.mention} is now a {new_role.name.split(' [')[0]}... they'll always be a minion in my heart.",
-                      f"*cackle* {member.mention} has ranked up.",
-                      f"{member.mention} have you been working out? You look like a {new_role.name.split(' [')[0]}."]
-
-            await member.add_roles(new_role)
-            channel = self.bot.get_channel(614971333473730572)
+    #         new_role = get(member.guild.roles, name = self.ranks[new_rank-1])
 
 
-            await channel.send(random.choice(quotes))
+    #         quotes = [f"{member.mention} is now a {new_role.name.split(' [')[0]}. Slightly less pathetic. Still disgusting.",
+    #                   f"Pathetic. {member.mention} is now a {new_role.name.split(' [')[0]}.",
+    #                   f"A new {new_role.name.split(' [')[0]}. Not bad {member.mention}.",
+    #                   f"{member.mention} rise now as a {new_role.name.split(' [')[0]}!",
+    #                   f"{member.mention}. A {new_role.name.split(' [')[0]}? They grow up so fast.",
+    #                   f"{member.mention} is now a {new_role.name.split(' [')[0]}... they'll always be a minion in my heart.",
+    #                   f"*cackle* {member.mention} has ranked up.",
+    #                   f"{member.mention} have you been working out? You look like a {new_role.name.split(' [')[0]}."]
+
+    #         await member.add_roles(new_role)
+    #         channel = self.bot.get_channel(614971333473730572)
+
+
+    #         await channel.send(random.choice(quotes))
 
 
 

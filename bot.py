@@ -19,7 +19,7 @@ import schedule
 import threading
 # import tweepy
 
-startup_extensions = ['cogs.tasks', 'cogs.roles']
+startup_extensions = ['cogs.tasks', 'cogs.roles','cogs.points']
 ## Define BOT
 intents = discord.Intents().all()
 bot = commands.Bot(command_prefix=config['prefix'], intents = intents) ## THIS LINE CLASS CLIENT
@@ -170,7 +170,6 @@ async def purge(ctx, number):
     async for message in ctx.message.channel.history(limit=msgsToDelete):
         msgs.append(message)
     await ctx.message.channel.delete_messages(msgs)
-
 
 if __name__ == "__main__":
     for extension in startup_extensions:

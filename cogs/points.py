@@ -29,21 +29,29 @@ class Points(commands.Cog):
         self.db_cursor = self.db.cursor()
         self.db_cursor.execute(
         '''
-        CREATE TABLE IF NOT EXISTS points (
+        CREATE TABLE IF NOT EXISTS exp (
                         `ds` INTEGER NOT NULL,
                         `discord_id` INTEGER NOT NULL,
-                        `pts` INTEGER NOT NULL,
+                        `exp` INTEGER NOT NULL,
                         `type` TEXT NOT NULL
                     )
         '''
-                                )
+        )
+        self.db_cursor.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS bucks (
+                        `ds` INTEGER NOT NULL,
+                        `discord_id` INTEGER NOT NULL,
+                        `bucks` INTEGER NOT NULL,
+                        `type` TEXT NOT NULL
+                    )
+        '''
+        )
 
-    def fetch_current_pts(self, discord_id):
+    def fetch_current_exp(self, discord_id: int) -> int:
         sql = f'''
-            Select pts from points
-            where ds = (select max(ds) from points where discord_id  = {discord_id})
-            and discord_id = {discord_id}
-            Limit 1
+            Select sum(exp.exp) from exp
+            where discord_id = {discord_id}
             '''
         self.db_cursor.execute(sql)
         result = self.db_cursor.fetchone()
@@ -52,9 +60,21 @@ class Points(commands.Cog):
         else:
             return result[0]
 
-    def check_last_point_ds(self, discord_id, type_value):
+    def fetch_current_bucks(self, discord_id: int) -> int:
         sql = f'''
-            select max(ds) from points
+            Select sum(bucks.bucks) from bucks
+            where discord_id = {discord_id}
+            '''
+        self.db_cursor.execute(sql)
+        result = self.db_cursor.fetchone()
+        if result is None:
+            return 0
+        else:
+            return result[0]
+
+    def check_last_exp_ds(self, discord_id: int, type_value: str) -> int:
+        sql = f'''
+            select max(ds) from exp
             where discord_id  = {discord_id}
             and type = '{type_value}'
             Limit 1
@@ -66,7 +86,7 @@ class Points(commands.Cog):
         elif result[0] is None:
             return 0
         else:
-            return result[0]
+            return result[0] 
 
     # async def get_guild_roles(self):
     #     self.guild = self.bot.get_guild(614971333473730570)
@@ -74,12 +94,15 @@ class Points(commands.Cog):
 
 
 ## Instead of passing discord id can we pass the member
-    async def add_points(self,member, points, type_value = 'generic'):
+    async def add_points(self,member, points: int, type_value: str = 'generic') -> None:
         ds  = int(time.time())
-        current_pts = self.fetch_current_pts(member.id)
-        pts = int(current_pts) + int(points) # need to add their previous pt value here
-        sql = f''' INSERT INTO points(ds,discord_id,pts,type)
-                  VALUES({ds},{member.id},{pts},'{type_value}') '''
+        #urrent_pts = self.fetch_current_pts(member.id)
+        pts = int(points) #+ int(current_pts) # need to add their previous pt value here
+        sql = f'''INSERT INTO bucks(ds,discord_id,bucks,type)
+                  VALUES({ds},{member.id},{pts},'{type_value}');
+                  INSERT INTO exp(ds,discord_id,exp,type)
+                  VALUES({ds},{member.id},{pts},'{type_value}')                  
+                   '''
         self.db_cursor.execute(sql)
         self.db.commit()
 
@@ -87,12 +110,20 @@ class Points(commands.Cog):
 
 
     @commands.command()
-    async def points(self, ctx, user:discord.Member = None): #### INPUT
+    async def exp(self, ctx, user:discord.Member = None): #### INPUT
         if user is None:
             user = ctx.author
         # self.check_last_record()
-        current_pts = self.fetch_current_pts(user.id)
-        await ctx.send(f"{current_pts}")
+        current_exp = self.fetch_current_exp(user.id)
+        await ctx.send(f"{current_exp}")
+    
+    @commands.command()
+    async def bucks(self, ctx, user:discord.Member = None): #### INPUT
+        if user is None:
+            user = ctx.author
+        # self.check_last_record()
+        current_bucks = self.fetch_current_bucks(user.id)
+        await ctx.send(f"{current_bucks}")
 
 
     @commands.command()
@@ -124,7 +155,7 @@ class Points(commands.Cog):
 ## tricky towers
     @commands.Cog.listener()
     async def on_message(self, message):
-        if int(time.time()) >= int(self.check_last_point_ds(message.author.id, 'msg')) + 60:
+        if int(time.time()) >= int(self.check_last_exp_ds(message.author.id, 'msg')) + 60:
             await self.add_points(message.author,1,'msg')
 
 

@@ -42,7 +42,7 @@ class Roles(commands.Cog):
         guild = self.bot.get_channel(config["roles"]).guild
         role = guild.get_role(config["defaultRole"])
         await member.add_roles(role)
-        channel = guild.get_channel(config["welcomeChannel"])        
+        channel = guild.get_channel(config["welcomeChannel"])
         msg = await channel.send(f"Welcome {member.mention}!!")
         await asyncio.sleep(10)
         await msg.delete()
@@ -53,6 +53,8 @@ class Roles(commands.Cog):
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
         user = self.bot.get_user(payload.user_id)
+        channel = self.bot.get_channel(config["roles"])
+        message = channel.fetch_message(payload.message_id)
         if (payload.channel_id != config["roles"] or user == self.bot.user):
             return
 
@@ -74,8 +76,16 @@ class Roles(commands.Cog):
             guild = self.bot.get_channel(config["roles"]).guild
             role = guild.get_role(roleID)
             member = guild.get_member(user.id)
-            # print(type(role))
             await member.add_roles(role)
+            # query = '''select * from roles'''
+            # self.cursor.execute(query)
+            # queryResult = self.cursor.fetchall()
+            # for result in queryResult:
+            #     role = guild.get_role(result[1])
+            #     emoji = emoji = self.bot.get_emoji(result[0])
+
+
+
 
 
     # Removes role based on reaction
@@ -106,12 +116,12 @@ class Roles(commands.Cog):
             # print(type(role))
             await member.remove_roles(role)
 
-    @commands.command(pass_context=True, aliases=['ra', 'all'])   
+    @commands.command(pass_context=True, aliases=['ra', 'all'])
     async def roleAll(self, ctx, role: discord.Role):
         role = discord.utils.get(ctx.guild.roles, name="Admin")
         if role in ctx.author.roles:
             guild = self.bot.get_channel(config["roles"]).guild
-            listMembers = await guild.fetch_members().flatten()        
+            listMembers = await guild.fetch_members().flatten()
             for i in listMembers:
                 if not role in i.roles:
                     await i.add_roles(role)
@@ -124,7 +134,7 @@ class Roles(commands.Cog):
             msg = await ctx.send("You do not have permission to use this command!")
             await asyncio.sleep(3)
             await msg.delete()
-            
+
 
     @commands.command(pass_context=True, aliases=['map', 'm'])
     @commands.has_role('Team Member')
@@ -134,18 +144,45 @@ class Roles(commands.Cog):
         self.cursor.execute(query)
         self.conn.commit()
 
+        # channel = self.bot.get_channel(config["roles"])
+        # embed = discord.Embed(
+        #     title="Role",
+        #     description=role.mention,
+        #     color=discord.Colour(3665255))
+        # embed.add_field(
+        #     name = "Color",
+        #     value = roleDescription,
+        #     inline = False
+        # )
+        # message = await channel.send(embed = embed)
+        # await message.add_reaction(reaction)
+
+    @commands.command(pass_context=True, aliases=['r','role'])
+    @commands.has_role('Team Member')
+    async def roles(self, ctx):
         channel = self.bot.get_channel(config["roles"])
-        embed = discord.Embed(
-            title="Role",
-            description=role.mention,
-            color=discord.Colour(3665255))
-        embed.add_field(
-            name = "Color",
-            value = roleDescription,
-            inline = False
-        )
+        query = '''select * from roles'''
+
+        self.cursor.execute(query)
+        queryResult = self.cursor.fetchall()
+        emojis = []
+        roleIDs = []
+        for result in queryResult:
+            emojis.append(result[0])
+            roleIDs.append(result[1])
+
+        roles = []
+        for roleID in roleIDs:
+            guild = self.bot.get_channel(config["roles"]).guild
+            roles.append(guild.get_role(roleID).mention)
+
+
+        embed = discord.Embed(title="Roles", description=' '.join(roles))
         message = await channel.send(embed = embed)
-        await message.add_reaction(reaction)
+        for emojiID in emojis:
+            emoji = self.bot.get_emoji(emojiID)
+            await message.add_reaction(emoji)
+
 
 
 def setup(bot):

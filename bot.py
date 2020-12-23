@@ -171,7 +171,6 @@ async def purge(ctx, number):
         msgs.append(message)
     await ctx.message.channel.delete_messages(msgs)
 
-
 if __name__ == "__main__":
     for extension in startup_extensions:
         try:

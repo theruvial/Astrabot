@@ -8,6 +8,7 @@ from discord.utils import get
 from discord_webhook import DiscordWebhook, DiscordEmbed
 
 import asyncio
+import asyncpg
 
 
 import random
@@ -25,52 +26,48 @@ class Points(commands.Cog):
                     'Reaper [ VII ]', 'Lich [ VIII ]',
                     'Demon Lord [ IX ]' ]
         # db_path = os.path.join(os.path.abspath(os.getcwd()), DB_NAME + ".db")
-        self.db = sqlite3.connect('thi.db')
-        self.db_cursor = self.db.cursor()
-        self.db_cursor.execute(
-        '''
-        CREATE TABLE IF NOT EXISTS exp (
-                        `ds` INTEGER NOT NULL,
-                        `discord_id` INTEGER NOT NULL,
-                        `exp` INTEGER NOT NULL,
-                        `type` TEXT NOT NULL
-                    )
-        '''
-        )
-        self.db_cursor.execute(
-        '''
-        CREATE TABLE IF NOT EXISTS bucks (
-                        `ds` INTEGER NOT NULL,
-                        `discord_id` INTEGER NOT NULL,
-                        `bucks` INTEGER NOT NULL,
-                        `type` TEXT NOT NULL
-                    )
-        '''
-        )
+        #self.db = sqlite3.connect('thi.db')
+        #self.db_cursor = self.db.cursor()
+        #self.db_cursor.execute(
+        #'''
+        #CREATE TABLE IF NOT EXISTS exp (
+        #                `ds` INTEGER NOT NULL,
+        #                `discord_id` INTEGER NOT NULL,
+        #                `exp` INTEGER NOT NULL,
+        #                `type` TEXT NOT NULL
+        #            )
+        #'''
+        #)
+        #self.db_cursor.execute(
+        #'''
+        #CREATE TABLE IF NOT EXISTS bucks (
+        #                `ds` INTEGER NOT NULL,
+        #                `discord_id` INTEGER NOT NULL,
+        #                `bucks` INTEGER NOT NULL,
+        #                `type` TEXT NOT NULL
+        #            )
+        #'''
+        #)
 
-    def fetch_current_exp(self, discord_id: int) -> int:
-        sql = f'''
-            Select sum(exp.exp) from exp
-            where discord_id = {discord_id}
-            '''
-        self.db_cursor.execute(sql)
-        result = self.db_cursor.fetchone()
-        if result is None:
-            return 0
-        else:
-            return result[0]
+    #def fetch_current_exp(self, discord_id: int) -> int:
+    #    self.db_cursor.execute(sql)
+    #    result = self.db_cursor.fetchone()
+    #    if result is None:
+    #        return 0
+    #    else:
+    #        return result[0]
 
-    def fetch_current_bucks(self, discord_id: int) -> int:
-        sql = f'''
-            Select sum(bucks.bucks) from bucks
-            where discord_id = {discord_id}
-            '''
-        self.db_cursor.execute(sql)
-        result = self.db_cursor.fetchone()
-        if result is None:
-            return 0
-        else:
-            return result[0]
+    #def fetch_current_bucks(self, discord_id: int) -> int:
+    #    sql = f'''
+    #        Select sum(bucks.bucks) from bucks
+    #        where discord_id = {discord_id}
+    #        '''
+    #    self.db_cursor.execute(sql)
+    #    result = self.db_cursor.fetchone()
+    #    if result is None:
+    #        return 0
+    #    else:
+    #        return result[0]
 
     def check_last_exp_ds(self, discord_id: int, type_value: str) -> int:
         sql = f'''
@@ -86,7 +83,7 @@ class Points(commands.Cog):
         elif result[0] is None:
             return 0
         else:
-            return result[0] 
+            return result[0]
 
     # async def get_guild_roles(self):
     #     self.guild = self.bot.get_guild(614971333473730570)
@@ -98,33 +95,35 @@ class Points(commands.Cog):
         ds  = int(time.time())
         #urrent_pts = self.fetch_current_pts(member.id)
         pts = int(points) #+ int(current_pts) # need to add their previous pt value here
-        sql = f'''INSERT INTO bucks(ds,discord_id,bucks,type)
-                  VALUES({ds},{member.id},{pts},'{type_value}');
-                  INSERT INTO exp(ds,discord_id,exp,type)
+        sql_bucks = f'''INSERT INTO bucks(ds,discord_id,bucks,type)
+                  VALUES({ds},{member.id},{pts},'{type_value}')              
+                   '''
+        sql_exp = f'''INSERT INTO exp(ds,discord_id,exp,type)
                   VALUES({ds},{member.id},{pts},'{type_value}')                  
                    '''
-        self.db_cursor.execute(sql)
-        self.db.commit()
+        await self.bot.pg_con.execute(sql_bucks)
+        await self.bot.pg_con.execute(sql_exp)
 
-        # await self.promote(current_pts, pts, member)
-
-
-    @commands.command()
+    @commands.command(pass_context=True, aliases=['bucks', 'points','pts'])
     async def exp(self, ctx, user:discord.Member = None): #### INPUT
         if user is None:
             user = ctx.author
         # self.check_last_record()
-        current_exp = self.fetch_current_exp(user.id)
-        await ctx.send(f"{current_exp}")
-    
-    @commands.command()
-    async def bucks(self, ctx, user:discord.Member = None): #### INPUT
-        if user is None:
-            user = ctx.author
-        # self.check_last_record()
-        current_bucks = self.fetch_current_bucks(user.id)
-        await ctx.send(f"{current_bucks}")
-
+        discord_id = user.id
+        sql_exp = f'''
+            Select sum(exp.exp) from exp
+            where discord_id = {discord_id}
+            '''
+        sql_buck = f'''
+            Select sum(bucks.bucks) from bucks
+            where discord_id = {discord_id}
+            '''
+        current_exp = await self.bot.pg_con.fetchval(sql_exp)
+        current_bucks = await self.bot.pg_con.fetchval(sql_buck)
+        embed = discord.Embed(title=f"{user.name}")        
+        embed.add_field(name=":small_orange_diamond: Experience", value = current_exp, inline=False)
+        embed.add_field(name=":dollar: Astrabucks", value = current_bucks, inline=False)
+        await ctx.send(embed = embed)
 
     @commands.command()
     async def award(self, ctx, user:discord.Member, points): #### INPUT
@@ -136,7 +135,7 @@ class Points(commands.Cog):
             msg = await ctx.send("You do not have permission to use this command!")
             await asyncio.sleep(3)
             await msg.delete()
-        
+
 
     # Move out of points.
     @commands.command()
@@ -151,11 +150,20 @@ class Points(commands.Cog):
             msg = await ctx.send("You do not have permission to use this command!")
             await asyncio.sleep(3)
             await msg.delete()
-        
+
 ## tricky towers
     @commands.Cog.listener()
     async def on_message(self, message):
-        if int(time.time()) >= int(self.check_last_exp_ds(message.author.id, 'msg')) + 60:
+        discord_id = message.author.id
+        sql = f'''
+            select max(ds) from exp
+            where discord_id  = {discord_id}
+            and type = 'msg'
+            Limit 1
+            '''
+        last_exp_ds = await self.bot.pg_con.fetchval(sql)
+        if not last_exp_ds: last_exp_ds = 0
+        if int(time.time()) >= int(last_exp_ds) + 60:
             await self.add_points(message.author,1,'msg')
 
 
@@ -201,49 +209,49 @@ class Points(commands.Cog):
                 return rank
             rank += 1
         return 0
- ## 0 Nothing
- ## 1-49 minion
- ## 50-199 Henchman
- ## 200-499
- ## 500 - 999
+## 0 Nothing
+## 1-49 minion
+## 50-199 Henchman
+## 200-499
+## 500 - 999
 
-    # def get_role_reg_ex(self, roman_num, member):
-    #     # find clean way to grab guild role_list?
-    #     ## Add guild to loading
-    #     for role in member.guild.roles:
-    #         if role.name.endswith(roman_num):
-    #             return role
-    #     else:
-    #         return None
+# def get_role_reg_ex(self, roman_num, member):
+#     # find clean way to grab guild role_list?
+#     ## Add guild to loading
+#     for role in member.guild.roles:
+#         if role.name.endswith(roman_num):
+#             return role
+#     else:
+#         return None
 
-    # async def promote(self,old_pts,new_pts,member):
-    #     await self.bot.wait_until_ready()
+# async def promote(self,old_pts,new_pts,member):
+#     await self.bot.wait_until_ready()
 
-    #     old_rank = self.pts_to_rank(old_pts)
-    #     new_rank = self.pts_to_rank(new_pts)
-    #     if old_rank != new_rank and new_rank <= len(self.ranks):
-    #         # remove old rank
-    #         if old_rank > 0:
-    #             old_role = get(member.guild.roles, name = self.ranks[old_rank-1])
-    #             await member.remove_roles(old_role)
+#     old_rank = self.pts_to_rank(old_pts)
+#     new_rank = self.pts_to_rank(new_pts)
+#     if old_rank != new_rank and new_rank <= len(self.ranks):
+#         # remove old rank
+#         if old_rank > 0:
+#             old_role = get(member.guild.roles, name = self.ranks[old_rank-1])
+#             await member.remove_roles(old_role)
 
-    #         new_role = get(member.guild.roles, name = self.ranks[new_rank-1])
-
-
-    #         quotes = [f"{member.mention} is now a {new_role.name.split(' [')[0]}. Slightly less pathetic. Still disgusting.",
-    #                   f"Pathetic. {member.mention} is now a {new_role.name.split(' [')[0]}.",
-    #                   f"A new {new_role.name.split(' [')[0]}. Not bad {member.mention}.",
-    #                   f"{member.mention} rise now as a {new_role.name.split(' [')[0]}!",
-    #                   f"{member.mention}. A {new_role.name.split(' [')[0]}? They grow up so fast.",
-    #                   f"{member.mention} is now a {new_role.name.split(' [')[0]}... they'll always be a minion in my heart.",
-    #                   f"*cackle* {member.mention} has ranked up.",
-    #                   f"{member.mention} have you been working out? You look like a {new_role.name.split(' [')[0]}."]
-
-    #         await member.add_roles(new_role)
-    #         channel = self.bot.get_channel(614971333473730572)
+#         new_role = get(member.guild.roles, name = self.ranks[new_rank-1])
 
 
-    #         await channel.send(random.choice(quotes))
+#         quotes = [f"{member.mention} is now a {new_role.name.split(' [')[0]}. Slightly less pathetic. Still disgusting.",
+#                   f"Pathetic. {member.mention} is now a {new_role.name.split(' [')[0]}.",
+#                   f"A new {new_role.name.split(' [')[0]}. Not bad {member.mention}.",
+#                   f"{member.mention} rise now as a {new_role.name.split(' [')[0]}!",
+#                   f"{member.mention}. A {new_role.name.split(' [')[0]}? They grow up so fast.",
+#                   f"{member.mention} is now a {new_role.name.split(' [')[0]}... they'll always be a minion in my heart.",
+#                   f"*cackle* {member.mention} has ranked up.",
+#                   f"{member.mention} have you been working out? You look like a {new_role.name.split(' [')[0]}."]
+
+#         await member.add_roles(new_role)
+#         channel = self.bot.get_channel(614971333473730572)
+
+
+#         await channel.send(random.choice(quotes))
 
 
 

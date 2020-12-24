@@ -48,7 +48,7 @@ class Gambling(commands.Cog):
             if ":question:" in set_result:
                 set_result.remove(":question:")
             if len(set_result) == 1:
-                payout = symbols_dict[list(set_result)[0]] * bet}
+                payout = symbols_dict[list(set_result)[0]] * bet
                 payout_str = f"You won {payout}!"
             elif len(set_result) == 0:
                 payout = symbols_dict[':question:'] * bet

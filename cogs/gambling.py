@@ -5,12 +5,13 @@ from discord_webhook import DiscordWebhook, DiscordEmbed
 import asyncio
 
 import random
+import time
 
 class Gambling(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    async def check_valid_bucks(discord_id: int, bucks: int = 1) -> bool:
+    async def check_valid_bucks(self, discord_id: int, bucks: int = 1) -> bool:
         sql = f'''
             select max(ds) from exp
             where discord_id  = {discord_id}
@@ -30,12 +31,12 @@ class Gambling(commands.Cog):
         await self.bot.pg_con.execute(sql_bucks)
 
     @commands.command(pass_context = True, aliases = ['slot'])
-    async def slots(self, ctx, bet: int = 5):
-        valid_bucks = await check_valid_bucks(ctx.author.id, bet)
+    async def slots(self, ctx, bet: int = 5):        
+        valid_bucks = await self.check_valid_bucks(ctx.author.id, bet)
         if not valid_bucks:
             await ctx.send(f"You can't afford that!")
         else:
-            await self.add_bucks(user,bet * -1, type_value = 'slots')
+            await self.add_bucks(ctx.author,bet * -1, type_value = 'slots')
             symbols_dict = {
                 ":banana:": 4,
                 ":strawberry:": 4,
@@ -56,7 +57,7 @@ class Gambling(commands.Cog):
             else:
                 payout_str = f"Tough luck."
             flattened_result = " ".join(spin_result)
-            await self.add_bucks(user,payout, type_value = 'slots')
+            await self.add_bucks(ctx.author,payout, type_value = 'slots')
             await ctx.send(f"{flattened_result}\n {payout_str}")
 
     # def blackjack(bet: int = 1) -> int:

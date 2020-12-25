@@ -76,8 +76,8 @@ class Points(commands.Cog):
             and type = '{type_value}'
             Limit 1
             '''
-        self.db_cursor.execute(sql)
-        result = self.db_cursor.fetchone()
+        self.bot.pg_con.execute(sql)
+        result = self.bot.pg_con.fetchone()
         if result is None:
             return 0
         elif result[0] is None:
@@ -131,21 +131,6 @@ class Points(commands.Cog):
         if role in ctx.author.roles:
             await self.add_points(user,points, type_value = 'award')
             await ctx.send(f"{ctx.author.mention} has awarded {user.mention} {points} pts")
-        else:
-            msg = await ctx.send("You do not have permission to use this command!")
-            await asyncio.sleep(3)
-            await msg.delete()
-
-
-    # Move out of points.
-    @commands.command()
-    async def speak(self, ctx, *, message: str): #### INPUT
-        role = discord.utils.get(ctx.guild.roles, name="Admin")
-        channel = self.bot.get_channel(584936481924055050)
-        if role in ctx.author.roles:
-            msg = ctx.message
-            await channel.send(message)
-            await msg.delete()
         else:
             msg = await ctx.send("You do not have permission to use this command!")
             await asyncio.sleep(3)

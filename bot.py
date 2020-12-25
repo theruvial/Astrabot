@@ -18,14 +18,15 @@ import asyncio
 import asyncpg
 # import tweepy
 
-startup_extensions = ['cogs.gambling', 'cogs.points']
-
+startup_extensions = ['cogs.roles', 'cogs.points', 'cogs.moderation']
+intents = discord.Intents.all()
 
 class Thi(commands.Bot):
     def __init__(self):
         super().__init__(
             command_prefix=config["prefix"],
             description=config["description"],
+            intents=intents,
             pm_help=None,
             help_attrs=dict(hidden=True),
             fetch_offline_members=False,

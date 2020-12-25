@@ -54,7 +54,7 @@ class Roles(commands.Cog):
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
         user = self.bot.get_user(payload.user_id)
-        channel = self.bot.get_channel(config["roles"])
+        # channel = self.bot.get_channel(config["roles"])
         # message = await channel.fetch_message(payload.message_id)
         if (payload.channel_id != config["roles"] or user == self.bot.user):
             return

@@ -16,20 +16,20 @@ class Tasks(commands.Cog):
         self.openColor = discord.Colour(3665255)
         self.closedColor = discord.Colour(4804175)
 
-        self.conn = sqlite3.connect("thi.db")
-        self.cursor = self.conn.cursor()
-        self.cursor.execute(
-            '''
-        CREATE TABLE IF NOT EXISTS tasks (
-                        `isActive` bool not null,
-                        `discordID` int not null,
-                        `ds` int not null,
-                        `taskName` Text not null,
-                        `description` Text not null,
-                        `assignedBy` int
-                    )
-        '''
-        )
+        # self.conn = sqlite3.connect("thi.db")
+        # self.cursor = self.conn.cursor()
+        # self.cursor.execute(
+        #     '''
+        # CREATE TABLE IF NOT EXISTS tasks (
+        #                 `isActive` bool not null,
+        #                 `discordID` int not null,
+        #                 `ds` int not null,
+        #                 `taskName` Text not null,
+        #                 `description` Text not null,
+        #                 `assignedBy` int
+        #             )
+        # '''
+        # )
   
     @commands.command(pass_context=True, aliases=['active'])
     @commands.has_role('Team Member')
@@ -48,8 +48,8 @@ class Tasks(commands.Cog):
         and isActive = 1
         '''
 
-        self.cursor.execute(query)
-        queryResult = self.cursor.fetchall()
+        self.bot.pg_con.execute(query)
+        queryResult = self.bot.pg_con.fetch(query)
 
         if(queryResult == []):
             await ctx.send("No active tasks.")
@@ -81,8 +81,7 @@ class Tasks(commands.Cog):
         ds = int(time.time())
         query = f'''INSERT INTO TASKS (isActive, discordID, ds, taskName, description, assignedBy) VALUES ({isActive},{discordID},{ds},'{taskName}', '{taskDescription}', '{ctx.author.id}')'''
 
-        self.cursor.execute(query)
-        self.conn.commit()
+        self.bot.pg_con.execute(query)        
         await ctx.send(f"{taskName} assigned to {user.mention}")
   
         currentStatus = "Open"
@@ -121,8 +120,7 @@ class Tasks(commands.Cog):
         ds = int(time.time())
         query = f'''INSERT INTO TASKS (isActive, discordID, ds, taskName, description, assignedBy) VALUES ({isActive},{discordID},{ds},'{taskName}', '{taskDescription}', '{ctx.author.id}')'''
 
-        self.cursor.execute(query)
-        self.conn.commit()
+        self.bot.pg_con.execute(query)       
         await ctx.send(f"{taskName} assigned to {ctx.author.mention}")
 
         currentStatus = "Open"
@@ -161,8 +159,8 @@ class Tasks(commands.Cog):
         from user_tasks
         where rnk = 1
         '''
-        self.cursor.execute(query)
-        queryResult = self.cursor.fetchall()
+        self.bot.pg_con.execute(query)
+        queryResult = self.bot.pg_con.fetch(query)
 
         for result in queryResult:
             selectedTaskName = result[0]
@@ -170,10 +168,9 @@ class Tasks(commands.Cog):
             localTime = result[2]
             isActive = False            
             taskDescription = result[3]
-            query = f'''INSERT INTO TASKS (isActive, discordID, ds, taskName, description, assignedBy) VALUES ({isActive}, {discordID}, {localTime}, '{selectedTaskName}', '{taskDescription}', '{ctx.author}')'''
+            query = f'''INSERT INTO TASKS (isActive, discordID, ds, taskName, description, assignedBy) VALUES ({isActive}, {discordID}, {localTime}, '{selectedTaskName}', '{taskDescription}', '{ctx.author.id}')'''
     
-            self.cursor.execute(query)
-            self.conn.commit()
+            self.bot.pg_con.execute(query)            
 
             completeMessages = [
                 f"https://imgur.com/dRehYPL \n **{taskName}** completed, Good job!"]
@@ -222,8 +219,8 @@ class Tasks(commands.Cog):
         where rnk = 1
         '''
 
-        self.cursor.execute(query)
-        queryResult = self.cursor.fetchall()
+        self.bot.pg_con.execute(query)
+        queryResult = self.bot.pg_con.fetch(query)
         for result in queryResult:
             selectedTaskName = result[0]
             discordID = result[1]
@@ -266,8 +263,8 @@ class Tasks(commands.Cog):
         where rnk = 1
         and isActive = 1       
         '''
-        self.cursor.execute(query)
-        queryResult = self.cursor.fetchall()
+        self.bot.pg_con.execute(query)
+        queryResult = self.bot.pg_con.fetch(query)
         
         
         # Uses information from previous query and command arguments to update task in database
@@ -278,8 +275,7 @@ class Tasks(commands.Cog):
             ds = int(time.time())
             updatedBy = ctx.author.id
             query = f'''INSERT INTO TASKS (isActive, discordID, ds, taskName, description, assignedBy) VALUES ({isActive}, {assignedTo}, {ds}, '{selectedTaskName}', '{updatedTaskDescription}', '{updatedBy}')'''
-            self.cursor.execute(query)
-            self.conn.commit()            
+            self.bot.pg_con.execute(query)                       
 
             # Sends updated task to assigned user
             embed = discord.Embed(title=taskName, description=updatedTaskDescription, color=self.openColor)
@@ -316,8 +312,8 @@ class Tasks(commands.Cog):
             from user_tasks
             where rnk = 1
             '''
-            self.cursor.execute(query)
-            queryResult = self.cursor.fetchall()
+            self.bot.pg_con.execute(query)
+            queryResult = self.bot.pg_con.fetch(query)
 
             for result in queryResult:
                 selectedTaskName = result[0]
@@ -327,8 +323,7 @@ class Tasks(commands.Cog):
                 taskDescription = result[3]
                 query = f'''INSERT INTO TASKS (isActive, discordID, ds, taskName, description, assignedBy) VALUES ({isActive}, {discordID}, {localTime}, '{selectedTaskName}', '{taskDescription}', '{user}')'''
 
-                self.cursor.execute(query)
-                self.conn.commit()
+                self.bot.pg_con.execute(query)                
 
                 completeMessages = [
                     f"https://imgur.com/dRehYPL \n **{taskName}** completed, Good job!"]

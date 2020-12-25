@@ -20,7 +20,7 @@ class Gambling(commands.Cog):
             '''
         last_exp_ds = await self.bot.pg_con.fetchval(sql)
         return True
-    
+
     ## add or remove bucks
     async def add_bucks(self,member, points: int, type_value: str = 'generic') -> None:
         ds  = int(time.time())
@@ -31,7 +31,7 @@ class Gambling(commands.Cog):
         await self.bot.pg_con.execute(sql_bucks)
 
     @commands.command(pass_context = True, aliases = ['slot'])
-    async def slots(self, ctx, bet: int = 5):        
+    async def slots(self, ctx, bet: int = 5):
         valid_bucks = await self.check_valid_bucks(ctx.author.id, bet)
         if not valid_bucks:
             await ctx.send(f"You can't afford that!")
@@ -50,14 +50,15 @@ class Gambling(commands.Cog):
                 set_result.remove(":question:")
             if len(set_result) == 1:
                 payout = symbols_dict[list(set_result)[0]] * bet
+                await self.add_bucks(ctx.author, payout, type_value='slots')
                 payout_str = f"You won {payout}!"
             elif len(set_result) == 0:
                 payout = symbols_dict[':question:'] * bet
+                await self.add_bucks(ctx.author, payout, type_value='slots')
                 payout_str = f"THE JACKPOT {payout}!!!!!!!!"
             else:
                 payout_str = f"Tough luck."
             flattened_result = " ".join(spin_result)
-            await self.add_bucks(ctx.author,payout, type_value = 'slots')
             await ctx.send(f"{flattened_result}\n {payout_str}")
 
     # def blackjack(bet: int = 1) -> int:

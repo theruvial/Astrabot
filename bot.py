@@ -18,7 +18,7 @@ import asyncio
 import asyncpg
 # import tweepy
 
-startup_extensions = ['cogs.roles', 'cogs.points', 'cogs.moderation', 'cogs.gambling']
+startup_extensions = ['cogs.roles', 'cogs.points', 'cogs.moderation', 'cogs.gambling', 'cogs.tasks']
 intents = discord.Intents.all()
 
 class Thi(commands.Bot):

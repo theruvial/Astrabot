@@ -104,6 +104,14 @@ class Points(commands.Cog):
         await self.bot.pg_con.execute(sql_bucks)
         await self.bot.pg_con.execute(sql_exp)
 
+    async def add_bucks(self, member, points: int, type_value: str = 'generic') -> None:
+        ds = int(time.time())
+        pts = int(points)
+        sql_bucks = f'''INSERT INTO bucks(ds,discord_id,bucks,type)
+                  VALUES({ds},{member.id},{pts},'{type_value}')              
+                   '''
+        await self.bot.pg_con.execute(sql_bucks)
+
     @commands.command(pass_context=True, aliases=['bucks', 'points','pts'])
     async def exp(self, ctx, user:discord.Member = None): #### INPUT
         if user is None:
@@ -129,7 +137,7 @@ class Points(commands.Cog):
     async def award(self, ctx, user:discord.Member, points): #### INPUT
         role = discord.utils.get(ctx.guild.roles, name="Admin")
         if role in ctx.author.roles:
-            await self.add_points(user,points, type_value = 'award')
+            await self.add_bucks(user,points, type_value = 'award')
             await ctx.send(f"{ctx.author.mention} has awarded {user.mention} {points} pts")
         else:
             msg = await ctx.send("You do not have permission to use this command!")

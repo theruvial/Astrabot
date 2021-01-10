@@ -140,7 +140,7 @@ class Roles(commands.Cog):
     @commands.command(pass_context=True, aliases=['map', 'm'])
     @commands.has_role('Team Member')
     async def mapRole(self, ctx, role: discord.Role, reaction: discord.Emoji, *, roleDescription):
-        query = f'''INSERT INTO ROLES (emojiID, roleID, roleDescription) VALUES ({reaction.id},{role.id},'{roleDescription}')'''
+        query = f'''INSERT INTO ROLES ("emojiID", "roleID", "roleDescription") VALUES ({reaction.id},{role.id},'{roleDescription}')'''
 
         await self.bot.pg_con.execute(query)
         # self.conn.commit()

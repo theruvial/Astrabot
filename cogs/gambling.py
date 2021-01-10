@@ -11,15 +11,13 @@ class Gambling(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    async def check_valid_bucks(self, discord_id: int, bucks: int = 1) -> bool:
+    async def check_valid_bucks(self, discord_id: int, bet: int = 1) -> bool:
         sql = f'''
-            select max(ds) from exp
-            where discord_id  = {discord_id}
-            and type = 'msg'
-            Limit 1
+            select sum(bucks) from bucks
+            where discord_id  = {discord_id}                        
             '''
-        last_exp_ds = await self.bot.pg_con.fetchval(sql)
-        return True
+        queryResult = await self.bot.pg_con.fetchval(sql)
+        return queryResult - bet > 0        
 
     ## add or remove bucks
     async def add_bucks(self,member, points: int, type_value: str = 'generic') -> None:

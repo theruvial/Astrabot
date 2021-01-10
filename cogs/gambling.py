@@ -1,44 +1,77 @@
+import discord
+from discord.ext import commands
+from discord.utils import get
+from discord_webhook import DiscordWebhook, DiscordEmbed
+import asyncio
+
 import random
+import time
 
+class Gambling(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
 
-class Gambling:
-    def check_valid_bucks(bucks: int) -> bool:
-        ## runs a query to see
-        return True
+    async def check_valid_bucks(self, discord_id: int, bet: int = 1) -> bool:
+        sql = f'''
+            select sum(bucks) from bucks
+            where discord_id  = {discord_id}                        
+            '''
+        queryResult = await self.bot.pg_con.fetchval(sql)
+        return queryResult - bet > 0        
 
-    def slots(bet: int = 1) -> int:
-        ## replace with emojis of fruits or astra stuff
-        symbols_dict = {
-            1: 2,
-            2: 2,
-            3: 2,
-            4: 2,
-            5: 3,
-            6: 4,
-            "*": 10,
-        }
-        spin_result = [random.choice(symbols_dict.keys) for _ in range(3)]
-        set_result = {*spin_result} #convert to set
-        if "*" in set_result:
-            set_result.remove("*")
-        if len(set_result) == 1:
-            payout = symbols_dict[list(set_result)[0]] * bet
+    ## add or remove bucks
+    async def add_bucks(self,member, points: int, type_value: str = 'generic') -> None:
+        ds  = int(time.time())
+        pts = int(points)
+        sql_bucks = f'''INSERT INTO bucks(ds,discord_id,bucks,type)
+                  VALUES({ds},{member.id},{pts},'{type_value}')              
+                   '''
+        await self.bot.pg_con.execute(sql_bucks)
+
+    @commands.command(pass_context = True, aliases = ['slot'])
+    async def slots(self, ctx, bet: int = 5):
+        valid_bucks = await self.check_valid_bucks(ctx.author.id, bet)
+        if not valid_bucks:
+            await ctx.send(f"You can't afford that!")
         else:
-            payout = 0
+            await self.add_bucks(ctx.author,bet * -1, type_value = 'slots')
+            symbols_dict = {
+                ":banana:": 4,
+                ":strawberry:": 4,
+                ":avocado:": 5,
+                ":mango:": 10,
+                ":question:": 100,
+            }
+            spin_result = [random.choice(list(symbols_dict.keys())) for _ in range(3)]
+            set_result = {*spin_result} #convert to set
+            if ":question:" in set_result:
+                set_result.remove(":question:")
+            if len(set_result) == 1:
+                payout = symbols_dict[list(set_result)[0]] * bet
+                await self.add_bucks(ctx.author, payout, type_value='slots')
+                payout_str = f"You won {payout}!"
+            elif len(set_result) == 0:
+                payout = symbols_dict[':question:'] * bet
+                await self.add_bucks(ctx.author, payout, type_value='slots')
+                payout_str = f"THE JACKPOT {payout}!!!!!!!!"
+            else:
+                payout_str = f"Tough luck."
+            flattened_result = " ".join(spin_result)
+            await ctx.send(f"{flattened_result}\n {payout_str}")
 
-        return payout
+    # def blackjack(bet: int = 1) -> int:
+    #     suits = ["a","b","c","d"] # replace with emojis of suits
+    #     values = ["A","K"] # replace with emojis of values
+    #     deck = [suit + value for suit in suits for value in values]
+    #     random.shuffle(deck)
 
-    def blackjack(bet: int = 1) -> int:
-        suits = ["a","b","c","d"] # replace with emojis of suits
-        values = ["A","K"] # replace with emojis of values
-        deck = [suit + value for suit in suits for value in values]
-        random.shuffle(deck)
+    #     dealer = [deck.pop(), deck.pop()]
+    #     you =  [deck.pop(), deck.pop()]
 
-        dealer = [deck.pop(), deck.pop()]
-        you =  [deck.pop(), deck.pop()]
-
-        def evaluate(hand) -> int:
-            ## if in values[:] return 10
-            ## else return index number
-            ## special case for A
-            return hand
+    #     def evaluate(hand) -> int:
+    #         ## if in values[:] return 10
+    #         ## else return index number
+    #         ## special case for A
+    #         return hand
+def setup(bot):
+    bot.add_cog(Gambling(bot))

@@ -16,20 +16,24 @@ class Tasks(commands.Cog):
         self.openColor = discord.Colour(3665255)
         self.closedColor = discord.Colour(4804175)
 
-        self.conn = sqlite3.connect("thi.db")
-        self.cursor = self.conn.cursor()
-        self.cursor.execute(
-            '''
-        CREATE TABLE IF NOT EXISTS tasks (
-                        `isActive` bool not null,
-                        `discordID` int not null,
-                        `ds` int not null,
-                        `taskName` Text not null,
-                        `description` Text not null,
-                        `assignedBy` int
-                    )
-        '''
-        )
+        # self.conn = sqlite3.connect("thi.db")
+        # self.cursor = self.conn.cursor()
+        # self.cursor.execute(
+        #     '''
+        # CREATE TABLE IF NOT EXISTS tasks (
+        #                 `isActive` bool not null,
+        #                 `discordID` int not null,
+        #                 `ds` int not null,
+        #                 `taskName` Text not null,
+        #                 `description` Text not null,
+        #                 `assignedBy` int
+        #             )
+        # '''
+        # )
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        print("Task Cog Ready!")
   
     @commands.command(pass_context=True, aliases=['active'])
     @commands.has_role('Team Member')
@@ -38,18 +42,18 @@ class Tasks(commands.Cog):
             user = ctx.author.user.id
         color = discord.Colour(14885911)
         query = f'''
-        with user_tasks as (select tasks.taskName, tasks.isActive, tasks.ds, row_number() over(partition by tasks.taskName order by tasks.ds DESC) rnk
+        with user_tasks as (select tasks."taskName", tasks."isActive", tasks.ds, row_number() over(partition by tasks."taskName" order by tasks.ds DESC) rnk
         from tasks
-        where tasks.discordID = {user.id})
+        where tasks."discordID" = {user.id})
 
-        select user_tasks.taskName
+        select user_tasks."taskName"
         from user_tasks
         where rnk = 1
         and isActive = 1
         '''
 
-        self.cursor.execute(query)
-        queryResult = self.cursor.fetchall()
+        await self.bot.pg_con.execute(query)
+        queryResult = await self.bot.pg_con.fetch(query)
 
         if(queryResult == []):
             await ctx.send("No active tasks.")
@@ -79,10 +83,9 @@ class Tasks(commands.Cog):
         isActive = True
         discordID = int(user.id)
         ds = int(time.time())
-        query = f'''INSERT INTO TASKS (isActive, discordID, ds, taskName, description, assignedBy) VALUES ({isActive},{discordID},{ds},'{taskName}', '{taskDescription}', '{ctx.author.id}')'''
+        query = f'''INSERT INTO TASKS ("isActive", "discordID", ds, "taskName", description, "assignedBy") VALUES ({isActive},{discordID},{ds},'{taskName}', '{taskDescription}', '{ctx.author.id}')'''
 
-        self.cursor.execute(query)
-        self.conn.commit()
+        await self.bot.pg_con.execute(query)        
         await ctx.send(f"{taskName} assigned to {user.mention}")
   
         currentStatus = "Open"
@@ -119,10 +122,9 @@ class Tasks(commands.Cog):
         isActive = True
         discordID = int(ctx.author.id)
         ds = int(time.time())
-        query = f'''INSERT INTO TASKS (isActive, discordID, ds, taskName, description, assignedBy) VALUES ({isActive},{discordID},{ds},'{taskName}', '{taskDescription}', '{ctx.author.id}')'''
+        query = f'''INSERT INTO TASKS ("isActive", "discordID", ds, "taskName", description, "assignedBy") VALUES ({isActive},{discordID},{ds},'{taskName}', '{taskDescription}', '{ctx.author.id}')'''
 
-        self.cursor.execute(query)
-        self.conn.commit()
+        await self.bot.pg_con.execute(query)       
         await ctx.send(f"{taskName} assigned to {ctx.author.mention}")
 
         currentStatus = "Open"
@@ -153,16 +155,16 @@ class Tasks(commands.Cog):
             return
 
         query = f'''
-        with user_tasks as (select tasks.taskName, tasks.discordID, tasks.ds , tasks.description, row_number() over(partition by tasks.taskName order by tasks.ds DESC) rnk
+        with user_tasks as (select tasks."taskName", tasks."discordID", tasks.ds , tasks.description, row_number() over(partition by tasks."taskName" order by tasks.ds DESC) rnk
         from tasks
-        where tasks.taskName = '{taskName}')
+        where tasks."taskName" = '{taskName}')
 
-        select taskName, discordID, ds, description
+        select "taskName", "discordID", ds, description
         from user_tasks
         where rnk = 1
         '''
-        self.cursor.execute(query)
-        queryResult = self.cursor.fetchall()
+        await self.bot.pg_con.execute(query)
+        queryResult = await self.bot.pg_con.fetch(query)
 
         for result in queryResult:
             selectedTaskName = result[0]
@@ -170,10 +172,9 @@ class Tasks(commands.Cog):
             localTime = result[2]
             isActive = False            
             taskDescription = result[3]
-            query = f'''INSERT INTO TASKS (isActive, discordID, ds, taskName, description, assignedBy) VALUES ({isActive}, {discordID}, {localTime}, '{selectedTaskName}', '{taskDescription}', '{ctx.author}')'''
+            query = f'''INSERT INTO TASKS ("isActive", "discordID", ds, "taskName", description, "assignedBy") VALUES ({isActive}, {discordID}, {localTime}, '{selectedTaskName}', '{taskDescription}', '{ctx.author.id}')'''
     
-            self.cursor.execute(query)
-            self.conn.commit()
+            self.bot.pg_con.execute(query)            
 
             completeMessages = [
                 f"https://imgur.com/dRehYPL \n **{taskName}** completed, Good job!"]
@@ -213,17 +214,17 @@ class Tasks(commands.Cog):
             return
 
         query = f'''
-        with user_tasks as (select tasks.taskName, tasks.discordID, tasks.isActive, tasks.ds , tasks.description, tasks.assignedBy, row_number() over(partition by tasks.taskName order by tasks.ds DESC) rnk
+        with user_tasks as (select tasks."taskName", tasks."discordID", tasks."isActive", tasks.ds , tasks.description, tasks."assignedBy", row_number() over(partition by tasks."taskName" order by tasks.ds DESC) rnk
         from tasks
-        where tasks.taskName = '{taskName}')
+        where tasks."taskName" = '{taskName}')
 
-        select taskName, discordID, ds, isActive, description, assignedBy
+        select "taskName", "discordID", ds, "isActive", description, "assignedBy"
         from user_tasks
         where rnk = 1
         '''
 
-        self.cursor.execute(query)
-        queryResult = self.cursor.fetchall()
+        await self.bot.pg_con.execute(query)
+        queryResult = await self.bot.pg_con.fetch(query)
         for result in queryResult:
             selectedTaskName = result[0]
             discordID = result[1]
@@ -257,17 +258,17 @@ class Tasks(commands.Cog):
     async def update(self, ctx, taskName, *, updatedTaskDescription):
         # Pulls relevant information out of tasks.db
         query = f'''
-        with user_tasks as (select tasks.taskName, tasks.discordID, tasks.isActive, row_number() over(partition by tasks.taskName order by tasks.ds DESC) rnk
+        with user_tasks as (select tasks."taskName", tasks."discordID", tasks."isActive", row_number() over(partition by tasks."taskName" order by tasks.ds DESC) rnk
         from tasks
-        where tasks.taskName = '{taskName}')
+        where tasks."taskName" = '{taskName}')
 
-        select taskName, discordID, isActive
+        select "taskName", "discordID", "isActive"
         from user_tasks        
         where rnk = 1
         and isActive = 1       
         '''
-        self.cursor.execute(query)
-        queryResult = self.cursor.fetchall()
+        await self.bot.pg_con.execute(query)
+        queryResult = await self.bot.pg_con.fetch(query)
         
         
         # Uses information from previous query and command arguments to update task in database
@@ -277,9 +278,8 @@ class Tasks(commands.Cog):
             isActive = True
             ds = int(time.time())
             updatedBy = ctx.author.id
-            query = f'''INSERT INTO TASKS (isActive, discordID, ds, taskName, description, assignedBy) VALUES ({isActive}, {assignedTo}, {ds}, '{selectedTaskName}', '{updatedTaskDescription}', '{updatedBy}')'''
-            self.cursor.execute(query)
-            self.conn.commit()            
+            query = f'''INSERT INTO TASKS ("isActive", "discordID", ds, "taskName", description, "assignedBy") VALUES ({isActive}, {assignedTo}, {ds}, '{selectedTaskName}', '{updatedTaskDescription}', '{updatedBy}')'''
+            await self.bot.pg_con.execute(query)                       
 
             # Sends updated task to assigned user
             embed = discord.Embed(title=taskName, description=updatedTaskDescription, color=self.openColor)
@@ -308,16 +308,16 @@ class Tasks(commands.Cog):
         if(user != self.bot.user and message.author == self.bot.user and len(message.embeds) > 0):
             taskName = message.embeds[0].title
             query = f'''
-            with user_tasks as (select tasks.taskName, tasks.discordID, tasks.ds , tasks.description, row_number() over(partition by tasks.taskName order by tasks.ds DESC) rnk
+            with user_tasks as (select tasks."taskName", tasks."discordID", tasks.ds , tasks.description, row_number() over(partition by tasks."taskName" order by tasks.ds DESC) rnk
             from tasks
-            where tasks.taskName = '{taskName}')
+            where tasks."taskName" = '{taskName}')
 
-            select taskName, discordID, ds, description
+            select "taskName", "discordID", ds, description
             from user_tasks
             where rnk = 1
             '''
-            self.cursor.execute(query)
-            queryResult = self.cursor.fetchall()
+            await self.bot.pg_con.execute(query)
+            queryResult = await self.bot.pg_con.fetch(query)
 
             for result in queryResult:
                 selectedTaskName = result[0]
@@ -325,10 +325,9 @@ class Tasks(commands.Cog):
                 localTime = result[2]
                 isActive = False
                 taskDescription = result[3]
-                query = f'''INSERT INTO TASKS (isActive, discordID, ds, taskName, description, assignedBy) VALUES ({isActive}, {discordID}, {localTime}, '{selectedTaskName}', '{taskDescription}', '{user}')'''
+                query = f'''INSERT INTO TASKS ("isActive", "discordID", ds, "taskName", description, "assignedBy") VALUES ({isActive}, {discordID}, {localTime}, '{selectedTaskName}', '{taskDescription}', '{user.id}')'''
 
-                self.cursor.execute(query)
-                self.conn.commit()
+                await self.bot.pg_con.execute(query)                
 
                 completeMessages = [
                     f"https://imgur.com/dRehYPL \n **{taskName}** completed, Good job!"]

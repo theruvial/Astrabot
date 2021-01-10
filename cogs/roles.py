@@ -6,6 +6,7 @@ from discord.ext import commands
 from discord.utils import get
 from discord_webhook import DiscordWebhook, DiscordEmbed
 import asyncio
+import asyncpg
 import random
 import sqlite3
 import time
@@ -20,15 +21,15 @@ class Roles(commands.Cog):
         self.closedColor = discord.Colour(4804175)
 
         self.bot = bot
-        self.conn = sqlite3.connect("thi.db")
-        self.cursor = self.conn.cursor()
-        self.cursor.execute('''
-        CREATE TABLE IF NOT EXISTS roles (
-                        `emojiID` INTEGER NOT NULL,
-                        `roleID` INTEGER NOT NULL,
-                        `roleDescription` TEXT NOT NULL                       
-                    )
-        ''')
+        # self.conn = sqlite3.connect("thi.db")
+        # self.cursor = self.conn.cursor()
+        # self.cursor.execute('''
+        # CREATE TABLE IF NOT EXISTS roles (
+        #                 `emojiID` INTEGER NOT NULL,
+        #                 `roleID` INTEGER NOT NULL,
+        #                 `roleDescription` TEXT NOT NULL
+        #             )
+        # ''')
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -53,36 +54,36 @@ class Roles(commands.Cog):
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
         user = self.bot.get_user(payload.user_id)
-        channel = self.bot.get_channel(config["roles"])
-        message = channel.fetch_message(payload.message_id)
+        # channel = self.bot.get_channel(config["roles"])
+        # message = await channel.fetch_message(payload.message_id)
         if (payload.channel_id != config["roles"] or user == self.bot.user):
             return
 
         emoji = self.bot.get_emoji(payload.emoji.id)
         query = f'''
-            with temp_roles as (select roles.emojiID, roles.roleID, row_number() over(partition by roles.emojiID order by roles.emojiID DESC) rnk
+            with temp_roles as (select roles."emojiID", roles."roleID", row_number() over(partition by roles."emojiID" order by roles."emojiID" DESC) rnk
             from roles
-            where roles.emojiID = '{emoji.id}')
+            where roles."emojiID" = '{emoji.id}')
 
-            select roleID
+            select "roleID"
             from temp_roles
             where rnk = 1
             '''
-        self.cursor.execute(query)
-        queryResult = self.cursor.fetchall()
+        await self.bot.pg_con.execute(query)
+        queryResult = await self.bot.pg_con.fetch(query)
 
         for result in queryResult:
             roleID = result[0]
             guild = self.bot.get_channel(config["roles"]).guild
             role = guild.get_role(roleID)
-            member = guild.get_member(user.id)
+            member = guild.get_member(user.id)            
             await member.add_roles(role)
-            # query = '''select * from roles'''
-            # self.cursor.execute(query)
-            # queryResult = self.cursor.fetchall()
-            # for result in queryResult:
-            #     role = guild.get_role(result[1])
-            #     emoji = emoji = self.bot.get_emoji(result[0])
+            query = '''select * from roles'''
+            await self.bot.pg_con.execute(query)
+            queryResult = await self.bot.pg_con.fetch(query)
+            for result in queryResult:
+                role = guild.get_role(result[1])
+                emoji = emoji = self.bot.get_emoji(result[0])
 
 
 
@@ -97,16 +98,16 @@ class Roles(commands.Cog):
 
         emoji = self.bot.get_emoji(payload.emoji.id)
         query = f'''
-            with temp_roles as (select roles.emojiID, roles.roleID, row_number() over(partition by roles.emojiID order by roles.emojiID DESC) rnk
+            with temp_roles as (select roles."emojiID", roles."roleID", row_number() over(partition by roles."emojiID" order by roles."emojiID" DESC) rnk
             from roles
-            where roles.emojiID = '{emoji.id}')
+            where roles."emojiID" = '{emoji.id}')
 
-            select roleID
+            select "roleID"
             from temp_roles
             where rnk = 1
             '''
-        self.cursor.execute(query)
-        queryResult = self.cursor.fetchall()
+        await self.bot.pg_con.execute(query)
+        queryResult = await self.bot.pg_con.fetch(query)
 
         for result in queryResult:
             roleID = result[0]
@@ -139,10 +140,10 @@ class Roles(commands.Cog):
     @commands.command(pass_context=True, aliases=['map', 'm'])
     @commands.has_role('Team Member')
     async def mapRole(self, ctx, role: discord.Role, reaction: discord.Emoji, *, roleDescription):
-        query = f'''INSERT INTO ROLES (emojiID, roleID, roleDescription) VALUES ({reaction.id},{role.id},'{roleDescription}')'''
+        query = f'''INSERT INTO ROLES ("emojiID", "roleID", "roleDescription") VALUES ({reaction.id},{role.id},'{roleDescription}')'''
 
-        self.cursor.execute(query)
-        self.conn.commit()
+        await self.bot.pg_con.execute(query)
+        # self.conn.commit()
 
         # channel = self.bot.get_channel(config["roles"])
         # embed = discord.Embed(
@@ -163,8 +164,8 @@ class Roles(commands.Cog):
         channel = self.bot.get_channel(config["roles"])
         query = '''select * from roles'''
 
-        self.cursor.execute(query)
-        queryResult = self.cursor.fetchall()
+        await self.bot.pg_con.execute(query)
+        queryResult = await self.bot.pg_con.fetch(query)
         emojis = []
         roleIDs = []
         for result in queryResult:

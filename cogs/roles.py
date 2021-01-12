@@ -19,17 +19,7 @@ class Roles(commands.Cog):
         self.bot = bot
         self.openColor = discord.Colour(3665255)
         self.closedColor = discord.Colour(4804175)
-
-        self.bot = bot
-        # self.conn = sqlite3.connect("thi.db")
-        # self.cursor = self.conn.cursor()
-        # self.cursor.execute('''
-        # CREATE TABLE IF NOT EXISTS roles (
-        #                 `emojiID` INTEGER NOT NULL,
-        #                 `roleID` INTEGER NOT NULL,
-        #                 `roleDescription` TEXT NOT NULL
-        #             )
-        # ''')
+                
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -83,7 +73,7 @@ class Roles(commands.Cog):
             queryResult = await self.bot.pg_con.fetch(query)
             for result in queryResult:
                 role = guild.get_role(result[1])
-                emoji = emoji = self.bot.get_emoji(result[0])
+                emoji = self.bot.get_emoji(result[0])
 
 
 

@@ -33,6 +33,16 @@ class Tasks(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
+        sql = '''Create table if not exists tasks(
+                        isActive bool not null,
+                        "discordID" bigint not null,
+                        ds bigint not null,
+                        "taskName" text not null,
+                        description text not null,
+                        "assignedBy" bigint
+        )
+        '''
+        await self.bot.pg_con.execute(sql)
         print("Task Cog Ready!")
   
     @commands.command(pass_context=True, aliases=['active'])
@@ -353,4 +363,4 @@ class Tasks(commands.Cog):
 
 
 def setup(bot):
-    bot.add_cog(Tasks(bot))
+    bot.add_cog(Tasks(bot))    

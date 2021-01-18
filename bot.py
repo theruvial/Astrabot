@@ -25,6 +25,7 @@ class Thi(commands.Bot):
     def __init__(self):
         super().__init__(
             command_prefix=config["prefix"],
+            case_insensitive=True,
             description=config["description"],
             intents=intents,
             pm_help=None,

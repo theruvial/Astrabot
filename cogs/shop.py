@@ -39,38 +39,41 @@ class Shop(commands.Cog):
     # Does an interesting thing for each premium role
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
+        guild = self.bot.get_channel(config["botShop"]).guild
         channel = message.channel
-        member = message.author
-        memberRoles = member.roles
+        workChannel = guild.get_channel(config["workChannel"])        
+        if message.channel in await guild.fetch_channels():
+            member = message.author
+            memberRoles = member.roles
+            if message.channel != workChannel:
+                for role in memberRoles:
+                    if role.name == "Raging Barbarian":
+                        if message.content.isupper():
+                            return
+                        else:
+                            await message.delete()
+                            msg = await channel.send("SORRY. REAL BARBARIANS TALK IN ALL CAPS.")
+                            await asyncio.sleep(2)
+                            await msg.delete()
+                            ## delete their message and warn them to use uppers
+                    elif role.name == "Forest Nymph":
+                        flowerList = [
+                            u"\U0001F33A", u"\U0001F338", u"\U0001F337", u"\U0001F339",
+                            u"\U0001F33B", u"\U0001F33C"
+                        ]
+                        await message.add_reaction(random.choice(flowerList))
 
-        for role in memberRoles:
-            if role.name == "Raging Barbarian":
-                if message.content.isupper():
-                    return
-                else:
-                    await message.delete()
-                    msg = await channel.send("SORRY. REAL BARBARIANS TALK IN ALL CAPS.")
-                    await asyncio.sleep(2)
-                    await msg.delete()
-                    ## delete their message and warn them to use uppers
-            elif role.name == "Forest Nymph":
-                flowerList = [
-                    u"\U0001F33A", u"\U0001F338", u"\U0001F337", u"\U0001F339",
-                    u"\U0001F33B", u"\U0001F33C"
-                ]
-                await message.add_reaction(random.choice(flowerList))
+                        # react with flowers
 
-                # react with flowers
+                    elif role.name == "White Knight":
+                        substring = "m'lady"
+                        if substring in message.content:
+                            msg = await channel.send(f"{member.mention} tips their fedora.")
+                            await asyncio.sleep(2)
+                            await msg.delete()
 
-            elif role.name == "White Knight":
-                substring = "m'lady"
-                if substring in message.content:
-                    msg = await channel.send(f"{member.mention} tips their fedora.")
-                    await asyncio.sleep(2)
-                    await msg.delete()
-
-                # if message ends with m'lady
-                # send *user tips fedora*
+                        # if message ends with m'lady
+                        # send *user tips fedora*
 
 
 
@@ -117,11 +120,11 @@ class Shop(commands.Cog):
                 await message.remove_reaction(payload.emoji, user)
                 await asyncio.sleep(2)
                 await msg.delete()
-            else:                
+            else:
                 if not role in member.roles:
                     await self.changeBucks(payload.user_id, -itemValue)
-                    await member.add_roles(role)                
-                
+                    await member.add_roles(role)
+
                 else:
                     msg = await channel.send("You already have this role!")
                     await message.remove_reaction(payload.emoji, user)
@@ -144,11 +147,13 @@ class Shop(commands.Cog):
             roleID = int(roleStr.split("&")[1].split(">")[0])
             role = guild.get_role(roleID)
             itemValue = int(fetchedEmbed.fields[1].value)
-            await self.changeBucks(payload.user_id, itemValue)
-            await member.remove_roles(role)
-            dmChannel = await member.create_dm()
-            await dmChannel.send(f"You've been refunded {itemValue} astrabucks, and the role {role.name} has been removed")            
-            
+            if role in member.roles:
+                await self.changeBucks(payload.user_id, itemValue)
+                await member.remove_roles(role)
+                dmChannel = await member.create_dm()
+                await dmChannel.send(f"You've been refunded {itemValue} astrabucks, and the role {role.name} has been removed")
+
+
 
 
 

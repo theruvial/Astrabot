@@ -19,7 +19,7 @@ class Roles(commands.Cog):
         self.bot = bot
         self.openColor = discord.Colour(3665255)
         self.closedColor = discord.Colour(4804175)
-                
+
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -31,9 +31,15 @@ class Roles(commands.Cog):
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
         guild = self.bot.get_channel(config["roles"]).guild
-        role = guild.get_role(config["defaultRole"])
-        await member.add_roles(role)
+        crewmate = guild.get_role(config["crewmate"])
+        updates = guild.get_role(config["updates"])
+        await member.add_roles(crewmate)
+        await member.add_roles(updates)
         channel = guild.get_channel(config["welcomeChannel"])
+        rolesChannel = guild.get_channel(config["roles"])
+        rolesMessage = await rolesChannel.fetch_message(config["rolesMessageID"])
+        updatesEmoji = self.bot.get_emoji(config["updatesEmojiID"])
+        await rolesMessage.add_reaction(updatesEmoji, member)
         msg = await channel.send(f"Welcome {member.mention}!!")
         await asyncio.sleep(10)
         await msg.delete()
@@ -66,7 +72,7 @@ class Roles(commands.Cog):
             roleID = result[0]
             guild = self.bot.get_channel(config["roles"]).guild
             role = guild.get_role(roleID)
-            member = guild.get_member(user.id)            
+            member = guild.get_member(user.id)
             await member.add_roles(role)
             query = '''select * from roles'''
             await self.bot.pg_con.execute(query)
@@ -123,6 +129,30 @@ class Roles(commands.Cog):
             print("Role added to all applicable members")
         else:
             msg = await ctx.send("You do not have permission to use this command!")
+            await asyncio.sleep(3)
+            await msg.delete()
+
+    @commands.command()
+    async def tempAddUpdates(self, ctx):
+        role = discord.utils.get(ctx.guild.roles, name="Admin")
+        if role in ctx.author.roles:
+            guild = self.bot.get_channel(config["roles"]).guild
+            listMembers = await guild.fetch_members().flatten()
+            for i in listMembers:
+                if not role in i.roles:
+                    await i.add_roles(role)
+                    rolesChannel = guild.get_channel(config["roles"])
+                    rolesMessage = await rolesChannel.fetch_message(config["rolesMessageID"])
+                    updatesEmoji = self.bot.get_emoji(config["updatesEmojiID"])
+                    await rolesMessage.add_reaction(updatesEmoji, i)
+                    print(f"Role added to {i.name}")
+                else:
+                    print(f"{i.name} already has this role!")
+            # await asyncio.sleep(1)
+            print("Role added to all applicable members")
+        else:
+            msg = await ctx.send(
+                "You do not have permission to use this command!")
             await asyncio.sleep(3)
             await msg.delete()
 

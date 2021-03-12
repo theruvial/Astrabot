@@ -20,7 +20,7 @@ import asyncpg
 
 startup_extensions = [
     'cogs.roles', 'cogs.points', 'cogs.moderation', 'cogs.gambling',
-    'cogs.tasks', 'cogs.shop', 'cogs.pet'
+    'cogs.shop', 'cogs.pet', 'cogs.tasks'
 ]
 intents = discord.Intents.all()
 

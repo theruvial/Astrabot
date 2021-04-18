@@ -19,6 +19,28 @@ class Moderation(commands.Cog):
         await ctx.author.guild.kick(user)
         await ctx.send(f"Kicked <@{user.id}>")
 
+    @commands.command(pass_context=True, aliases=['live'])
+    async def streamLive(self, ctx):
+        role = discord.utils.get(ctx.guild.roles, name="Admin")
+        if role in ctx.author.roles:
+            await self.bot.change_presence(activity=discord.Streaming(name="My Stream", url="twitch.tv/playastra"))
+        else:
+            msg = await ctx.send(
+                "You do not have permission to use this command!")
+            await asyncio.sleep(3)
+            await msg.delete()
+
+    @commands.command(pass_context=True, aliases=['ended'])
+    async def streamEnded(self, ctx):
+        role = discord.utils.get(ctx.guild.roles, name="Admin")
+        if role in ctx.author.roles:
+            await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="Metronome rant about girls"))
+        else:
+            msg = await ctx.send(
+                "You do not have permission to use this command!")
+            await asyncio.sleep(3)
+            await msg.delete()
+
     # Move out of points.
     @commands.command()
     async def speak(self, ctx, *, message: str):  #### INPUT

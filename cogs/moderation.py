@@ -70,6 +70,9 @@ class Moderation(commands.Cog):
             try:
                 await self.bot.unload_extension(f"cogs.{cog_name}")
                 await self.bot.load_extension(f"cogs.{cog_name}")
+                if interaction.guild:
+                    self.bot.tree.copy_global_to(guild=interaction.guild)
+                    await self.bot.tree.sync(guild=interaction.guild)
                 await self.bot.tree.sync()
                 print(f"{cog_name} successfully reloaded!")
                 await interaction.response.send_message(f"{cog_name} successfully reloaded!")

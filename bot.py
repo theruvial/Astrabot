@@ -17,6 +17,7 @@ startup_extensions = [
     # "cogs.pet",
     # "cogs.tasks",
     "cogs.music",
+    "cogs.clip",
 ]
 
 
@@ -31,6 +32,7 @@ class Astrabot(commands.Bot):
             heartbeat_timeout=150.0,
         )
         self.db = None
+        self._synced_on_ready = False
 
     async def setup_hook(self):
         # Initialize SQLite connection
@@ -123,10 +125,21 @@ class Astrabot(commands.Bot):
             except Exception as e:
                 print(f"Failed to load extension {extension}\n{type(e).__name__}: {e}")
 
-        # Sync slash commands
+        # Sync global slash commands
         await self.tree.sync()
 
     async def on_ready(self):
+        if not self._synced_on_ready:
+            for guild in self.guilds:
+                try:
+                    self.tree.copy_global_to(guild=guild)
+                    synced = await self.tree.sync(guild=guild)
+                    names = ", ".join(c.name for c in synced)
+                    print(f"Synced {len(synced)} commands to '{guild.name}' ({guild.id}): {names}")
+                except Exception as e:
+                    print(f"Failed to sync commands to guild {guild.id}: {e}")
+            self._synced_on_ready = True
+
         await self.change_presence(
             activity=discord.Activity(
                 type=discord.ActivityType.listening,

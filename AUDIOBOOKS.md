@@ -40,16 +40,23 @@ run-book for the feature; the design document is the full spec.
 - `cogs/audiobooks_notify.py` — SMS notifier (Twilio via env vars)
 - `cogs/__init__.py` — makes `cogs` a regular package so the cog's
   relative imports work
-- `bot.py` — one-line change: `"cogs.audiobooks"` added to
-  `startup_extensions`
+- `bot.py` — `"cogs.audiobooks"` added to `startup_extensions`, and
+  `"cogs.music"` removed from `startup_extensions` (music cog unloaded;
+  `cogs.clip` is still loaded)
 - `tests/test_audiobooks.py` — stdlib tests for DB + providers
   (run: `python -m unittest discover -s tests -v`)
 
 ## Configuration
 
-The cog never reads or prints the bot token, and `config.json` was
-**not** modified by this build (it contains secrets). The cog reads an
-optional `"audiobooks"` object from the bot's config, if Thea adds one:
+Update 2026-10-29: `config.json` on this branch now contains the
+`"audiobooks"` object below, with the request channel ID Thea provided
+(1565347062965477386). Note: that file also contains other bot
+secrets, because Thea explicitly asked for it to be committed on this
+branch — it is in this branch's git history now, so removing it from a
+later commit would not erase it from history. Do not merge this branch
+to a public repo.
+
+The cog reads the `"audiobooks"` object from the bot's config:
 
 ```json
 {
@@ -100,9 +107,10 @@ and override the config values:
 
 ## Notes / deliberate deviations from the design doc
 
-- `config.json` was not edited, to avoid touching secrets. The cog
-  supports the same `"audiobooks"` object if it is added later, plus
-  the environment variables above.
+- `config.json` was originally left untouched to avoid touching
+  secrets; on 2026-10-29 Thea explicitly asked for it to be committed
+  with the request channel ID, so it now contains the `"audiobooks"`
+  object. Environment variables still override it (see above).
 - Discord buttons are routed by the embed's message ID (stored on the
   request row) with two persistent views (`Requested` and
   `In Progress`), rather than one view per request ID. This is the

@@ -296,6 +296,30 @@ async def default_fetch(url: str, timeout: float = 10.0) -> str | None:
         return None
 
 
+def audible_slug_title(path: str) -> str | None:
+    """Title from an Audible /pd/ slug, without fetching the page.
+
+    Audible blocks most non-browser fetches (bot protection / CloudFront
+    403s, and in some environments the TLS handshake itself fails), so
+    a live Audible fetch is not a reliable gate. An Audible product
+    URL is itself the evidence: Audible only sells audio titles, and
+    its /pd/ URLs carry the title as a slug, e.g.
+    /pd/Dune-Audiobook/B002V1OF70 -> "Dune".
+    Returns None for search pages, the homepage, and slug-less URLs
+    (/pd/B002V1OF70), where there is no title to recover.
+    """
+    match = re.match(r"/pd/([^/]+)/[^/]+/?$", path)
+    if not match:
+        return None
+    slug = match.group(1)
+    # Slugs end in "-Audiobook" for most titles; strip it, then
+    # turn dashes back into spaces. Keep the original capitalisation.
+    if slug.lower().endswith("-audiobook"):
+        slug = slug[: -len("-audiobook")]
+    title = slug.replace("-", " ").strip()
+    return title or None
+
+
 async def check_single(
     url: str, fetch=default_fetch
 ) -> dict | None:
@@ -308,6 +332,18 @@ async def check_single(
     except ValueError:
         return None
     path = urlparse(clean).path
+    if provider == "Audible":
+        # Try the live page first (best title), but do not fail the
+        # request if Audible blocks the fetch: fall back to the slug.
+        html = await fetch(clean)
+        if html is not None:
+            title, text = extract_title_and_text(html)
+            if title and has_audiobook_evidence(text, provider, path):
+                return {"bookName": title, "linkToBook": clean}
+        slug_title = audible_slug_title(path)
+        if slug_title is not None:
+            return {"bookName": slug_title, "linkToBook": clean}
+        return None
     html = await fetch(clean)
     if html is None:
         return None

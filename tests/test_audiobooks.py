@@ -117,6 +117,24 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(result["created"][0]["bookName"], "Dune")
         self.assertEqual(result["skipped"], ["Dune Messiah"])
 
+    def test_audible_slug_fallback_when_fetch_blocked(self):
+        # Audible blocks non-browser fetches; the /pd/ slug is the title.
+        async def fail_fetch(url):
+            return None
+        result = asyncio.run(check_link(
+            "https://www.audible.com/pd/Dune-Audiobook/B002V1OF70",
+            fetch=fail_fetch))
+        self.assertEqual(len(result["created"]), 1)
+        self.assertEqual(result["created"][0]["bookName"], "Dune")
+
+    def test_audible_slugless_and_search_still_fail(self):
+        async def fail_fetch(url):
+            return None
+        for url in ("https://www.audible.com/pd/B002V1OF70",
+                    "https://www.audible.com/search?keywords=dune"):
+            result = asyncio.run(check_link(url, fetch=fail_fetch))
+            self.assertEqual(result["created"], [])
+
     def test_spotify_must_be_audiobook_path(self):
         html = "<title>Some Show</title>"
         pages = {"https://open.spotify.com/show/abc": html}

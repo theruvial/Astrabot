@@ -62,6 +62,13 @@ run-book for the feature; the design document is the full spec.
   narrow 72px icon sidebar on the left like Muse's sidebar (Users
   person icon, Requests book icon, current section highlighted,
   View site and Log out at the bottom).
+- Audible links (2026-10-29): Audible blocks most non-browser fetches,
+  so a live fetch is no longer the gate for Audible. The bot still
+  tries the page first, but if the fetch fails or returns no title,
+  it falls back to the title in the `/pd/` slug
+  (`/pd/Dune-Audiobook/B002V1OF70` -> "Dune"). Search pages, the
+  homepage, and slug-less `/pd/<ASIN>` URLs still fail, since there
+  is no title to recover.
 - Goodreads series (2026-10-29): only **primary works** are picked,
   not all works. The page's "X primary works" count caps the list in
   series order, and books headed with a range ("Book 1-3") are dropped

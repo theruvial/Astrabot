@@ -275,13 +275,13 @@ class Audiobooks(commands.Cog):
         if row["status"] == "In Progress":
             return row, False, "already_in_progress"
         updated = self.db.set_request_status(request_id, "In Progress")
-        await self.update_embed_for_request(updated)
         sent = await self.notifier(
             updated["requester"],
             "Your audiobook request is being worked on",
             f"Hi {updated.get('requesterName') or 'there'}, Thea has begun "
             f"working on your request for {updated['bookName']}.",
         )
+        await self.update_embed_for_request(updated)
         return updated, sent, None
 
     async def admin_fulfilled(self, request_id: int):
@@ -294,12 +294,12 @@ class Audiobooks(commands.Cog):
         if row["status"] != "In Progress":
             return row, False, "must_fulfill_first"
         updated = self.db.set_request_status(request_id, "Fulfilled")
-        await self.update_embed_for_request(updated, disabled=True)
         sent = await self.notifier(
             updated["requester"],
             "Your audiobook request has been fulfilled",
             f"The requested book {updated['bookName']} has been added to the server",
         )
+        await self.update_embed_for_request(updated, disabled=True)
         return updated, sent, None
 
     async def admin_reject(self, request_id: int, reason: str):
@@ -521,16 +521,23 @@ class Audiobooks(commands.Cog):
             log.warning("Could not fetch embed for request %s: %s", row["id"], exc)
             return
         status = row["status"]
-        if status == "Cancelled":
-            # Reuse the requested view disabled: no further admin action.
-            await message.edit(embed=build_embed(row),
-                               view=view_for_status(self, "Requested", disabled=True))
-        elif disabled:
-            await message.edit(embed=build_embed(row),
-                               view=view_for_status(self, status, disabled=True))
-        else:
-            await message.edit(embed=build_embed(row),
-                               view=view_for_status(self, status))
+        # An embed edit must never block the email that follows it:
+        # if this edit throws, the caller would never reach the
+        # notifier, which is exactly the "status changed, no email"
+        # symptom. Log and continue instead.
+        try:
+            if status == "Cancelled":
+                # Reuse the requested view disabled: no further action.
+                await message.edit(embed=build_embed(row),
+                                   view=view_for_status(self, "Requested", disabled=True))
+            elif disabled:
+                await message.edit(embed=build_embed(row),
+                                   view=view_for_status(self, status, disabled=True))
+            else:
+                await message.edit(embed=build_embed(row),
+                                   view=view_for_status(self, status))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not edit embed for request %s: %s", row["id"], exc)
 
     async def delete_embed_for_request(self, row: dict) -> None:
         """Delete the Discord message for a request, if it still exists.
@@ -680,13 +687,15 @@ class Audiobooks(commands.Cog):
                 await interaction.followup.send("That request is already in progress.", ephemeral=True)
                 return
             updated = self.db.set_request_status(row["id"], "In Progress")
-            await self.update_embed_for_request(updated)
+            # Email first, embed second: the email is the part the
+            # requester actually sees, and must not depend on the edit.
             sent = await self.notifier(
                 row["requester"],
                 "Your audiobook request is being worked on",
                 f"Hi {row.get('requesterName') or 'there'}, Thea has begun "
                 f"working on your request for {row['bookName']}.",
             )
+            await self.update_embed_for_request(updated)
             await interaction.followup.send(
                 "Marked In Progress." + ("" if sent else " (The email could not be sent -- please follow up manually.)"),
                 ephemeral=True,
@@ -703,12 +712,14 @@ class Audiobooks(commands.Cog):
                     "Fulfill Request must be clicked first.", ephemeral=True)
                 return
             updated = self.db.set_request_status(row["id"], "Fulfilled")
-            await self.update_embed_for_request(updated, disabled=True)
+            # Email first, embed second: see the In Progress comment
+            # above — an embed edit must never be able to swallow this.
             sent = await self.notifier(
                 row["requester"],
                 "Your audiobook request has been fulfilled",
                 f"The requested book {row['bookName']} has been added to the server",
             )
+            await self.update_embed_for_request(updated, disabled=True)
             await interaction.followup.send(
                 "Marked Fulfilled." + ("" if sent else " (The email could not be sent -- please follow up manually.)"),
                 ephemeral=True,

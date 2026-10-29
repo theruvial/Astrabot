@@ -70,6 +70,13 @@ run-book for the feature; the design document is the full spec.
   `/pd/<ASIN>` URL uses the ASIN as the title, editable later in
   the admin dashboard. Goodreads links were tested by Thea herself
   2026-10-29; no further Goodreads testing was needed.
+- Fulfilled email ordering (2026-10-29): the Fulfilled email is now
+  sent before the embed edit, in both the Discord button and the
+  admin dashboard, and an embed-edit failure is logged, not raised.
+  Previously the embed edit ran first and was unprotected, so if it
+  threw, the handler never reached the email — status changed, no
+  email, exactly the symptom reported when Fulfill emailed but
+  Request Fulfilled did not.
 - Amazon links (2026-10-29): Amazon is an accepted provider, and
   Amazon IS scraped, unlike Audible. A `/dp/` or `/gp/product/`
   page passes only if it shows an audiobook edition — "Audible

@@ -38,6 +38,11 @@ run-book for the feature; the design document is the full spec.
   request for {book} has been cancelled." It is no longer kept as a
   `Cancelled` row. (Admin Reject is different: it deletes the row but
   edits its embed to Rejected, so the rejection stays visible.)
+- Admin Reject reason (2026-10-29): clicking Reject now opens a modal
+  asking for an optional reason. If a reason is given, it is appended
+  to the rejection email after the original wording ("Reason:
+  {reason}") and shown as a Reason field on the Rejected embed. If
+  left blank, the email is exactly the original wording.
 - Goodreads series (2026-10-29): only **primary works** are picked,
   not all works. The page's "X primary works" count caps the list in
   series order, and books headed with a range ("Book 1-3") are dropped

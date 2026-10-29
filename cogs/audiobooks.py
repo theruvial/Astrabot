@@ -26,9 +26,12 @@ Discord flow (persistent views, discord.py):
   Request Fulfilled, Reject stays available, requester is emailed.
 - Request Fulfilled -> status Fulfilled, all buttons disabled,
   requester is emailed that the book has been added to the server.
-- Reject -> row is hard-deleted, embed is edited to Rejected with
-  buttons disabled, requester is emailed the exact rejection message.
-- Requester web cancel -> status Cancelled, embed disabled.
+- Reject -> a modal asks for an optional reason, then the row is
+  hard-deleted, the embed is edited to Rejected with buttons
+  disabled, and the requester is emailed the rejection message plus
+  the reason, if one was given.
+- Requester web cancel -> row is hard-deleted, its Discord message
+  is deleted, and the requester is emailed that it was cancelled.
 Buttons are routed by the Discord message ID stored on the request
 row, so the same two persistent views work after a bot restart.
 """
@@ -172,6 +175,59 @@ def view_for_status(cog, status: str, disabled: bool = False) -> discord.ui.View
         for item in view.children:
             item.disabled = True
     return view
+
+
+class _RejectReasonModal(discord.ui.Modal, title="Reject request"):
+    """Modal shown when an admin clicks Reject Request.
+
+    The reason is optional: leaving it blank keeps the original
+    rejection email wording unchanged. A reason that is given is
+    appended to that email (and shown on the Rejected embed).
+    """
+
+    reason = discord.ui.TextInput(
+        label="Reason for rejection",
+        placeholder="Optional — e.g. no audiobook edition found",
+        required=False,
+        style=discord.TextStyle.paragraph,
+        max_length=500,
+    )
+
+    def __init__(self, cog, row: dict):
+        super().__init__(title="Reject request")
+        self.cog = cog
+        self.row_id = row["id"]
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        # The admin check runs again here: the modal is a new
+        # interaction, and the request may have changed since the
+        # button was clicked.
+        if not await self.cog.is_admin(interaction):
+            await interaction.response.send_message(
+                "You are not allowed to do that.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        row = self.cog.db.get_request(self.row_id)
+        if row is None:
+            await interaction.followup.send(
+                "That request is no longer available.", ephemeral=True)
+            return
+        if row["status"] == "Fulfilled":
+            await interaction.followup.send(
+                "That request is already fulfilled and cannot be rejected.",
+                ephemeral=True)
+            return
+        reason = (self.reason.value or "").strip()
+        await self.cog.execute_reject(interaction, row, reason)
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        log.warning("Reject-reason modal failed: %s", error)
+        try:
+            await interaction.followup.send(
+                "Something went wrong with that rejection. Please try again.",
+                ephemeral=True)
+        except Exception:
+            pass
 
 
 class Audiobooks(commands.Cog):
@@ -398,6 +454,70 @@ class Audiobooks(commands.Cog):
         except Exception:
             pass
 
+    async def execute_reject(self, interaction: discord.Interaction,
+                             row: dict, reason: str) -> None:
+        """Carry out a rejection after the reason modal was submitted.
+
+        ``interaction`` is already deferred by the modal submit handler,
+        so results go to ``followup``. Captures the email address and
+        book name BEFORE deleting the row, deletes the row, edits the
+        embed to Rejected (with the reason, if one was given), and
+        emails the requester. The original rejection wording is kept
+        verbatim as the first part of the email; a reason is appended,
+        never substituted for it.
+        """
+        email = row["requester"]
+        book = row["bookName"]
+        request_id = row["id"]
+        self.db.delete_request(request_id)
+        embed = (
+            discord.Embed(
+                title=book,
+                color=discord.Color.red(),
+                description="Rejected",
+            )
+            .add_field(name="Requester", value=row.get("requesterName") or "Unknown")
+            .add_field(name="Status", value="Rejected")
+            .add_field(name="Request ID", value=str(request_id))
+        )
+        if reason:
+            embed.add_field(name="Reason", value=reason, inline=False)
+        edited = False
+        message = getattr(interaction, "message", None)
+        try:
+            if message is not None:
+                await message.edit(
+                    embed=embed,
+                    view=view_for_status(self, "Requested", disabled=True),
+                )
+                edited = True
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not edit rejected embed %s: %s", request_id, exc)
+        if not edited and row.get("discordMessageId") and row.get("discordChannelId"):
+            try:
+                channel = self.bot.get_channel(int(row["discordChannelId"]))
+                if channel is None:
+                    channel = await self.bot.fetch_channel(int(row["discordChannelId"]))
+                message = await channel.fetch_message(int(row["discordMessageId"]))
+                await message.edit(
+                    embed=embed,
+                    view=view_for_status(self, "Requested", disabled=True),
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Could not edit rejected embed %s: %s", request_id, exc)
+        body = f"Request Rejected for {book} Speak to Thea for more information"
+        if reason:
+            body += f"\n\nReason: {reason}"
+        sent = await self.notifier(
+            email,
+            f"Request Rejected for {book}",
+            body,
+        )
+        await interaction.followup.send(
+            "Rejected." + ("" if sent else " (The email could not be sent -- please follow up manually.)"),
+            ephemeral=True,
+        )
+
     # -- Button actions -------------------------------------------------
     async def handle_button(self, interaction: discord.Interaction, action: str) -> None:
         """Shared handler for Fulfill / Reject / Request Fulfilled.
@@ -410,6 +530,28 @@ class Audiobooks(commands.Cog):
             await interaction.response.send_message(
                 "You are not allowed to do that.", ephemeral=True)
             log.info("Non-admin %s clicked audiobook %s", interaction.user.id, action)
+            return
+        if action == "reject":
+            # A modal must be the interaction's initial response, so
+            # Reject does NOT defer first -- it shows the reason modal.
+            # The actual rejection happens in the modal's on_submit.
+            row = None
+            try:
+                row = self.db.get_request_by_message(interaction.message.id)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Audiobook button lookup failed: %s", exc)
+            if row is None:
+                await interaction.response.send_message(
+                    "That request is no longer available.", ephemeral=True)
+                return
+            log.info("Admin %s clicked reject on request %s (%s)",
+                     interaction.user.id, row["id"], row["status"])
+            if row["status"] == "Fulfilled":
+                await interaction.response.send_message(
+                    "That request is already fulfilled and cannot be rejected.",
+                    ephemeral=True)
+                return
+            await interaction.response.send_modal(_RejectReasonModal(self, row))
             return
         await interaction.response.defer(ephemeral=True)
         row = None
@@ -464,42 +606,6 @@ class Audiobooks(commands.Cog):
             )
             await interaction.followup.send(
                 "Marked Fulfilled." + ("" if sent else " (The email could not be sent -- please follow up manually.)"),
-                ephemeral=True,
-            )
-            return
-
-        if action == "reject":
-            if row["status"] == "Fulfilled":
-                await interaction.followup.send(
-                    "That request is already fulfilled and cannot be rejected.", ephemeral=True)
-                return
-            # Load the email address BEFORE deleting the row -- deleting
-            # first and then trying to find who to email is a bug.
-            email = row["requester"]
-            book = row["bookName"]
-            self.db.delete_request(row["id"])
-            rejected_row = dict(row)
-            rejected_row["status"] = "Rejected"
-            try:
-                await interaction.message.edit(
-                    embed=discord.Embed(
-                        title=book,
-                        color=discord.Color.red(),
-                        description="Rejected",
-                    ).add_field(name="Requester", value=row.get("requesterName") or "Unknown")
-                    .add_field(name="Status", value="Rejected")
-                    .add_field(name="Request ID", value=str(row["id"])),
-                    view=view_for_status(self, "Requested", disabled=True),
-                )
-            except Exception as exc:  # noqa: BLE001
-                log.warning("Could not edit rejected embed %s: %s", row["id"], exc)
-            sent = await self.notifier(
-                email,
-                f"Request Rejected for {book}",
-                f"Request Rejected for {book} Speak to Thea for more information",
-            )
-            await interaction.followup.send(
-                "Rejected." + ("" if sent else " (The email could not be sent -- please follow up manually.)"),
                 ephemeral=True,
             )
             return

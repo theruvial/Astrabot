@@ -15,8 +15,10 @@ Configuration (no secrets in code or in a committed file):
   AUDIOBOOKS_DB_PATH, AUDIOBOOKS_ADMIN_IDS (comma-separated Discord
   user IDs), plus TWILIO_* for SMS (see audiobooks_notify.py).
 - Defaults: web on 127.0.0.1:8080, database audiobooks.db next to the
-  bot, no admin IDs (only the bot owner, if known, is treated as admin
-  -- set AUDIOBOOKS_ADMIN_IDS in production).
+  bot, no admin IDs. With no admin IDs, the guild owner and the bot
+  application's owner (via ``Bot.is_owner()``) may still click the
+  buttons -- set AUDIOBOOKS_ADMIN_IDS in production to lock it down
+  to explicit IDs.
 
 Discord flow (persistent views, discord.py):
 - New request -> embed with Fulfill Request + Reject Request.
@@ -175,16 +177,38 @@ class Audiobooks(commands.Cog):
         value = self.config.get("request_channel_id")
         return int(value) if value else None
 
-    def is_admin(self, user_id: int) -> bool:
+    async def is_admin(self, interaction) -> bool:
+        """Who may click Fulfill / Reject / Request Fulfilled.
+
+        Bug fix 2026-10-29: the previous version read
+        ``bot.owner_id`` directly. Astrabot's ``bot.py`` never passes
+        ``owner_id`` to ``commands.Bot``, so that attribute is always
+        ``None`` and -- with an empty ``admin_user_ids`` list -- every
+        click, including Thea's, was denied with "not allowed".
+        discord.py only populates the application owner when
+        ``Bot.is_owner()`` fetches application info, so use that.
+
+        Allowed, in order:
+        1. A user ID in ``admin_user_ids`` from config.
+        2. The owner of the guild the button was clicked in.
+        3. The bot application's owner, via ``bot.is_owner()``.
+        """
+        user_id = int(interaction.user.id)
         admins = self.config.get("admin_user_ids") or []
-        if int(user_id) in [int(x) for x in admins]:
+        if user_id in [int(x) for x in admins]:
             return True
-        owner_id = None
-        try:
-            owner_id = getattr(self.bot, "owner_id", None)
-        except Exception:
-            owner_id = None
-        return bool(owner_id and int(user_id) == int(owner_id))
+        guild = getattr(interaction, "guild", None)
+        guild_owner_id = getattr(guild, "owner_id", None) if guild else None
+        if guild_owner_id is not None and int(guild_owner_id) == user_id:
+            return True
+        is_owner = getattr(self.bot, "is_owner", None)
+        if is_owner is not None:
+            try:
+                if await is_owner(interaction.user):
+                    return True
+            except Exception:
+                pass
+        return False
 
     async def cog_load(self) -> None:
         # Persistent views: register before any interaction is dispatched.
@@ -285,7 +309,7 @@ class Audiobooks(commands.Cog):
         The request is found by the message ID of the embed that was
         clicked, which is how persistent views survive restarts.
         """
-        if not self.is_admin(interaction.user.id):
+        if not await self.is_admin(interaction):
             await interaction.response.send_message(
                 "You are not allowed to do that.", ephemeral=True)
             log.info("Non-admin %s clicked audiobook %s", interaction.user.id, action)

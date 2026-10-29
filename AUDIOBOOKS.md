@@ -79,7 +79,10 @@ and override the config values:
   (default `8080`)
 - `AUDIOBOOKS_DB_PATH` (default `audiobooks.db`)
 - `AUDIOBOOKS_ADMIN_IDS` — comma-separated Discord user IDs allowed to
-  click Fulfill / Reject / Request Fulfilled
+  click Fulfill / Reject / Request Fulfilled. If this is empty, the
+  guild owner and the bot application's owner may still click the
+  buttons (fix 2026-10-29: the old code read `bot.owner_id` directly,
+  which Astrabot never sets, so everyone was denied).
 - `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` —
   SMS provider. Without these, texts are logged (number masked) and
   reported to the admin as not sent; statuses still update.

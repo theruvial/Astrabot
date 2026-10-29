@@ -30,6 +30,8 @@ run-book for the feature; the design document is the full spec.
   has an audiobook; books without one are skipped and listed back to
   the user. If no book in the series has an audiobook, nothing is
   created.
+- Web UI theme (2026-10-29): Material Design **dark mode** —
+  dark surfaces, light text, light-purple primary buttons.
 - Goodreads series (2026-10-29): only **primary works** are picked,
   not all works. The page's "X primary works" count caps the list in
   series order, and books headed with a range ("Book 1-3") are dropped

@@ -35,36 +35,37 @@ log = logging.getLogger("audiobooks.web")
 COOKIE = "audiobooks_session"
 
 CSS = """
-* { box-sizing: border-box; }
-body { margin: 0; font-family: Roboto, system-ui, -apple-system, "Segoe UI", Arial, sans-serif; background: #f5f2fa; color: #1d1b20; }
-a { color: #6750a4; }
+/* Material Design dark theme (2026-10-29). */
+* { box-sizing: border-box; color-scheme: dark; }
+body { margin: 0; font-family: Roboto, system-ui, -apple-system, "Segoe UI", Arial, sans-serif; background: #141218; color: #e6e0e9; }
+a { color: #d0bcff; }
 .center { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
-.card { background: #fff; border-radius: 16px; box-shadow: 0 2px 6px rgba(0,0,0,.15), 0 1px 2px rgba(0,0,0,.3); padding: 28px 28px 24px; width: 100%; max-width: 400px; }
+.card { background: #1e1b24; border-radius: 16px; box-shadow: 0 2px 6px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.6); padding: 28px 28px 24px; width: 100%; max-width: 400px; }
 .card h1 { font-size: 22px; margin: 0 0 20px; font-weight: 500; }
 .msg { min-height: 20px; font-size: 13px; margin: 0 0 8px; }
-.msg.error { color: #b3261e; }
-.msg.success { color: #1e7a34; }
-.msg.note { color: #49454f; }
-label { display: block; font-size: 13px; color: #49454f; margin: 12px 0 4px; }
-input[type="text"], input[type="email"], input[type="url"] { width: 100%; background: #fff; color: #000; border: 1.5px solid #79747e; border-radius: 8px; padding: 12px 14px; font-size: 16px; outline: none; }
-input:focus { border-color: #6750a4; box-shadow: 0 0 0 2px rgba(103,80,164,.25); }
-input::placeholder { color: #79747e; opacity: 0.6; }
+.msg.error { color: #ffb4ab; }
+.msg.success { color: #9ed69e; }
+.msg.note { color: #cac4d0; }
+label { display: block; font-size: 13px; color: #cac4d0; margin: 12px 0 4px; }
+input[type="text"], input[type="email"], input[type="url"] { width: 100%; background: #2b2930; color: #e6e0e9; border: 1.5px solid #938f99; border-radius: 8px; padding: 12px 14px; font-size: 16px; outline: none; }
+input:focus { border-color: #d0bcff; box-shadow: 0 0 0 2px rgba(208,188,255,.35); }
+input::placeholder { color: #938f99; opacity: 0.8; }
 .btn-row { display: flex; justify-content: flex-end; margin-top: 16px; }
-button, .btn { background: #6750a4; color: #fff; border: none; border-radius: 20px; padding: 10px 22px; font-size: 14px; font-weight: 500; cursor: pointer; text-decoration: none; display: inline-block; }
-button:hover, .btn:hover { background: #5a458f; }
+button, .btn { background: #d0bcff; color: #381e72; border: none; border-radius: 20px; padding: 10px 22px; font-size: 14px; font-weight: 500; cursor: pointer; text-decoration: none; display: inline-block; }
+button:hover, .btn:hover { background: #e0d4ff; }
 button:disabled { opacity: .55; cursor: default; }
-.topbar { position: sticky; top: 0; z-index: 10; background: #6750a4; color: #fff; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,.2); }
+.topbar { position: sticky; top: 0; z-index: 10; background: #2b2930; color: #e6e0e9; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,.5); }
 .topbar h1 { margin: 0; font-size: 20px; font-weight: 500; }
-.topbar .btn { background: #fff; color: #6750a4; }
+.topbar .btn { background: #d0bcff; color: #381e72; }
 .wrap { max-width: 900px; margin: 0 auto; padding: 20px; }
-.scrollbox { background: #fff; border-radius: 16px; box-shadow: 0 2px 6px rgba(0,0,0,.15); max-height: 70vh; overflow-y: auto; padding: 8px 0; }
-.row { display: grid; grid-template-columns: 2fr 1fr 1fr 36px; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid #e7e0ec; }
-.row.head { font-weight: 600; color: #49454f; font-size: 13px; position: sticky; top: 0; background: #fff; }
+.scrollbox { background: #1e1b24; border-radius: 16px; box-shadow: 0 2px 6px rgba(0,0,0,.5); max-height: 70vh; overflow-y: auto; padding: 8px 0; }
+.row { display: grid; grid-template-columns: 2fr 1fr 1fr 36px; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid #49454f; }
+.row.head { font-weight: 600; color: #cac4d0; font-size: 13px; position: sticky; top: 0; background: #1e1b24; }
 .xbtn { background: #b3261e; color: #fff; border: none; border-radius: 50%; width: 28px; height: 28px; font-size: 16px; line-height: 1; cursor: pointer; padding: 0; }
-.xbtn:hover { background: #8f1d17; }
-.chip { display: inline-block; padding: 3px 10px; border-radius: 12px; background: #e8def8; font-size: 13px; }
-.chip.fulfilled { background: #c8e6c9; }
-.chip.cancelled { background: #e0e0e0; }
+.xbtn:hover { background: #d32f2f; }
+.chip { display: inline-block; padding: 3px 10px; border-radius: 12px; background: #4a4458; color: #e6e0e9; font-size: 13px; }
+.chip.fulfilled { background: #274d27; }
+.chip.cancelled { background: #49454f; }
 """
 
 def shell(title: str, body: str, script: str = "") -> web.Response:

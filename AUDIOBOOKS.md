@@ -70,6 +70,16 @@ run-book for the feature; the design document is the full spec.
   `/pd/<ASIN>` URL uses the ASIN as the title, editable later in
   the admin dashboard. Goodreads links were tested by Thea herself
   2026-10-29; no further Goodreads testing was needed.
+- Amazon links (2026-10-29): Amazon is an accepted provider, and
+  Amazon IS scraped, unlike Audible. A `/dp/` or `/gp/product/`
+  page passes only if it shows an audiobook edition — "Audible
+  Audiobook" in the formats, a narrator credit, or a listening
+  length. A print/ebook-only page fails. A print page that lists an
+  Audible edition among its formats passes, since the book has an
+  audiobook. Caveat: Amazon explicitly refuses AI-agent access
+  (blocked 2026-10-29 with an AI-agent refusal page, not bypassed),
+  so a server-side Amazon fetch may also be blocked on the bot host
+  — the code is correct, but Amazon may still refuse the bot.
 - Goodreads series (2026-10-29): only **primary works** are picked,
   not all works. The page's "X primary works" count caps the list in
   series order, and books headed with a range ("Book 1-3") are dropped

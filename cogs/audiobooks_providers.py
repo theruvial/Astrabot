@@ -33,7 +33,10 @@ AUDIOBOOK_INDICATORS = (
 )
 
 TRACKING_PARAMS = ("utm_source", "utm_medium", "utm_campaign", "utm_term",
-                   "utm_content", "fbclid", "gclid", "si", "ref", "ref_")
+                   "utm_content", "fbclid", "gclid", "si", "ref", "ref_",
+                   # Amazon tracking / session params.
+                   "tag", "dib", "dib_tag", "qid", "sr", "_encoding",
+                   "psc", "smid", "linkCode", "linkId")
 
 # host -> provider name; checked as exact host or a subdomain of it.
 PROVIDERS = {
@@ -53,6 +56,18 @@ PROVIDERS = {
     "books.google.com": "Google Books",
     "goodreads.com": "Goodreads",
     "www.goodreads.com": "Goodreads",
+    "amazon.com": "Amazon",
+    "amazon.co.uk": "Amazon",
+    "amazon.ca": "Amazon",
+    "amazon.com.au": "Amazon",
+    "amazon.de": "Amazon",
+    "amazon.fr": "Amazon",
+    "amazon.it": "Amazon",
+    "amazon.es": "Amazon",
+    "amazon.co.jp": "Amazon",
+    "amazon.in": "Amazon",
+    "amazon.com.mx": "Amazon",
+    "amazon.com.br": "Amazon",
 }
 
 
@@ -80,6 +95,8 @@ def normalize_url(url: str) -> str:
     query = "&".join(
         part for part in parsed.query.split("&")
         if part and part.split("=")[0] not in TRACKING_PARAMS
+        and not part.split("=")[0].startswith("pd_rd_")
+        and not part.split("=")[0].startswith("ref")
     )
     return urlunparse((
         "https",
@@ -146,6 +163,33 @@ def extract_title_and_text(html: str) -> tuple[str, str]:
     return title, text
 
 
+def amazon_title(html: str) -> str | None:
+    """Clean book title from an Amazon product page.
+
+    Amazon's <title> tag is noisy ("Dune: Frank Herbert: 978...:
+    Amazon.com: Books"), while its og:title meta tag is usually just
+    the book title. Prefer og:title; otherwise cut the <title> at
+    the Amazon suffix.
+    """
+    match = re.search(
+        r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']',
+        html, flags=re.IGNORECASE)
+    if not match:
+        match = re.search(
+            r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']',
+            html, flags=re.IGNORECASE)
+    if match:
+        title = unescape(match.group(1)).strip()
+        if title:
+            return title
+    title, _ = extract_title_and_text(html)
+    # Cut "…: Amazon.com: Books" / "… Amazon.co.uk" suffixes.
+    cut = re.split(r"\s*:\s*Amazon\.", title)
+    if cut:
+        title = cut[0].strip()
+    return title or None
+
+
 def has_audiobook_evidence(text: str, provider: str, path: str) -> bool:
     """Positive-evidence check, with provider-specific path rules."""
     if provider == "Spotify":
@@ -168,6 +212,17 @@ def has_audiobook_evidence(text: str, provider: str, path: str) -> bool:
         if "/search" in path or path in ("/", ""):
             return False
         return True
+    if provider == "Amazon":
+        # Amazon is scraped (unlike Audible): the page must be a
+        # product page (/dp/ or /gp/product/) AND show an audiobook
+        # edition — "Audible Audiobook" in the format selector, a
+        # narrator credit, or a listening length. A print/ebook-only
+        # page, a search page, or a non-book product page fails.
+        # Note: a print book page that lists an Audible edition among
+        # its formats passes, by design — the book has an audiobook.
+        if "/dp/" not in path and "/gp/product/" not in path:
+            return False
+        return any(ind in text for ind in AUDIOBOOK_INDICATORS)
     # Goodreads and any other provider: need an audiobook edition label.
     return any(ind in text for ind in AUDIOBOOK_INDICATORS)
 
@@ -354,6 +409,18 @@ async def check_single(
         if title is not None:
             return {"bookName": title, "linkToBook": clean}
         return None
+    if provider == "Amazon":
+        # Amazon IS scraped: the page must show an audiobook edition.
+        html = await fetch(clean)
+        if html is None:
+            return None
+        title = amazon_title(html)
+        if not title:
+            return None
+        _, text = extract_title_and_text(html)
+        if not has_audiobook_evidence(text, provider, path):
+            return None
+        return {"bookName": title, "linkToBook": clean}
     html = await fetch(clean)
     if html is None:
         return None

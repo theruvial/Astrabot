@@ -141,6 +141,29 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(result["created"][0]["bookName"], "Dune")
         self.assertEqual(calls, [])
 
+    def test_amazon_with_audiobook_edition(self):
+        html = ('<html><head><title>Song of Sorrows and Fate: LJ Andrews: '
+                '9780000000000: Amazon.com: Books</title>'
+                '<meta property="og:title" content="Song of Sorrows and Fate">'
+                '</head><body><div>Audible Audiobook</div>'
+                '<p>Narrated by Someone, Listening Length 12 hours</p>'
+                '</body></html>')
+        pages = {"https://www.amazon.com/Song-Sorrows-Fate-Fantasy-Kingdoms-ebook/dp/B0C5S3SV2L": html}
+        result = asyncio.run(check_link(
+            "https://www.amazon.com/Song-Sorrows-Fate-Fantasy-Kingdoms-ebook/dp/B0C5S3SV2L",
+            fetch=fake_fetch_factory(pages)))
+        self.assertEqual(len(result["created"]), 1)
+        self.assertEqual(result["created"][0]["bookName"], "Song of Sorrows and Fate")
+
+    def test_amazon_print_only_fails(self):
+        html = ("<html><head><title>Some Print Book</title></head>"
+                "<body><p>Hardcover, 300 pages</p></body></html>")
+        pages = {"https://www.amazon.com/Some-Book/dp/B000000000": html}
+        result = asyncio.run(check_link(
+            "https://www.amazon.com/Some-Book/dp/B000000000",
+            fetch=fake_fetch_factory(pages)))
+        self.assertEqual(result["created"], [])
+
     def test_audible_search_still_fails(self):
         async def fail_fetch(url):
             return None

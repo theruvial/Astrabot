@@ -14,7 +14,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cogs.audiobooks_db import AudiobooksDB, mask_email, normalize_email
-from cogs.audiobooks_providers import check_link, provider_for
+from cogs.audiobooks_providers import check_link, extract_series_books, provider_for
 
 
 class EmailTests(unittest.TestCase):
@@ -124,6 +124,44 @@ class ProviderTests(unittest.TestCase):
             "https://open.spotify.com/show/abc",
             fetch=fake_fetch_factory(pages)))
         self.assertEqual(result["created"], [])
+
+class SeriesPrimaryTests(unittest.TestCase):
+    def test_primary_count_truncates(self):
+        html = ("<p>3 primary works \u2022 4 total works</p>"
+                '<a href="/book/show/1">Book One</a>'
+                '<a href="/book/show/2">Book Two</a>'
+                '<a href="/book/show/3">Book Three</a>'
+                '<a href="/book/show/4">The Complete Collection</a>')
+        books = extract_series_books(html, "Goodreads")
+        self.assertEqual([b["bookName"] for b in books],
+                         ["Book One", "Book Two", "Book Three"])
+
+    def test_range_heading_skipped_even_without_count(self):
+        html = ("Book 1 <a href=\"/book/show/1\">Vol One</a> "
+                "Book 2 <a href=\"/book/show/2\">Vol Two</a> "
+                "Book 1-2 <a href=\"/book/show/3\">Omnibus</a>")
+        books = extract_series_books(html, "Goodreads")
+        self.assertEqual([b["bookName"] for b in books], ["Vol One", "Vol Two"])
+
+    def test_decimal_entries_kept_up_to_count(self):
+        html = ("<p>3 primary works \u2022 3 total works</p>"
+                "Book 1 <a href=\"/book/show/1\">One</a> "
+                "Book 1.5 <a href=\"/book/show/2\">Novella</a> "
+                "Book 2 <a href=\"/book/show/3\">Two</a>")
+        books = extract_series_books(html, "Goodreads")
+        self.assertEqual(len(books), 3)
+
+    def test_related_series_cut_off(self):
+        html = ('<a href="/book/show/1">Main One</a>'
+                '<a href="/book/show/2">Main Two</a>'
+                'Related series <a href="/book/show/9">Other Series Book</a>')
+        books = extract_series_books(html, "Goodreads")
+        self.assertEqual([b["bookName"] for b in books],
+                         ["Main One", "Main Two"])
+
+    def test_non_goodreads_unchanged(self):
+        self.assertEqual(extract_series_books('<a href="/book/show/1">X</a>', "Audible"), [])
+
 
 
 if __name__ == "__main__":

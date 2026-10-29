@@ -30,6 +30,12 @@ run-book for the feature; the design document is the full spec.
   has an audiobook; books without one are skipped and listed back to
   the user. If no book in the series has an audiobook, nothing is
   created.
+- Goodreads series (2026-10-29): only **primary works** are picked,
+  not all works. The page's "X primary works" count caps the list in
+  series order, and books headed with a range ("Book 1-3") are dropped
+  as collected editions. Omnibus/anthology extras are therefore not
+  requested, and are not reported as "skipped" either — they were
+  never candidates.
 - **Restart resync (2026-10-29):** every time the bot starts, the cog
   clears the requests channel completely and re-posts one embed per
   database row, oldest first, with buttons matching its status

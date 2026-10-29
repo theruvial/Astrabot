@@ -181,26 +181,77 @@ def is_series_url(provider: str, path: str) -> bool:
 
 
 def extract_series_books(html: str, provider: str) -> list[dict]:
-    """Extract book links from a series page, in series order, deduped.
+    """Extract book links from a Goodreads series page, primary works only.
 
     Only Goodreads series pages are enumerated in this build (book/show
     links). Audible series pages vary too much to enumerate reliably
     from markup alone, so an Audible series link is treated as a single
     item whose title is the series title -- see check_link().
+
+    "Primary works" is Goodreads' own distinction, shown on the series
+    page as e.g. "3 primary works • 4 total works". The non-primary
+    works are the extras that used to leak into requests: omnibus /
+    collected editions, boxed sets, anthologies, and other collections.
+    Goodreads lists those after the primary works, and collected
+    editions are usually headed "Book 1-3", "Book 1-2", etc. -- a range,
+    not a single book. So, in order:
+
+    1. Cut the page at "Related series" so books from related series
+       can never be picked up.
+    2. Drop any book whose most recent "Book ..." heading is a range
+       ("Book 1-3"). Those are collected editions, never a primary work.
+    3. If the page states a primary-work count, keep only that many
+       books, in series order. That drops trailing anthologies /
+       collections even when they carry a single-book heading.
+    4. If no count can be parsed, fall back to the range filter only
+       (old behaviour, minus collected editions) rather than failing
+       the whole series.
+
+    Decimal-numbered entries ("Book 1.5") are kept: Goodreads series
+    do count some of those among their primary works, and the count in
+    step 3 is the authority on how many to keep, not the numbering.
     """
     if provider != "Goodreads":
         return []
+    # 1. Related series live below the main list on the page.
+    related = re.search(r"Related series", html, flags=re.IGNORECASE)
+    if related:
+        html = html[:related.start()]
+    # Primary-work count from the series header, e.g.
+    # "3 primary works • 4 total works".
+    primary_count: int | None = None
+    count_match = re.search(r"(\d+)\s+primary works", html)
+    if count_match:
+        try:
+            primary_count = int(count_match.group(1))
+        except ValueError:
+            primary_count = None
+
     seen: set[str] = set()
     books: list[dict] = []
-    for match in re.finditer(
-        r'href="(/book/show/[^"#?]+)"[^>]*>([^<]{1,200})<',
-        html,
-    ):
+    # Scan headings and book links together, in document order, so each
+    # book gets the "Book ..." heading that precedes it on the page.
+    heading_re = re.compile(r"Book\s+(\d+(?:\.\d+)?)(?:\s*-\s*(\d+(?:\.\d+)?))?")
+    link_re = re.compile(r'href="(/book/show/[^"#?]+)"[^>]*>([^<]{1,200})<')
+    events: list[tuple[int, str, re.Match]] = []
+    for match in heading_re.finditer(html):
+        events.append((match.start(), "heading", match))
+    for match in link_re.finditer(html):
+        events.append((match.start(), "link", match))
+    events.sort(key=lambda item: item[0])
+    is_range = False
+    for _, kind, match in events:
+        if kind == "heading":
+            is_range = match.group(2) is not None
+            continue
         rel, name = match.groups()
         link = "https://www.goodreads.com" + rel
         if link in seen:
             continue
         seen.add(link)
+        if is_range:
+            # Collected edition spanning several books: not a primary work.
+            continue
         books.append({"linkToBook": link, "bookName": unescape(name).strip()})
     # Fallback: bare /book/show/ links without a readable anchor title.
     if not books:
@@ -209,6 +260,9 @@ def extract_series_books(html: str, provider: str) -> list[dict]:
             if link not in seen:
                 seen.add(link)
                 books.append({"linkToBook": link, "bookName": ""})
+    # 3. Primary-work count, if parsed, is authoritative.
+    if primary_count is not None:
+        books = books[:primary_count]
     return books
 
 

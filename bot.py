@@ -18,6 +18,7 @@ startup_extensions = [
     # "cogs.tasks",
     "cogs.music",
     "cogs.clip",
+    "cogs.audiobooks",
 ]
 
 

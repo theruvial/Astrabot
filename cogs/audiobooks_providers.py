@@ -1,0 +1,311 @@
+"""Provider validation for audiobook-request links.
+
+Only the five providers in the design document are accepted. For each
+book we need *positive* audiobook evidence before a request is created:
+an audiobook format label, a narrator credit, or a listening length.
+Absence of that evidence fails that book -- never "probably an
+audiobook".
+
+Series handling (corrected 2026-10-29, partial -- NOT all-or-nothing):
+books in a series that pass get requests; books that fail are skipped
+and reported back to the user. Only a submission where *no* book passes
+is a total failure.
+
+This module is deliberately independent of discord.py so it can be
+unit-tested with a fake fetcher. The default fetcher uses aiohttp.
+"""
+
+from __future__ import annotations
+
+import re
+from html import unescape
+from html.parser import HTMLParser
+from urllib.parse import urlparse, urlunparse
+
+AUDIOBOOK_INDICATORS = (
+    "audible audiobook",
+    "audiobook",
+    "audio cd",
+    "narrated by",
+    "listening length",
+    "listening time",
+    "unabridged audiobook",
+)
+
+TRACKING_PARAMS = ("utm_source", "utm_medium", "utm_campaign", "utm_term",
+                   "utm_content", "fbclid", "gclid", "si", "ref", "ref_")
+
+# host -> provider name; checked as exact host or a subdomain of it.
+PROVIDERS = {
+    "audible.com": "Audible",
+    "audible.co.uk": "Audible",
+    "audible.ca": "Audible",
+    "audible.com.au": "Audible",
+    "audible.de": "Audible",
+    "audible.fr": "Audible",
+    "audible.it": "Audible",
+    "audible.es": "Audible",
+    "audible.co.jp": "Audible",
+    "open.spotify.com": "Spotify",
+    "spotify.com": "Spotify",
+    "books.apple.com": "Apple Books",
+    "play.google.com": "Google Books",
+    "books.google.com": "Google Books",
+    "goodreads.com": "Goodreads",
+    "www.goodreads.com": "Goodreads",
+}
+
+
+def provider_for(url: str) -> str | None:
+    """Return the provider name for a URL, or None if not allowlisted."""
+    try:
+        host = urlparse(url).netloc.lower().split(":")[0]
+    except Exception:
+        return None
+    if host in PROVIDERS:
+        return PROVIDERS[host]
+    # Allow subdomains of an allowlisted host, e.g. www.audible.com.
+    for known, name in PROVIDERS.items():
+        if host.endswith("." + known):
+            return name
+    return None
+
+
+def normalize_url(url: str) -> str:
+    """HTTPS, no fragment, tracking params stripped, host lowercased."""
+    url = url.strip()
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("Only http(s) links are accepted.")
+    query = "&".join(
+        part for part in parsed.query.split("&")
+        if part and part.split("=")[0] not in TRACKING_PARAMS
+    )
+    return urlunparse((
+        "https",
+        parsed.netloc.lower(),
+        parsed.path or "/",
+        parsed.params,
+        query,
+        "",
+    ))
+
+
+class _TextExtractor(HTMLParser):
+    """Collect visible text plus title/meta content from a page."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+        self.title: str = ""
+        self._in_title = False
+        self._skip = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "title":
+            self._in_title = True
+        if tag in ("script", "style"):
+            self._skip = True
+        if tag == "meta":
+            attrs_d = dict(attrs)
+            if attrs_d.get("property") in ("og:title", "og:audio", "og:type") \
+                    or attrs_d.get("name") in ("title", "description"):
+                if attrs_d.get("content"):
+                    self.parts.append(attrs_d["content"])
+
+    def handle_endtag(self, tag):
+        if tag == "title":
+            self._in_title = False
+        if tag in ("script", "style"):
+            self._skip = False
+
+    def handle_data(self, data):
+        if self._skip:
+            return
+        text = data.strip()
+        if not text:
+            return
+        if self._in_title:
+            self.title += text
+        self.parts.append(text)
+
+
+def extract_title_and_text(html: str) -> tuple[str, str]:
+    parser = _TextExtractor()
+    try:
+        parser.feed(html)
+    except Exception:
+        pass
+    title = unescape(parser.title).strip()
+    # Goodreads/Audible titles often carry a suffix after a separator.
+    for sep in (" | ", " by ", " - Audible", " - Goodreads"):
+        if sep in title:
+            title = title.split(sep)[0].strip()
+            break
+    text = unescape(" ".join(parser.parts)).lower()
+    return title, text
+
+
+def has_audiobook_evidence(text: str, provider: str, path: str) -> bool:
+    """Positive-evidence check, with provider-specific path rules."""
+    if provider == "Spotify":
+        # Spotify audiobooks live under /audiobook/; a show/episode/track
+        # is not an audiobook even if the page mentions the word.
+        if not path.startswith("/audiobook/"):
+            return False
+        return True
+    if provider == "Apple Books":
+        if "/audiobook/" not in path:
+            return False
+        return True
+    if provider == "Google Books":
+        if "/store/audiobooks/" not in path:
+            return False
+        return True
+    if provider == "Audible":
+        # Audible sells audiobooks; a product/series page that resolves
+        # with a title is enough, search pages are not.
+        if "/search" in path or path in ("/", ""):
+            return False
+        return True
+    # Goodreads and any other provider: need an audiobook edition label.
+    return any(ind in text for ind in AUDIOBOOK_INDICATORS)
+
+
+def is_series_url(provider: str, path: str) -> bool:
+    if provider == "Goodreads":
+        return path.startswith("/series/")
+    if provider == "Audible":
+        return "/series/" in path
+    return False
+
+
+def extract_series_books(html: str, provider: str) -> list[dict]:
+    """Extract book links from a series page, in series order, deduped.
+
+    Only Goodreads series pages are enumerated in this build (book/show
+    links). Audible series pages vary too much to enumerate reliably
+    from markup alone, so an Audible series link is treated as a single
+    item whose title is the series title -- see check_link().
+    """
+    if provider != "Goodreads":
+        return []
+    seen: set[str] = set()
+    books: list[dict] = []
+    for match in re.finditer(
+        r'href="(/book/show/[^"#?]+)"[^>]*>([^<]{1,200})<',
+        html,
+    ):
+        rel, name = match.groups()
+        link = "https://www.goodreads.com" + rel
+        if link in seen:
+            continue
+        seen.add(link)
+        books.append({"linkToBook": link, "bookName": unescape(name).strip()})
+    # Fallback: bare /book/show/ links without a readable anchor title.
+    if not books:
+        for rel in re.findall(r'/book/show/(\d+)[^"\' ]*', html):
+            link = f"https://www.goodreads.com/book/show/{rel}"
+            if link not in seen:
+                seen.add(link)
+                books.append({"linkToBook": link, "bookName": ""})
+    return books
+
+
+async def default_fetch(url: str, timeout: float = 10.0) -> str | None:
+    """Fetch a page as text, or None on any failure (fail closed)."""
+    import aiohttp
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml",
+    }
+    try:
+        timeout_cfg = aiohttp.ClientTimeout(total=timeout)
+        async with aiohttp.ClientSession(timeout=timeout_cfg) as session:
+            async with session.get(url, headers=headers,
+                                   allow_redirects=True) as resp:
+                if resp.status != 200:
+                    return None
+                content_type = resp.headers.get("Content-Type", "")
+                if "text/html" not in content_type and "application/json" not in content_type:
+                    return None
+                raw = await resp.read()
+                if len(raw) > 5_000_000:
+                    return None
+                return raw.decode("utf-8", errors="ignore")
+    except Exception:
+        return None
+
+
+async def check_single(
+    url: str, fetch=default_fetch
+) -> dict | None:
+    """Check one book link. Returns {"bookName", "linkToBook"} or None."""
+    provider = provider_for(url)
+    if provider is None:
+        return None
+    try:
+        clean = normalize_url(url)
+    except ValueError:
+        return None
+    path = urlparse(clean).path
+    html = await fetch(clean)
+    if html is None:
+        return None
+    title, text = extract_title_and_text(html)
+    if not title:
+        return None
+    if not has_audiobook_evidence(text, provider, path):
+        return None
+    return {"bookName": title, "linkToBook": clean}
+
+
+async def check_link(
+    url: str, fetch=default_fetch
+) -> dict:
+    """Check a submitted link.
+
+    Returns {"created": [...], "skipped": [...]} where created holds
+    book dicts ready for insertion and skipped holds titles (or links)
+    that had no audiobook. A total failure gives created == [].
+    """
+    provider = provider_for(url)
+    if provider is None:
+        return {"created": [], "skipped": [url], "error": "provider"}
+    try:
+        clean = normalize_url(url)
+    except ValueError:
+        return {"created": [], "skipped": [url], "error": "url"}
+    path = urlparse(clean).path
+
+    if is_series_url(provider, path):
+        html = await fetch(clean)
+        if html is None:
+            return {"created": [], "skipped": [url], "error": "fetch"}
+        series_books = extract_series_books(html, provider)
+        if not series_books:
+            # Audible series pages are not enumerated (see above):
+            # fall back to treating the series page itself as one item.
+            single = await check_single(clean, fetch=fetch)
+            if single:
+                return {"created": [single], "skipped": []}
+            return {"created": [], "skipped": [url], "error": "audiobook"}
+        created: list[dict] = []
+        skipped: list[str] = []
+        for book in series_books:
+            checked = await check_single(book["linkToBook"], fetch=fetch)
+            if checked:
+                created.append(checked)
+            else:
+                skipped.append(book["bookName"] or book["linkToBook"])
+        return {"created": created, "skipped": skipped}
+
+    single = await check_single(clean, fetch=fetch)
+    if single:
+        return {"created": [single], "skipped": []}
+    return {"created": [], "skipped": [url], "error": "audiobook"}

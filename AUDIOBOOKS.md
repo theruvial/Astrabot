@@ -52,8 +52,16 @@ run-book for the feature; the design document is the full spec.
   requests and Discord messages) and all requests (edit book name /
   link, Fulfill, Request Fulfilled, Reject with an optional reason,
   Delete). Dashboard actions send the same emails and update the
-  same Discord embeds as the Discord buttons. An "Admin dashboard"
-  link appears on the requests page only for the admin account.
+  same Discord embeds as the Discord buttons.
+- Admin routing / sidebar (2026-10-29): logging in as
+  `theruvial237@gmail.com` sends you straight to `/admin` (which
+  lands on `/admin/users`); an already-logged-in admin visiting `/`
+  is sent there too. There is **no** admin button on the regular
+  requests page — regular users never see one. The admin area is
+  split into two pages, `/admin/users` and `/admin/requests`, with a
+  narrow 72px icon sidebar on the left like Muse's sidebar (Users
+  person icon, Requests book icon, current section highlighted,
+  View site and Log out at the bottom).
 - Goodreads series (2026-10-29): only **primary works** are picked,
   not all works. The page's "X primary works" count caps the list in
   series order, and books headed with a range ("Book 1-3") are dropped

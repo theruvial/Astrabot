@@ -101,7 +101,8 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     btn.textContent = 'Create Account'; mode = 'create'; return;
   }
   if (!res.ok) { msg.textContent = 'Something went wrong. Please try again.'; return; }
-  window.location = '/requests';
+  const d = await res.json().catch(() => ({}));
+  window.location = d.isAdmin ? '/admin' : '/requests';
 });
 emailEl.addEventListener('input', () => {
   if (mode === 'create') { mode = 'login'; btn.textContent = 'Login'; msg.textContent = ''; }
@@ -129,7 +130,8 @@ document.getElementById('createForm').addEventListener('submit', async (e) => {
   msg.textContent = '';
   const res = await fetch('/api/users', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: emailEl.value, firstName: document.getElementById('firstName').value})});
   if (!res.ok) { const d = await res.json().catch(() => ({})); msg.textContent = d.error || 'Could not create the account. Please check the details and try again.'; return; }
-  window.location = '/requests';
+  const d = await res.json().catch(() => ({}));
+  window.location = d.isAdmin ? '/admin' : '/requests';
 });
 """
     return shell("Create Account — Audiobook Requests", body, script)
@@ -137,14 +139,15 @@ document.getElementById('createForm').addEventListener('submit', async (e) => {
 
 def requests_page() -> web.Response:
     body = """
-<div class="topbar"><h1>Audiobook Requests</h1><span><span id="adminLink"></span> <a class="btn" href="/new-request">New Request +</a></span></div>
+<div class="topbar"><h1>Audiobook Requests</h1><a class="btn" href="/new-request">New Request +</a></div>
 <div class="wrap"><div class="scrollbox" id="box">
 <div class="row head"><span>Book Name</span><span>Status</span><span>Requester name</span><span></span></div>
 <div id="rows"></div></div>
 <p><a href="/api/logout" onclick="event.preventDefault(); fetch('/api/logout', {method:'POST'}).then(()=>window.location='/');">Log out</a></p></div>"""
     script = """
 async function load() {
-  try { const me = await fetch('/api/me'); const d = await me.json(); if (d.isAdmin) document.getElementById('adminLink').innerHTML = '<a class="btn" href="/admin">Admin dashboard</a>'; } catch (e) {}
+  // No admin link lives on this page: admins are sent to /admin at
+  // login instead, so regular users never see an admin button here.
   const res = await fetch('/api/requests');
   if (res.status === 401) { window.location = '/'; return; }
   const data = await res.json();
@@ -199,30 +202,65 @@ document.getElementById('reqForm').addEventListener('submit', async (e) => {
     return shell("New Request — Audiobook Requests", body, script)
 
 
-def admin_page() -> web.Response:
-    body = """
+def admin_page(section: str = "users") -> web.Response:
+    """Admin dashboard, split into two pages with an icon sidebar.
+
+    The sidebar is a narrow icon rail like Muse's own sidebar: a
+    fixed 72px column on the left with one icon per section (Users,
+    Requests), the current section highlighted, and View site /
+    Log out at the bottom. Users and Requests are separate pages
+    (/admin/users, /admin/requests), not stacked on one page.
+    """
+    is_users = section == "users"
+    users_cls = " active" if is_users else ""
+    req_cls = " active" if not is_users else ""
+    sidebar = f"""
+<nav class="admin-sidebar" aria-label="Admin sections">
+<a href="/admin/users" class="side-icon{users_cls}" title="Users" aria-label="Users">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.5-6 8-6s8 2 8 6"/></svg><span>Users</span></a>
+<a href="/admin/requests" class="side-icon{req_cls}" title="Requests" aria-label="Requests">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5z"/><path d="M4 19a2 2 0 0 1 2-2h13"/><path d="M9 7h6"/></svg><span>Requests</span></a>
+<div class="side-spacer"></div>
+<a href="/requests" class="side-icon" title="View site" aria-label="View site">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18"/><path d="M12 3v18"/></svg><span>Site</span></a>
+<a href="/" class="side-icon" title="Log out" aria-label="Log out" onclick="event.preventDefault(); fetch('/api/logout', {{method:'POST'}}).then(()=>window.location='/');">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg><span>Log out</span></a>
+</nav>"""
+    style = """
 <style>
+.admin-layout { display: flex; min-height: 100vh; }
+.admin-sidebar { width: 72px; flex: 0 0 72px; background: #17141c; border-right: 1px solid #2b2930; display: flex; flex-direction: column; align-items: center; padding: 16px 0; gap: 8px; position: sticky; top: 0; height: 100vh; }
+.side-icon { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 56px; padding: 10px 0 8px; border-radius: 16px; color: #cac4d0; text-decoration: none; font-size: 11px; }
+.side-icon svg { width: 24px; height: 24px; }
+.side-icon:hover { background: #2b2930; color: #e6e0e9; }
+.side-icon.active { background: #4a4458; color: #fff; }
+.side-spacer { flex: 1; }
+.admin-main { flex: 1; min-width: 0; }
+.admin-main .wrap { max-width: 1100px; }
 .admin-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .admin-table th, .admin-table td { text-align: left; padding: 8px; border-bottom: 1px solid #49454f; vertical-align: top; }
 .admin-table input[type="text"], .admin-table input[type="email"], .admin-table input[type="url"] { width: 100%; }
 .small { padding: 6px 12px !important; font-size: 13px !important; margin: 2px; }
 .danger { background: #b3261e !important; color: #fff !important; }
-h2 { margin: 28px 0 12px; font-weight: 500; }
-</style>
-<div class="topbar"><h1>Admin Dashboard</h1><span><a class="btn" href="/requests">Requests</a> <a class="btn" href="/" onclick="event.preventDefault(); fetch('/api/logout', {method:'POST'}).then(()=>window.location='/');">Log out</a></span></div>
-<div class="wrap">
-<p class="msg error" id="msg"></p>
+h2 { margin: 8px 0 12px; font-weight: 500; }
+</style>"""
+    if is_users:
+        main = """
 <h2>Users</h2>
 <div class="scrollbox" style="max-height:none;"><table class="admin-table"><thead><tr><th>Email</th><th>First name</th><th>Created</th><th></th></tr></thead><tbody id="users"></tbody></table></div>
 <form id="createUserForm" style="margin-top:12px;">
 <input type="email" id="newEmail" placeholder="Email Address" style="max-width:260px;">
 <input type="text" id="newFirstName" placeholder="First Name" style="max-width:200px;">
 <button type="submit" class="small">Create user</button>
-</form>
+</form>"""
+    else:
+        main = """
 <h2>Requests</h2>
-<div class="scrollbox" style="max-height:none;"><table class="admin-table"><thead><tr><th>Book</th><th>Link</th><th>Status</th><th>Requester</th><th>Actions</th></tr></thead><tbody id="requests"></tbody></table></div>
-</div>"""
-    script = """
+<div class="scrollbox" style="max-height:none;"><table class="admin-table"><thead><tr><th>Book</th><th>Link</th><th>Status</th><th>Requester</th><th>Actions</th></tr></thead><tbody id="requests"></tbody></table></div>"""
+    body = (style + '<div class="admin-layout">' + sidebar +
+            '<main class="admin-main"><div class="topbar"><h1>Admin Dashboard</h1></div>'
+            '<div class="wrap"><p class="msg error" id="msg"></p>' + main + '</div></main></div>')
+    common = """
 const msg = document.getElementById('msg');
 function showMsg(text, ok) { msg.textContent = text; msg.className = 'msg ' + (ok ? 'success' : 'error'); }
 async function api(path, body) {
@@ -232,6 +270,9 @@ async function api(path, body) {
   return d;
 }
 function esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
+"""
+    if is_users:
+        script = common + """
 async function loadUsers() {
   const res = await fetch('/api/admin/users');
   if (res.status === 401) { window.location = '/'; return; }
@@ -243,12 +284,20 @@ async function loadUsers() {
     tr.innerHTML = '<td><input type="email" value="' + esc(u.email) + '"></td><td><input type="text" value="' + esc(u.firstName) + '"></td><td>' + esc(u.createdAt) + '</td><td></td>';
     const [emailEl, nameEl] = tr.querySelectorAll('input');
     const save = document.createElement('button'); save.className = 'small'; save.textContent = 'Save';
-    save.onclick = async () => { try { await api('/api/admin/users/edit', {oldEmail: u.email, email: emailEl.value, firstName: nameEl.value}); showMsg('User saved.', true); loadUsers(); loadRequests(); } catch (e) { showMsg(e.message); } };
+    save.onclick = async () => { try { await api('/api/admin/users/edit', {oldEmail: u.email, email: emailEl.value, firstName: nameEl.value}); showMsg('User saved.', true); loadUsers(); } catch (e) { showMsg(e.message); } };
     const del = document.createElement('button'); del.className = 'small danger'; del.textContent = 'Delete';
-    del.onclick = async () => { if (!confirm('Delete this user and all of their requests?')) return; try { await api('/api/admin/users/delete', {email: u.email}); showMsg('User deleted.', true); loadUsers(); loadRequests(); } catch (e) { showMsg(e.message); } };
+    del.onclick = async () => { if (!confirm('Delete this user and all of their requests?')) return; try { await api('/api/admin/users/delete', {email: u.email}); showMsg('User deleted.', true); loadUsers(); } catch (e) { showMsg(e.message); } };
     tr.lastElementChild.append(save, del); tbody.appendChild(tr);
   }
 }
+document.getElementById('createUserForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try { await api('/api/admin/users/create', {email: document.getElementById('newEmail').value, firstName: document.getElementById('newFirstName').value}); showMsg('User created.', true); loadUsers(); } catch (err) { showMsg(err.message); }
+});
+loadUsers();
+"""
+    else:
+        script = common + """
 async function loadRequests() {
   const res = await fetch('/api/admin/requests');
   if (!res.ok) { showMsg('Could not load requests.'); return; }
@@ -284,11 +333,7 @@ async function loadRequests() {
     tbody.appendChild(tr);
   }
 }
-document.getElementById('createUserForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  try { await api('/api/admin/users/create', {email: document.getElementById('newEmail').value, firstName: document.getElementById('newFirstName').value}); showMsg('User created.', true); loadUsers(); } catch (err) { showMsg(err.message); }
-});
-loadUsers(); loadRequests();
+loadRequests();
 """
     return shell("Admin Dashboard — Audiobook Requests", body, script)
 
@@ -330,8 +375,12 @@ class AudiobooksWeb:
 
     # -- pages ---------------------------------------------------------
     async def index(self, request: web.Request) -> web.Response:
-        if self._session_email(request):
-            raise web.HTTPFound("/requests")
+        email = self._session_email(request)
+        if email:
+            # Already logged in: admins go straight to the dashboard,
+            # everyone else to their requests. This keeps an admin
+            # from landing on the regular requests page after login.
+            raise web.HTTPFound("/admin" if self.cog.is_dashboard_admin(email) else "/requests")
         return login_page()
 
     async def create_account_page(self, request: web.Request) -> web.Response:
@@ -360,7 +409,7 @@ class AudiobooksWeb:
             return web.json_response({"error": "invalid"}, status=400)
         if self.db.get_user(email) is None:
             return web.json_response({"error": "not_found"}, status=404)
-        resp = web.json_response({"ok": True})
+        resp = web.json_response({"ok": True, "isAdmin": self.cog.is_dashboard_admin(email)})
         self._set_session(resp, email)
         return resp
 
@@ -376,7 +425,7 @@ class AudiobooksWeb:
         if not first_name:
             return web.json_response({"error": "First name is required."}, status=400)
         self.db.get_or_create_user(email, first_name)
-        resp = web.json_response({"ok": True})
+        resp = web.json_response({"ok": True, "isAdmin": self.cog.is_dashboard_admin(email)})
         self._set_session(resp, email)
         return resp
 
@@ -491,7 +540,10 @@ class AudiobooksWeb:
             raise web.HTTPFound("/")
         if not self._admin_email(request):
             return web.Response(text="Forbidden: this dashboard is only for the admin account.", status=403)
-        return admin_page()
+        if request.path.rstrip("/") == "/admin":
+            raise web.HTTPFound("/admin/users")
+        section = "requests" if request.path.rstrip("/") == "/admin/requests" else "users"
+        return admin_page(section)
 
     async def api_me(self, request: web.Request) -> web.Response:
         email = self._session_email(request)
@@ -670,6 +722,8 @@ class AudiobooksWeb:
         app.router.add_get("/requests", self.requests_html)
         app.router.add_get("/new-request", self.new_request_html)
         app.router.add_get("/admin", self.admin_html)
+        app.router.add_get("/admin/users", self.admin_html)
+        app.router.add_get("/admin/requests", self.admin_html)
         app.router.add_get("/api/me", self.api_me)
         app.router.add_get("/api/admin/users", self.api_admin_users)
         app.router.add_post("/api/admin/users/create", self.api_admin_create_user)

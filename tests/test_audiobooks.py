@@ -1,7 +1,7 @@
 """Tests for the audiobook-request DB and provider logic.
 
 Run from the repo root:  python -m unittest discover -s tests -v
-No Discord token, network, or SMS provider is needed: provider checks
+No Discord token, network, or email provider is needed: provider checks
 use a fake fetcher returning canned HTML.
 """
 
@@ -13,23 +13,23 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cogs.audiobooks_db import AudiobooksDB, format_phone, normalize_phone
+from cogs.audiobooks_db import AudiobooksDB, mask_email, normalize_email
 from cogs.audiobooks_providers import check_link, provider_for
 
 
-class PhoneTests(unittest.TestCase):
+class EmailTests(unittest.TestCase):
     def test_normalize(self):
-        self.assertEqual(normalize_phone("727-266-9924"), "7272669924")
-        self.assertEqual(normalize_phone("(727) 266-9924"), "7272669924")
-        self.assertEqual(normalize_phone("7272669924"), "7272669924")
+        self.assertEqual(normalize_email("  Thea@Example.COM "), "thea@example.com")
+        self.assertEqual(normalize_email("thea@example.com"), "thea@example.com")
 
-    def test_rejects_short_and_11_digit(self):
-        self.assertIsNone(normalize_phone("727-266-992"))
-        self.assertIsNone(normalize_phone("17272669924"))
-        self.assertIsNone(normalize_phone(""))
+    def test_rejects_invalid(self):
+        self.assertIsNone(normalize_email("not-an-email"))
+        self.assertIsNone(normalize_email("thea@"))
+        self.assertIsNone(normalize_email("thea@example"))
+        self.assertIsNone(normalize_email(""))
 
-    def test_format(self):
-        self.assertEqual(format_phone("7272669924"), "727-266-9924")
+    def test_mask(self):
+        self.assertEqual(mask_email("thea@example.com"), "t***@example.com")
 
 
 class DBTests(unittest.TestCase):
@@ -43,19 +43,19 @@ class DBTests(unittest.TestCase):
         os.unlink(self.tmp.name)
 
     def test_user_and_session_roundtrip(self):
-        user = self.db.get_or_create_user("7272669924", "Thea")
+        user = self.db.get_or_create_user("thea@example.com", "Thea")
         self.assertEqual(user["firstName"], "Thea")
         # Idempotent: no duplicate, same user back.
-        again = self.db.get_or_create_user("7272669924", "Thea")
-        self.assertEqual(again["phoneNumber"], "7272669924")
-        token = self.db.create_session("7272669924")
-        self.assertEqual(self.db.session_phone(token), "7272669924")
+        again = self.db.get_or_create_user("thea@example.com", "Thea")
+        self.assertEqual(again["email"], "thea@example.com")
+        token = self.db.create_session("thea@example.com")
+        self.assertEqual(self.db.session_email(token), "thea@example.com")
         self.db.delete_session(token)
-        self.assertIsNone(self.db.session_phone(token))
+        self.assertIsNone(self.db.session_email(token))
 
     def test_requests_and_cancel(self):
-        self.db.get_or_create_user("7272669924", "Thea")
-        rows = self.db.create_requests("7272669924", [
+        self.db.get_or_create_user("thea@example.com", "Thea")
+        rows = self.db.create_requests("thea@example.com", [
             {"bookName": "Dune", "linkToBook": "https://www.audible.com/pd/Dune-Audiobook/B00TEST"},
         ])
         self.assertEqual(len(rows), 1)

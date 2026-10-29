@@ -6,23 +6,25 @@ run-book for the feature; the design document is the full spec.
 
 ## What it does
 
-- A Material Design website where people log in with a 10-digit
-  cellphone number, see all audiobook requests, and submit new ones by
+- A Material Design website where people log in with an email
+  address, see all audiobook requests, and submit new ones by
   pasting a link from Audible, Spotify, Apple Books, Google Books, or
-  Goodreads.
+  Goodreads. (2026-10-29: migrated from phone-number login to email
+  login at Thea's request; old phone-based accounts are preserved in
+  `*_phone_legacy` tables and must re-create an account with email.)
 - Requests live in a SQLite database called `audiobooks`
   (`audiobooks.db` by default), tables `users` and `requests`.
 - A new Astrabot cog (`cogs/audiobooks.py`) serves the website with
   aiohttp (already a discord.py dependency, same event loop as the bot)
   and posts one Discord embed per request to a configured channel.
 - Discord buttons, in order:
-  1. **Fulfill Request** — status `In Progress`, requester texted that
+  1. **Fulfill Request** — status `In Progress`, requester emailed that
      Thea has begun working on it. The button is then replaced by
      **Request Fulfilled**.
-  2. **Request Fulfilled** — status `Fulfilled`, requester texted:
+  2. **Request Fulfilled** — status `Fulfilled`, requester emailed:
      `The requested book {book} has been added to the server`.
   3. **Reject Request** — the row is hard-deleted from the database and
-     the requester is texted:
+     the requester is emailed:
      `Request Rejected for {book} Speak to Thea for more information`.
 - Series links: a request is created for each book in the series that
   has an audiobook; books without one are skipped and listed back to
@@ -33,11 +35,11 @@ run-book for the feature; the design document is the full spec.
 
 - `cogs/audiobooks.py` — cog, Discord persistent views, embed handling
 - `cogs/audiobooks_db.py` — SQLite schema, users/requests/sessions,
-  phone normalisation (`727-266-9924` <-> `7272669924`)
+  email normalisation (lowercased, validated)
 - `cogs/audiobooks_providers.py` — provider allowlist, audiobook
   evidence checks, series enumeration
 - `cogs/audiobooks_web.py` — aiohttp pages + API, session cookies
-- `cogs/audiobooks_notify.py` — SMS notifier (Twilio via env vars)
+- `cogs/audiobooks_notify.py` — email notifier (SMTP via env vars or config)
 - `cogs/__init__.py` — makes `cogs` a regular package so the cog's
   relative imports work
 - `bot.py` — `"cogs.audiobooks"` added to `startup_extensions`, and
@@ -83,33 +85,35 @@ and override the config values:
   guild owner and the bot application's owner may still click the
   buttons (fix 2026-10-29: the old code read `bot.owner_id` directly,
   which Astrabot never sets, so everyone was denied).
-- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` —
-  SMS provider, as environment variables on the machine running the
-  bot. Alternatively, put them in the config's `audiobooks` object as
-  `sms: { "account_sid": "...", "auth_token": "...",
-  "from_number": "+1..." }` — environment variables win if both are
-  set. Without any of these, texts are logged (number masked) and
-  reported to the admin as not sent; statuses still update.
-- Trial warning: a Twilio trial account can only text numbers you
-  have verified with Twilio, and trial texts are prefixed. To text
-  arbitrary requesters, upgrade Twilio to a paid account.
+- `EMAIL_SMTP_HOST` (default `smtp.gmail.com`), `EMAIL_SMTP_PORT`
+  (default 587; 465 for implicit TLS), `EMAIL_SMTP_USER`,
+  `EMAIL_SMTP_PASSWORD`, `EMAIL_FROM_ADDRESS` (defaults to the SMTP
+  user) — email provider, as environment variables on the machine
+  running the bot. Alternatively, put them in the config's
+  `audiobooks` object as `email: { "smtp_host": "...",
+  "smtp_port": 587, "smtp_user": "...", "smtp_password": "...",
+  "from_address": "..." }` — environment variables win if both are
+  set. For Gmail, the password must be an app password, not the Google
+  account password. Without any of these, emails are logged (address
+  masked) and reported to the admin as not sent; statuses still update.
+  SMS/Twilio is no longer used (removed 2026-10-29).
 
 ## Running
 
 1. Check out branch `audiobook-requests`.
 2. Set `AUDIOBOOKS_CHANNEL_ID` and `AUDIOBOOKS_ADMIN_IDS` (and the
-   Twilio variables if SMS is wanted).
+   email SMTP variables if email notifications are wanted).
 3. Start the bot as usual (`bot.py`). The website is served on the
    configured host/port while the bot runs; the bot must be running
    for the website and the Discord buttons to work.
-4. Open the website, log in with a 10-digit phone number, and use
+4. Open the website, log in with an email address, and use
    **New Request +**.
 
 ## Still needed from Thea (see design doc §15)
 
 - Discord channel ID for request embeds
 - Admin Discord user IDs
-- SMS provider confirmation (Twilio is assumed; sender number needed)
+- Email sender setup (SMTP host/user/password, or a sender address in config)
 - How the site will be hosted/exposed (localhost by default — do not
   expose it publicly without HTTPS / a reverse proxy)
 - Final wording approval for the Fulfill text (the Reject and

@@ -4,7 +4,7 @@ Pages: / (login), /create-account, /requests, /new-request.
 API: /api/login, /api/users, /api/requests, /api/requests/{id}/cancel.
 
 The design document's exact UI rules live here:
-- White text input, grey lower-opacity placeholder "Cellphone Number"
+- White text input, grey lower-opacity placeholder "Email Address"
   that disappears on focus, typed text black.
 - Login button underneath, padded, right edge aligned with the input.
 - Enter submits exactly like the button (real <form> submits).
@@ -28,7 +28,7 @@ from urllib.parse import parse_qs, urlparse
 
 from aiohttp import web
 
-from .audiobooks_db import format_phone, normalize_phone
+from .audiobooks_db import normalize_email
 from .audiobooks_providers import check_link
 
 log = logging.getLogger("audiobooks.web")
@@ -46,7 +46,7 @@ a { color: #6750a4; }
 .msg.success { color: #1e7a34; }
 .msg.note { color: #49454f; }
 label { display: block; font-size: 13px; color: #49454f; margin: 12px 0 4px; }
-input[type="text"], input[type="tel"], input[type="url"] { width: 100%; background: #fff; color: #000; border: 1.5px solid #79747e; border-radius: 8px; padding: 12px 14px; font-size: 16px; outline: none; }
+input[type="text"], input[type="email"], input[type="url"] { width: 100%; background: #fff; color: #000; border: 1.5px solid #79747e; border-radius: 8px; padding: 12px 14px; font-size: 16px; outline: none; }
 input:focus { border-color: #6750a4; box-shadow: 0 0 0 2px rgba(103,80,164,.25); }
 input::placeholder { color: #79747e; opacity: 0.6; }
 .btn-row { display: flex; justify-content: flex-end; margin-top: 16px; }
@@ -67,19 +67,6 @@ button:disabled { opacity: .55; cursor: default; }
 .chip.cancelled { background: #e0e0e0; }
 """
 
-PHONE_JS = """
-function fmtPhone(v) {
-  const d = v.replace(/\\D/g, '').slice(0, 10);
-  if (d.length <= 3) return d;
-  if (d.length <= 6) return d.slice(0,3) + '-' + d.slice(3);
-  return d.slice(0,3) + '-' + d.slice(3,6) + '-' + d.slice(6);
-}
-function bindPhone(el) {
-  el.addEventListener('input', () => { el.value = fmtPhone(el.value); });
-}
-"""
-
-
 def shell(title: str, body: str, script: str = "") -> web.Response:
     page = f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -93,22 +80,21 @@ def login_page() -> web.Response:
 <div class="center"><div class="card"><h1>Audiobook Requests</h1>
 <p class="msg error" id="msg"></p>
 <form id="loginForm">
-<input type="tel" id="phone" inputmode="tel" autocomplete="tel" placeholder="Cellphone Number" autofocus>
+<input type="email" id="email" autocomplete="email" placeholder="Email Address" autofocus>
 <div class="btn-row"><button type="submit" id="actionBtn">Login</button></div>
 </form></div></div>"""
-    script = PHONE_JS + """
-const phoneEl = document.getElementById('phone');
+    script = """
+const emailEl = document.getElementById('email');
 const btn = document.getElementById('actionBtn');
 const msg = document.getElementById('msg');
-bindPhone(phoneEl);
 let mode = 'login';
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const phone = phoneEl.value;
-  if (mode === 'create') { window.location = '/create-account?phone=' + encodeURIComponent(phone); return; }
+  const email = emailEl.value;
+  if (mode === 'create') { window.location = '/create-account?email=' + encodeURIComponent(email); return; }
   msg.textContent = ''; msg.className = 'msg error';
-  const res = await fetch('/api/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phoneNumber: phone})});
-  if (res.status === 400) { msg.textContent = 'Invalid phone number entered.'; return; }
+  const res = await fetch('/api/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: email})});
+  if (res.status === 400) { msg.textContent = 'Invalid email address entered.'; return; }
   if (res.status === 404) {
     msg.textContent = "An account doesn't exist yet.";
     btn.textContent = 'Create Account'; mode = 'create'; return;
@@ -116,32 +102,31 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   if (!res.ok) { msg.textContent = 'Something went wrong. Please try again.'; return; }
   window.location = '/requests';
 });
-phoneEl.addEventListener('input', () => {
+emailEl.addEventListener('input', () => {
   if (mode === 'create') { mode = 'login'; btn.textContent = 'Login'; msg.textContent = ''; }
 });
 """
     return shell("Login — Audiobook Requests", body, script)
 
 
-def create_page(phone: str) -> web.Response:
+def create_page(email: str) -> web.Response:
     body = f"""
 <div class="center"><div class="card"><h1>Create Account</h1>
 <p class="msg error" id="msg"></p>
 <form id="createForm">
-<label for="phone">Cellphone Number</label>
-<input type="tel" id="phone" inputmode="tel" autocomplete="tel" placeholder="Cellphone Number" value="{html.escape(format_phone(phone) if phone else '')}">
+<label for="email">Email Address</label>
+<input type="email" id="email" autocomplete="email" placeholder="Email Address" value="{html.escape(email)}">
 <label for="firstName">First Name</label>
 <input type="text" id="firstName" autocomplete="given-name" placeholder="First Name" autofocus>
 <div class="btn-row"><button type="submit">Create Account</button></div>
 </form></div></div>"""
-    script = PHONE_JS + """
-const phoneEl = document.getElementById('phone');
+    script = """
+const emailEl = document.getElementById('email');
 const msg = document.getElementById('msg');
-bindPhone(phoneEl);
 document.getElementById('createForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   msg.textContent = '';
-  const res = await fetch('/api/users', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phoneNumber: phoneEl.value, firstName: document.getElementById('firstName').value})});
+  const res = await fetch('/api/users', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: emailEl.value, firstName: document.getElementById('firstName').value})});
   if (!res.ok) { const d = await res.json().catch(() => ({})); msg.textContent = d.error || 'Could not create the account. Please check the details and try again.'; return; }
   window.location = '/requests';
 });
@@ -236,35 +221,33 @@ class AudiobooksWeb:
         self._rate[key] = hits
         return True
 
-    def _session_phone(self, request: web.Request) -> str | None:
-        return self.db.session_phone(request.cookies.get(COOKIE))
+    def _session_email(self, request: web.Request) -> str | None:
+        return self.db.session_email(request.cookies.get(COOKIE))
 
     def _require_session(self, request: web.Request) -> str | None:
-        return self._session_phone(request)
+        return self._session_email(request)
 
-    def _set_session(self, response: web.Response, phone: str) -> None:
-        token = self.db.create_session(phone)
+    def _set_session(self, response: web.Response, email: str) -> None:
+        token = self.db.create_session(email)
         response.set_cookie(COOKIE, token, httponly=True, samesite="Lax",
                             path="/", max_age=30 * 24 * 3600)
 
     # -- pages ---------------------------------------------------------
     async def index(self, request: web.Request) -> web.Response:
-        if self._session_phone(request):
+        if self._session_email(request):
             raise web.HTTPFound("/requests")
         return login_page()
 
     async def create_account_page(self, request: web.Request) -> web.Response:
-        phone = request.query.get("phone", "")
-        digits = "".join(ch for ch in phone if ch.isdigit())
-        return create_page(digits)
+        return create_page(request.query.get("email", ""))
 
     async def requests_html(self, request: web.Request) -> web.Response:
-        if not self._session_phone(request):
+        if not self._session_email(request):
             raise web.HTTPFound("/")
         return requests_page()
 
     async def new_request_html(self, request: web.Request) -> web.Response:
-        if not self._session_phone(request):
+        if not self._session_email(request):
             raise web.HTTPFound("/")
         return new_request_page()
 
@@ -276,13 +259,13 @@ class AudiobooksWeb:
             data = await request.json()
         except Exception:
             return web.json_response({"error": "invalid"}, status=400)
-        phone = normalize_phone(data.get("phoneNumber"))
-        if phone is None:
+        email = normalize_email(data.get("email"))
+        if email is None:
             return web.json_response({"error": "invalid"}, status=400)
-        if self.db.get_user(phone) is None:
+        if self.db.get_user(email) is None:
             return web.json_response({"error": "not_found"}, status=404)
         resp = web.json_response({"ok": True})
-        self._set_session(resp, phone)
+        self._set_session(resp, email)
         return resp
 
     async def api_create_user(self, request: web.Request) -> web.Response:
@@ -290,20 +273,20 @@ class AudiobooksWeb:
             data = await request.json()
         except Exception:
             return web.json_response({"error": "Invalid details."}, status=400)
-        phone = normalize_phone(data.get("phoneNumber"))
+        email = normalize_email(data.get("email"))
         first_name = (data.get("firstName") or "").strip()
-        if phone is None:
-            return web.json_response({"error": "Invalid phone number entered."}, status=400)
+        if email is None:
+            return web.json_response({"error": "Invalid email address entered."}, status=400)
         if not first_name:
             return web.json_response({"error": "First name is required."}, status=400)
-        self.db.get_or_create_user(phone, first_name)
+        self.db.get_or_create_user(email, first_name)
         resp = web.json_response({"ok": True})
-        self._set_session(resp, phone)
+        self._set_session(resp, email)
         return resp
 
     async def api_list_requests(self, request: web.Request) -> web.Response:
-        phone = self._session_phone(request)
-        if not phone:
+        email = self._session_email(request)
+        if not email:
             return web.json_response({"error": "unauthorized"}, status=401)
         rows = []
         for row in self.db.list_requests():
@@ -312,16 +295,16 @@ class AudiobooksWeb:
                 "bookName": row["bookName"],
                 "status": row["status"],
                 "requesterName": row.get("requesterName") or "",
-                "isMine": row["requester"] == phone,
+                "isMine": row["requester"] == email,
                 "linkToBook": row["linkToBook"],
             })
         return web.json_response({"requests": rows})
 
     async def api_create_request(self, request: web.Request) -> web.Response:
-        phone = self._session_phone(request)
-        if not phone:
+        email = self._session_email(request)
+        if not email:
             return web.json_response({"error": "unauthorized"}, status=401)
-        if not self._rate_ok(f"req:{phone}", 5):
+        if not self._rate_ok(f"req:{email}", 5):
             return web.json_response({"error": "Too many requests. Please wait a minute."}, status=429)
         try:
             data = await request.json()
@@ -338,7 +321,7 @@ class AudiobooksWeb:
                  "created": [], "skipped": result.get("skipped", [])},
                 status=400,
             )
-        rows = self.db.create_requests(phone, created_books)
+        rows = self.db.create_requests(email, created_books)
         for row in rows:
             try:
                 await self.cog.send_request_embed(row)
@@ -350,8 +333,8 @@ class AudiobooksWeb:
         )
 
     async def api_cancel_request(self, request: web.Request) -> web.Response:
-        phone = self._session_phone(request)
-        if not phone:
+        email = self._session_email(request)
+        if not email:
             return web.json_response({"error": "unauthorized"}, status=401)
         try:
             request_id = int(request.match_info["request_id"])
@@ -360,7 +343,7 @@ class AudiobooksWeb:
         row = self.db.get_request(request_id)
         if row is None:
             return web.json_response({"error": "not_found"}, status=404)
-        if row["requester"] != phone:
+        if row["requester"] != email:
             return web.json_response({"error": "forbidden"}, status=403)
         if row["status"] in ("Cancelled", "Fulfilled"):
             return web.json_response({"error": "already_closed"}, status=409)

@@ -13,7 +13,7 @@ Configuration (no secrets in code or in a committed file):
 - Environment variables override / fill in the same keys:
   AUDIOBOOKS_CHANNEL_ID, AUDIOBOOKS_WEB_HOST, AUDIOBOOKS_WEB_PORT,
   AUDIOBOOKS_DB_PATH, AUDIOBOOKS_ADMIN_IDS (comma-separated Discord
-  user IDs), plus TWILIO_* for SMS (see audiobooks_notify.py).
+  user IDs), plus EMAIL_SMTP_* for email (see audiobooks_notify.py).
 - Defaults: web on 127.0.0.1:8080, database audiobooks.db next to the
   bot, no admin IDs. With no admin IDs, the guild owner and the bot
   application's owner (via ``Bot.is_owner()``) may still click the
@@ -23,11 +23,11 @@ Configuration (no secrets in code or in a committed file):
 Discord flow (persistent views, discord.py):
 - New request -> embed with Fulfill Request + Reject Request.
 - Fulfill -> status In Progress, Fulfill is replaced by
-  Request Fulfilled, Reject stays available, requester is texted.
+  Request Fulfilled, Reject stays available, requester is emailed.
 - Request Fulfilled -> status Fulfilled, all buttons disabled,
-  requester is texted that the book has been added to the server.
+  requester is emailed that the book has been added to the server.
 - Reject -> row is hard-deleted, embed is edited to Rejected with
-  buttons disabled, requester is texted the exact rejection message.
+  buttons disabled, requester is emailed the exact rejection message.
 - Requester web cancel -> status Cancelled, embed disabled.
 Buttons are routed by the Discord message ID stored on the request
 row, so the same two persistent views work after a bot restart.
@@ -42,7 +42,7 @@ import discord
 from discord.ext import commands
 
 from .audiobooks_db import AudiobooksDB
-from .audiobooks_notify import configure_sms, send_text
+from .audiobooks_notify import configure_email, send_email
 from .audiobooks_web import AudiobooksWeb
 
 log = logging.getLogger("audiobooks")
@@ -94,6 +94,19 @@ def _audiobooks_config(bot) -> dict:
             if part.isdigit():
                 ids.append(int(part))
         cfg["admin_user_ids"] = ids
+    email_cfg = dict(cfg.get("email") or {})
+    _env_map = {
+        "EMAIL_SMTP_HOST": "smtp_host",
+        "EMAIL_SMTP_PORT": "smtp_port",
+        "EMAIL_SMTP_USER": "smtp_user",
+        "EMAIL_SMTP_PASSWORD": "smtp_password",
+        "EMAIL_FROM_ADDRESS": "from_address",
+    }
+    for env_key, cfg_key in _env_map.items():
+        if os.environ.get(env_key):
+            email_cfg[cfg_key] = os.environ[env_key]
+    if email_cfg:
+        cfg["email"] = email_cfg
     return cfg
 
 
@@ -165,9 +178,9 @@ class Audiobooks(commands.Cog):
     def __init__(self, bot, *, db=None, notifier=None, config_override=None):
         self.bot = bot
         self.config = config_override if config_override is not None else _audiobooks_config(bot)
-        configure_sms(self.config.get("sms") or {})
+        configure_email(self.config.get("email") or {})
         self.db = db if db is not None else AudiobooksDB(self.config.get("db_path", "audiobooks.db"))
-        self.notifier = notifier if notifier is not None else send_text
+        self.notifier = notifier if notifier is not None else send_email
         self.web = AudiobooksWeb(self)
         self._web_runner = None
         self._web_site = None
@@ -340,11 +353,12 @@ class Audiobooks(commands.Cog):
             await self.update_embed_for_request(updated)
             sent = await self.notifier(
                 row["requester"],
+                "Your audiobook request is being worked on",
                 f"Hi {row.get('requesterName') or 'there'}, Thea has begun "
                 f"working on your request for {row['bookName']}.",
             )
             await interaction.followup.send(
-                "Marked In Progress." + ("" if sent else " (The text message could not be sent -- please follow up manually.)"),
+                "Marked In Progress." + ("" if sent else " (The email could not be sent -- please follow up manually.)"),
                 ephemeral=True,
             )
             return
@@ -362,10 +376,11 @@ class Audiobooks(commands.Cog):
             await self.update_embed_for_request(updated, disabled=True)
             sent = await self.notifier(
                 row["requester"],
+                "Your audiobook request has been fulfilled",
                 f"The requested book {row['bookName']} has been added to the server",
             )
             await interaction.followup.send(
-                "Marked Fulfilled." + ("" if sent else " (The text message could not be sent -- please follow up manually.)"),
+                "Marked Fulfilled." + ("" if sent else " (The email could not be sent -- please follow up manually.)"),
                 ephemeral=True,
             )
             return
@@ -375,9 +390,9 @@ class Audiobooks(commands.Cog):
                 await interaction.followup.send(
                     "That request is already fulfilled and cannot be rejected.", ephemeral=True)
                 return
-            # Load the phone number BEFORE deleting the row -- deleting
-            # first and then trying to find who to text is a bug.
-            phone = row["requester"]
+            # Load the email address BEFORE deleting the row -- deleting
+            # first and then trying to find who to email is a bug.
+            email = row["requester"]
             book = row["bookName"]
             self.db.delete_request(row["id"])
             rejected_row = dict(row)
@@ -396,11 +411,12 @@ class Audiobooks(commands.Cog):
             except Exception as exc:  # noqa: BLE001
                 log.warning("Could not edit rejected embed %s: %s", row["id"], exc)
             sent = await self.notifier(
-                phone,
+                email,
+                f"Request Rejected for {book}",
                 f"Request Rejected for {book} Speak to Thea for more information",
             )
             await interaction.followup.send(
-                "Rejected." + ("" if sent else " (The text message could not be sent -- please follow up manually.)"),
+                "Rejected." + ("" if sent else " (The email could not be sent -- please follow up manually.)"),
                 ephemeral=True,
             )
             return

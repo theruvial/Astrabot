@@ -1,18 +1,26 @@
-"""Text-message (SMS) notifier for audiobook requests.
+"""Email notifier for audiobook requests.
 
-The only contact detail the system collects is a cellphone number, so
-"send a text" means SMS. Twilio is the assumed provider, but it is
-isolated behind ``send_text`` so another provider can be swapped in
-without touching the cog or the web handlers.
+Previously this was SMS (Twilio); 2026-10-29 migrated everything to
+email. The only contact detail the system collects is now an email
+address, so "notify the requester" means send an email.
 
-Credentials are read from environment variables first, and otherwise
-from a ``sms`` dict passed in by the cog (from the bot config's
-``audiobooks.sms`` object, if Thea added one there). They are never
-logged. If SMS is not configured, sending fails loudly in the log
-(with a masked number) and returns False -- callers must then tell the
-admin the text did not go out, rather than pretending it did.
+Sending is plain SMTP (stdlib ``smtplib`` only, no new dependency),
+configured from environment variables first, and otherwise from an
+``email`` dict passed in by the cog (from the bot config's
+``audiobooks.email`` object). Supported keys:
 
-Note: putting the Auth Token in ``config.json`` means it lives in
+- ``smtp_host`` (default ``smtp.gmail.com``)
+- ``smtp_port`` (default 587; use 465 for implicit TLS)
+- ``smtp_user`` / ``smtp_password``
+- ``from_address`` (defaults to ``smtp_user``)
+
+For Gmail, ``smtp_password`` must be an app password, not the Google
+account password. Credentials are never logged. If email is not
+configured, sending fails loudly in the log (with a masked address)
+and returns False -- callers must then tell the admin the email did
+not go out, rather than pretending it did.
+
+Note: putting the SMTP password in ``config.json`` means it lives in
 that branch's git history. Thea explicitly accepted that trade-off
 for the bot config on this branch; environment variables remain the
 safer option for any repo that might ever become public.
@@ -21,67 +29,75 @@ safer option for any repo that might ever become public.
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 import os
-import urllib.parse
-import urllib.request
+import smtplib
+from email.message import EmailMessage
 
-from .audiobooks_db import mask_phone
+from .audiobooks_db import mask_email
 
 log = logging.getLogger("audiobooks.notify")
 
 # Optional config-file credentials, set by the cog from
-# config["audiobooks"]["sms"]. Environment variables win if both exist.
+# config["audiobooks"]["email"]. Environment variables win if both exist.
 _CONFIG: dict = {}
 
 
-def configure_sms(config_sms: dict | None) -> None:
+def configure_email(config_email: dict | None) -> None:
     global _CONFIG
-    _CONFIG = dict(config_sms or {})
+    _CONFIG = dict(config_email or {})
 
 
-def _creds() -> tuple[str | None, str | None, str | None]:
-    return (
-        os.environ.get("TWILIO_ACCOUNT_SID") or _CONFIG.get("account_sid"),
-        os.environ.get("TWILIO_AUTH_TOKEN") or _CONFIG.get("auth_token"),
-        os.environ.get("TWILIO_FROM_NUMBER") or _CONFIG.get("from_number"),
-    )
-
-
-def sms_configured() -> bool:
-    sid, token, from_number = _creds()
-    return bool(sid and token and from_number)
-
-
-def _send_twilio_sync(phone: str, message: str) -> bool:
-    sid, token, from_number = _creds()
-    assert sid and token and from_number  # guarded by sms_configured()
-    data = urllib.parse.urlencode(
-        {"To": f"+1{phone}", "From": from_number, "Body": message}
-    ).encode()
-    req = urllib.request.Request(
-        f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json",
-        data=data,
-        method="POST",
-    )
-    auth = base64.b64encode(f"{sid}:{token}".encode()).decode()
-    req.add_header("Authorization", f"Basic {auth}")
+def _creds() -> tuple[str, int, str | None, str | None, str | None]:
+    host = os.environ.get("EMAIL_SMTP_HOST") or _CONFIG.get("smtp_host") or "smtp.gmail.com"
+    port_raw = os.environ.get("EMAIL_SMTP_PORT") or _CONFIG.get("smtp_port") or 587
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return 200 <= resp.status < 300
+        port = int(port_raw)
+    except (TypeError, ValueError):
+        port = 587
+    user = os.environ.get("EMAIL_SMTP_USER") or _CONFIG.get("smtp_user")
+    password = os.environ.get("EMAIL_SMTP_PASSWORD") or _CONFIG.get("smtp_password")
+    from_address = (
+        os.environ.get("EMAIL_FROM_ADDRESS") or _CONFIG.get("from_address") or user
+    )
+    return host, port, user, password, from_address
+
+
+def email_configured() -> bool:
+    host, port, user, password, from_address = _creds()
+    return bool(user and password and from_address)
+
+
+def _send_email_sync(to_email: str, subject: str, body: str) -> bool:
+    host, port, user, password, from_address = _creds()
+    assert user and password and from_address  # guarded by email_configured()
+    msg = EmailMessage()
+    msg["From"] = from_address
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.set_content(body)
+    try:
+        if port == 465:
+            server = smtplib.SMTP_SSL(host, port, timeout=15)
+        else:
+            server = smtplib.SMTP(host, port, timeout=15)
+            server.starttls()
+        with server:
+            server.login(user, password)
+            server.send_message(msg)
+        return True
     except Exception as exc:  # noqa: BLE001 -- log and report, don't crash
-        log.warning("SMS send failed for %s: %s", mask_phone(phone), exc)
+        log.warning("Email send failed for %s: %s", mask_email(to_email), exc)
         return False
 
 
-async def send_text(phone: str, message: str) -> bool:
-    """Send an SMS. Returns True on success, False otherwise."""
-    if not sms_configured():
+async def send_email(to_email: str, subject: str, body: str) -> bool:
+    """Send an email. Returns True on success, False otherwise."""
+    if not email_configured():
         log.warning(
-            "SMS not configured -- would have sent to %s: %s",
-            mask_phone(phone),
-            message,
+            "Email not configured -- would have sent to %s: %s",
+            mask_email(to_email),
+            body,
         )
         return False
-    return await asyncio.to_thread(_send_twilio_sync, phone, message)
+    return await asyncio.to_thread(_send_email_sync, to_email, subject, body)

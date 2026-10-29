@@ -16,7 +16,6 @@ startup_extensions = [
     # "cogs.shop",
     # "cogs.pet",
     # "cogs.tasks",
-    "cogs.music",
     "cogs.clip",
     "cogs.audiobooks",
 ]

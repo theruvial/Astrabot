@@ -71,11 +71,12 @@ run-book for the feature; the design document is the full spec.
   the admin dashboard. Goodreads links were tested by Thea herself
   2026-10-29; no further Goodreads testing was needed.
 - Requests topbar links (2026-10-29): the /requests topbar now also
-  has "Create account" (https://signup.theruvial.com, the absLogin
-  signup page) and "Sign in to Audiobookshelf"
+  has "Create account" (https://audio.theruvial.com/signup, the
+  absLogin signup page served as a path on the Audiobookshelf domain)
+  and "Sign in to Audiobookshelf"
   (https://audio.theruvial.com/login), alongside "New Request +".
-  The signup link only works once signup.theruvial.com is put behind
-  nginx (see the absLogin README).
+  The signup link only works once the /signup location is added to
+  the audio.theruvial.com nginx block (see the absLogin README).
 - Fulfilled email ordering (2026-10-29): the Fulfilled email is now
   sent before the embed edit, in both the Discord button and the
   admin dashboard, and an embed-edit failure is logged, not raised.

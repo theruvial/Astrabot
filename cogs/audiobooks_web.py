@@ -141,7 +141,7 @@ document.getElementById('createForm').addEventListener('submit', async (e) => {
 
 def requests_page() -> web.Response:
     body = """
-<div class="topbar"><h1>Audiobook Requests</h1><div class="topbar-actions"><a class="btn btn-ghost" href="https://signup.theruvial.com">Create account</a><a class="btn btn-ghost" href="https://audio.theruvial.com/login">Sign in to Audiobookshelf</a><a class="btn" href="/new-request">New Request +</a></div></div>
+<div class="topbar"><h1>Audiobook Requests</h1><div class="topbar-actions"><a class="btn btn-ghost" href="https://audio.theruvial.com/signup">Create account</a><a class="btn btn-ghost" href="https://audio.theruvial.com/login">Sign in to Audiobookshelf</a><a class="btn" href="/new-request">New Request +</a></div></div>
 <div class="wrap"><div class="scrollbox" id="box">
 <div class="row head"><span>Book Name</span><span>Status</span><span>Requester name</span><span></span></div>
 <div id="rows"></div></div>

@@ -57,6 +57,8 @@ button:disabled { opacity: .55; cursor: default; }
 .topbar { position: sticky; top: 0; z-index: 10; background: #2b2930; color: #e6e0e9; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,.5); }
 .topbar h1 { margin: 0; font-size: 20px; font-weight: 500; }
 .topbar .btn { background: #d0bcff; color: #381e72; }
+.topbar-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.topbar .btn-ghost { background: transparent; color: #d0bcff; border: 1.5px solid #938f99; }
 .wrap { max-width: 900px; margin: 0 auto; padding: 20px; }
 .scrollbox { background: #1e1b24; border-radius: 16px; box-shadow: 0 2px 6px rgba(0,0,0,.5); max-height: 70vh; overflow-y: auto; padding: 8px 0; }
 .row { display: grid; grid-template-columns: 2fr 1fr 1fr 36px; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid #49454f; }
@@ -139,7 +141,7 @@ document.getElementById('createForm').addEventListener('submit', async (e) => {
 
 def requests_page() -> web.Response:
     body = """
-<div class="topbar"><h1>Audiobook Requests</h1><a class="btn" href="/new-request">New Request +</a></div>
+<div class="topbar"><h1>Audiobook Requests</h1><div class="topbar-actions"><a class="btn btn-ghost" href="https://signup.theruvial.com">Create account</a><a class="btn btn-ghost" href="https://audio.theruvial.com/login">Sign in to Audiobookshelf</a><a class="btn" href="/new-request">New Request +</a></div></div>
 <div class="wrap"><div class="scrollbox" id="box">
 <div class="row head"><span>Book Name</span><span>Status</span><span>Requester name</span><span></span></div>
 <div id="rows"></div></div>

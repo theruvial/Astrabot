@@ -163,6 +163,74 @@ class AudiobooksDB:
             assert existing is not None
             return existing
 
+    def list_users(self) -> list[dict]:
+        """All users, oldest first."""
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT email, firstName, createdAt FROM users "
+                "ORDER BY createdAt ASC, email ASC"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_user(self, old_email: str, new_email: str,
+                    first_name: str) -> dict:
+        """Edit a user. Changing the email cascades to their requests
+        and sessions in the same transaction, so nothing is orphaned.
+        Raises ValueError on an empty first name or a duplicate email.
+        """
+        first_name = first_name.strip()
+        if not first_name:
+            raise ValueError("First name is required.")
+        with self._lock:
+            if self.conn.execute(
+                "SELECT 1 FROM users WHERE email = ?", (old_email,)
+            ).fetchone() is None:
+                raise ValueError("User not found.")
+            try:
+                self.conn.execute(
+                    "UPDATE users SET email = ?, firstName = ? "
+                    "WHERE email = ?",
+                    (new_email, first_name, old_email),
+                )
+                self.conn.execute(
+                    "UPDATE requests SET requester = ? WHERE requester = ?",
+                    (new_email, old_email),
+                )
+                self.conn.execute(
+                    "UPDATE sessions SET email = ? WHERE email = ?",
+                    (new_email, old_email),
+                )
+                self.conn.commit()
+            except sqlite3.IntegrityError:
+                self.conn.rollback()
+                raise ValueError("That email address is already in use.")
+        user = self.get_user(new_email)
+        assert user is not None
+        return user
+
+    def delete_user(self, email: str) -> list[dict]:
+        """Delete a user and return their requests (for Discord cleanup).
+
+        The caller deletes the returned requests' Discord messages,
+        then the rows themselves are deleted here along with the
+        user's sessions and user row, in one transaction.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT r.id, r.requester, r.bookName, r.linkToBook, "
+                "r.status, r.discordMessageId, r.discordChannelId, "
+                "r.createdAt, r.updatedAt, u.firstName AS requesterName "
+                "FROM requests r LEFT JOIN users u "
+                "ON u.email = r.requester WHERE r.requester = ?",
+                (email,),
+            ).fetchall()
+            result = [dict(row) for row in rows]
+            self.conn.execute("DELETE FROM requests WHERE requester = ?", (email,))
+            self.conn.execute("DELETE FROM sessions WHERE email = ?", (email,))
+            self.conn.execute("DELETE FROM users WHERE email = ?", (email,))
+            self.conn.commit()
+        return result
+
     # -- sessions ------------------------------------------------------
     def create_session(self, email: str) -> str:
         token = secrets.token_urlsafe(32)
@@ -269,6 +337,22 @@ class AudiobooksDB:
                 (str(message_id),),
             ).fetchone()
         return dict(row) if row else None
+
+    def update_request(self, request_id: int, book_name: str,
+                       link: str) -> dict | None:
+        """Edit a request's book name and link (admin dashboard)."""
+        book_name = book_name.strip()
+        link = link.strip()
+        if not book_name or not link:
+            raise ValueError("Book name and link are required.")
+        with self._lock:
+            self.conn.execute(
+                "UPDATE requests SET bookName = ?, linkToBook = ?, "
+                "updatedAt = ? WHERE id = ?",
+                (book_name, link, utcnow_iso(), request_id),
+            )
+            self.conn.commit()
+        return self.get_request(request_id)
 
     def set_request_status(self, request_id: int, status: str) -> dict | None:
         with self._lock:

@@ -97,6 +97,8 @@ def _audiobooks_config(bot) -> dict:
             if part.isdigit():
                 ids.append(int(part))
         cfg["admin_user_ids"] = ids
+    if os.environ.get("AUDIOBOOKS_ADMIN_EMAIL"):
+        cfg["admin_email"] = os.environ["AUDIOBOOKS_ADMIN_EMAIL"]
     email_cfg = dict(cfg.get("email") or {})
     _env_map = {
         "EMAIL_SMTP_HOST": "smtp_host",
@@ -246,6 +248,109 @@ class Audiobooks(commands.Cog):
     def channel_id(self) -> int | None:
         value = self.config.get("request_channel_id")
         return int(value) if value else None
+
+    @property
+    def admin_email(self) -> str:
+        """The one email address allowed into the admin web dashboard.
+
+        Default is Thea's address, as she specified; overridable via
+        config ``audiobooks.admin_email`` or env
+        ``AUDIOBOOKS_ADMIN_EMAIL``. This is separate from Discord
+        admin IDs: dashboard access is by logged-in email only.
+        """
+        value = self.config.get("admin_email") or "theruvial237@gmail.com"
+        return str(value).strip().lower()
+
+    def is_dashboard_admin(self, email: str | None) -> bool:
+        return bool(email) and email.strip().lower() == self.admin_email
+
+    # -- Admin-dashboard actions (shared with the web UI) ------------
+    async def admin_fulfill(self, request_id: int):
+        """Fulfill via the dashboard. Returns (row, sent, error)."""
+        row = self.db.get_request(request_id)
+        if row is None:
+            return None, False, "not_found"
+        if row["status"] == "Fulfilled":
+            return row, False, "already_closed"
+        if row["status"] == "In Progress":
+            return row, False, "already_in_progress"
+        updated = self.db.set_request_status(request_id, "In Progress")
+        await self.update_embed_for_request(updated)
+        sent = await self.notifier(
+            updated["requester"],
+            "Your audiobook request is being worked on",
+            f"Hi {updated.get('requesterName') or 'there'}, Thea has begun "
+            f"working on your request for {updated['bookName']}.",
+        )
+        return updated, sent, None
+
+    async def admin_fulfilled(self, request_id: int):
+        """Mark fulfilled via the dashboard. Returns (row, sent, error)."""
+        row = self.db.get_request(request_id)
+        if row is None:
+            return None, False, "not_found"
+        if row["status"] == "Fulfilled":
+            return row, False, "already_closed"
+        if row["status"] != "In Progress":
+            return row, False, "must_fulfill_first"
+        updated = self.db.set_request_status(request_id, "Fulfilled")
+        await self.update_embed_for_request(updated, disabled=True)
+        sent = await self.notifier(
+            updated["requester"],
+            "Your audiobook request has been fulfilled",
+            f"The requested book {updated['bookName']} has been added to the server",
+        )
+        return updated, sent, None
+
+    async def admin_reject(self, request_id: int, reason: str):
+        """Reject via the dashboard. Returns (sent, error).
+
+        Same email/embed result as the Discord Reject modal: row
+        deleted, embed edited to Rejected (with the reason, if given),
+        email sent with the original wording plus the reason.
+        """
+        row = self.db.get_request(request_id)
+        if row is None:
+            return False, "not_found"
+        if row["status"] == "Fulfilled":
+            return False, "already_closed"
+        email = row["requester"]
+        book = row["bookName"]
+        self.db.delete_request(request_id)
+        embed = (
+            discord.Embed(title=book, color=discord.Color.red(), description="Rejected")
+            .add_field(name="Requester", value=row.get("requesterName") or "Unknown")
+            .add_field(name="Status", value="Rejected")
+            .add_field(name="Request ID", value=str(request_id))
+        )
+        if reason:
+            embed.add_field(name="Reason", value=reason, inline=False)
+        if row.get("discordMessageId") and row.get("discordChannelId"):
+            try:
+                channel = self.bot.get_channel(int(row["discordChannelId"]))
+                if channel is None:
+                    channel = await self.bot.fetch_channel(int(row["discordChannelId"]))
+                message = await channel.fetch_message(int(row["discordMessageId"]))
+                await message.edit(
+                    embed=embed,
+                    view=view_for_status(self, "Requested", disabled=True),
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Could not edit rejected embed %s: %s", request_id, exc)
+        body = f"Request Rejected for {book} Speak to Thea for more information"
+        if reason:
+            body += f"\n\nReason: {reason}"
+        sent = await self.notifier(email, f"Request Rejected for {book}", body)
+        return sent, None
+
+    async def admin_delete_request(self, request_id: int) -> bool:
+        """Hard-delete a request and its Discord message (dashboard)."""
+        row = self.db.get_request(request_id)
+        if row is None:
+            return False
+        await self.delete_embed_for_request(row)
+        self.db.delete_request(request_id)
+        return True
 
     async def is_admin(self, interaction) -> bool:
         """Who may click Fulfill / Reject / Request Fulfilled.

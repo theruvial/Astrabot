@@ -137,13 +137,14 @@ document.getElementById('createForm').addEventListener('submit', async (e) => {
 
 def requests_page() -> web.Response:
     body = """
-<div class="topbar"><h1>Audiobook Requests</h1><a class="btn" href="/new-request">New Request +</a></div>
+<div class="topbar"><h1>Audiobook Requests</h1><span><span id="adminLink"></span> <a class="btn" href="/new-request">New Request +</a></span></div>
 <div class="wrap"><div class="scrollbox" id="box">
 <div class="row head"><span>Book Name</span><span>Status</span><span>Requester name</span><span></span></div>
 <div id="rows"></div></div>
 <p><a href="/api/logout" onclick="event.preventDefault(); fetch('/api/logout', {method:'POST'}).then(()=>window.location='/');">Log out</a></p></div>"""
     script = """
 async function load() {
+  try { const me = await fetch('/api/me'); const d = await me.json(); if (d.isAdmin) document.getElementById('adminLink').innerHTML = '<a class="btn" href="/admin">Admin dashboard</a>'; } catch (e) {}
   const res = await fetch('/api/requests');
   if (res.status === 401) { window.location = '/'; return; }
   const data = await res.json();
@@ -196,6 +197,100 @@ document.getElementById('reqForm').addEventListener('submit', async (e) => {
 });
 """
     return shell("New Request — Audiobook Requests", body, script)
+
+
+def admin_page() -> web.Response:
+    body = """
+<style>
+.admin-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.admin-table th, .admin-table td { text-align: left; padding: 8px; border-bottom: 1px solid #49454f; vertical-align: top; }
+.admin-table input[type="text"], .admin-table input[type="email"], .admin-table input[type="url"] { width: 100%; }
+.small { padding: 6px 12px !important; font-size: 13px !important; margin: 2px; }
+.danger { background: #b3261e !important; color: #fff !important; }
+h2 { margin: 28px 0 12px; font-weight: 500; }
+</style>
+<div class="topbar"><h1>Admin Dashboard</h1><span><a class="btn" href="/requests">Requests</a> <a class="btn" href="/" onclick="event.preventDefault(); fetch('/api/logout', {method:'POST'}).then(()=>window.location='/');">Log out</a></span></div>
+<div class="wrap">
+<p class="msg error" id="msg"></p>
+<h2>Users</h2>
+<div class="scrollbox" style="max-height:none;"><table class="admin-table"><thead><tr><th>Email</th><th>First name</th><th>Created</th><th></th></tr></thead><tbody id="users"></tbody></table></div>
+<form id="createUserForm" style="margin-top:12px;">
+<input type="email" id="newEmail" placeholder="Email Address" style="max-width:260px;">
+<input type="text" id="newFirstName" placeholder="First Name" style="max-width:200px;">
+<button type="submit" class="small">Create user</button>
+</form>
+<h2>Requests</h2>
+<div class="scrollbox" style="max-height:none;"><table class="admin-table"><thead><tr><th>Book</th><th>Link</th><th>Status</th><th>Requester</th><th>Actions</th></tr></thead><tbody id="requests"></tbody></table></div>
+</div>"""
+    script = """
+const msg = document.getElementById('msg');
+function showMsg(text, ok) { msg.textContent = text; msg.className = 'msg ' + (ok ? 'success' : 'error'); }
+async function api(path, body) {
+  const res = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || ('Failed: ' + res.status));
+  return d;
+}
+function esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
+async function loadUsers() {
+  const res = await fetch('/api/admin/users');
+  if (res.status === 401) { window.location = '/'; return; }
+  if (!res.ok) { showMsg('Could not load users.'); return; }
+  const data = await res.json();
+  const tbody = document.getElementById('users'); tbody.innerHTML = '';
+  for (const u of data.users) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td><input type="email" value="' + esc(u.email) + '"></td><td><input type="text" value="' + esc(u.firstName) + '"></td><td>' + esc(u.createdAt) + '</td><td></td>';
+    const [emailEl, nameEl] = tr.querySelectorAll('input');
+    const save = document.createElement('button'); save.className = 'small'; save.textContent = 'Save';
+    save.onclick = async () => { try { await api('/api/admin/users/edit', {oldEmail: u.email, email: emailEl.value, firstName: nameEl.value}); showMsg('User saved.', true); loadUsers(); loadRequests(); } catch (e) { showMsg(e.message); } };
+    const del = document.createElement('button'); del.className = 'small danger'; del.textContent = 'Delete';
+    del.onclick = async () => { if (!confirm('Delete this user and all of their requests?')) return; try { await api('/api/admin/users/delete', {email: u.email}); showMsg('User deleted.', true); loadUsers(); loadRequests(); } catch (e) { showMsg(e.message); } };
+    tr.lastElementChild.append(save, del); tbody.appendChild(tr);
+  }
+}
+async function loadRequests() {
+  const res = await fetch('/api/admin/requests');
+  if (!res.ok) { showMsg('Could not load requests.'); return; }
+  const data = await res.json();
+  const tbody = document.getElementById('requests'); tbody.innerHTML = '';
+  for (const r of data.requests) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td><input type="text" value="' + esc(r.bookName) + '"></td><td><input type="url" value="' + esc(r.linkToBook) + '"></td><td>' + esc(r.status) + '</td><td>' + esc(r.requesterName || '') + '<br><small>' + esc(r.requester) + '</small></td><td></td>';
+    const [bookEl, linkEl] = tr.querySelectorAll('input');
+    const cell = tr.lastElementChild;
+    const save = document.createElement('button'); save.className = 'small'; save.textContent = 'Save';
+    save.onclick = async () => { try { await api('/api/admin/requests/edit', {id: r.id, bookName: bookEl.value, linkToBook: linkEl.value}); showMsg('Request saved.', true); loadRequests(); } catch (e) { showMsg(e.message); } };
+    cell.appendChild(save);
+    if (r.status === 'Requested') {
+      const f = document.createElement('button'); f.className = 'small'; f.textContent = 'Fulfill';
+      f.onclick = async () => { try { const d = await api('/api/admin/requests/fulfill', {id: r.id}); showMsg('Marked In Progress.' + (d.sent ? '' : ' (email could not be sent)'), true); loadRequests(); } catch (e) { showMsg(e.message); } };
+      cell.appendChild(f);
+    }
+    if (r.status === 'In Progress') {
+      const f = document.createElement('button'); f.className = 'small'; f.textContent = 'Request Fulfilled';
+      f.onclick = async () => { try { const d = await api('/api/admin/requests/fulfilled', {id: r.id}); showMsg('Marked Fulfilled.' + (d.sent ? '' : ' (email could not be sent)'), true); loadRequests(); } catch (e) { showMsg(e.message); } };
+      cell.appendChild(f);
+    }
+    if (r.status !== 'Fulfilled') {
+      const reason = document.createElement('input'); reason.type = 'text'; reason.placeholder = 'Reason (optional)'; reason.style.maxWidth = '180px';
+      const rej = document.createElement('button'); rej.className = 'small danger'; rej.textContent = 'Reject';
+      rej.onclick = async () => { try { const d = await api('/api/admin/requests/reject', {id: r.id, reason: reason.value}); showMsg('Rejected.' + (d.sent ? '' : ' (email could not be sent)'), true); loadRequests(); } catch (e) { showMsg(e.message); } };
+      cell.append(reason, rej);
+    }
+    const del = document.createElement('button'); del.className = 'small danger'; del.textContent = 'Delete';
+    del.onclick = async () => { if (!confirm('Delete this request and its Discord message?')) return; try { await api('/api/admin/requests/delete', {id: r.id}); showMsg('Request deleted.', true); loadRequests(); } catch (e) { showMsg(e.message); } };
+    cell.appendChild(del);
+    tbody.appendChild(tr);
+  }
+}
+document.getElementById('createUserForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try { await api('/api/admin/users/create', {email: document.getElementById('newEmail').value, firstName: document.getElementById('newFirstName').value}); showMsg('User created.', true); loadUsers(); } catch (err) { showMsg(err.message); }
+});
+loadUsers(); loadRequests();
+"""
+    return shell("Admin Dashboard — Audiobook Requests", body, script)
 
 
 def _client_ip(request: web.Request) -> str:
@@ -374,6 +469,192 @@ class AudiobooksWeb:
         self.db.delete_request(request_id)
         return web.json_response({"ok": True, "deleted": True})
 
+    # -- admin ---------------------------------------------------------
+    def _admin_email(self, request: web.Request) -> str | None:
+        """Logged-in email if it is the dashboard admin, else None."""
+        email = self._session_email(request)
+        if email and self.cog.is_dashboard_admin(email):
+            return email
+        return None
+
+    def _admin_guard(self, request: web.Request):
+        """Returns (email, error_response). One is always None."""
+        email = self._session_email(request)
+        if not email:
+            return None, web.json_response({"error": "unauthorized"}, status=401)
+        if not self.cog.is_dashboard_admin(email):
+            return None, web.json_response({"error": "forbidden"}, status=403)
+        return email, None
+
+    async def admin_html(self, request: web.Request) -> web.Response:
+        if not self._session_email(request):
+            raise web.HTTPFound("/")
+        if not self._admin_email(request):
+            return web.Response(text="Forbidden: this dashboard is only for the admin account.", status=403)
+        return admin_page()
+
+    async def api_me(self, request: web.Request) -> web.Response:
+        email = self._session_email(request)
+        if not email:
+            return web.json_response({"error": "unauthorized"}, status=401)
+        return web.json_response({"email": email, "isAdmin": self.cog.is_dashboard_admin(email)})
+
+    async def api_admin_users(self, request: web.Request) -> web.Response:
+        _, err = self._admin_guard(request)
+        if err is not None:
+            return err
+        return web.json_response({"users": self.db.list_users()})
+
+    async def api_admin_create_user(self, request: web.Request) -> web.Response:
+        _, err = self._admin_guard(request)
+        if err is not None:
+            return err
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid details."}, status=400)
+        email = normalize_email(data.get("email"))
+        first_name = (data.get("firstName") or "").strip()
+        if email is None:
+            return web.json_response({"error": "Invalid email address entered."}, status=400)
+        if not first_name:
+            return web.json_response({"error": "First name is required."}, status=400)
+        # No session change: creating a user must not log the admin
+        # in as that user.
+        user = self.db.get_or_create_user(email, first_name)
+        return web.json_response({"ok": True, "user": user})
+
+    async def api_admin_edit_user(self, request: web.Request) -> web.Response:
+        _, err = self._admin_guard(request)
+        if err is not None:
+            return err
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid details."}, status=400)
+        old_email = normalize_email(data.get("oldEmail"))
+        new_email = normalize_email(data.get("email"))
+        first_name = (data.get("firstName") or "").strip()
+        if old_email is None or new_email is None or not first_name:
+            return web.json_response({"error": "Invalid details."}, status=400)
+        try:
+            user = self.db.update_user(old_email, new_email, first_name)
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+        return web.json_response({"ok": True, "user": user})
+
+    async def api_admin_delete_user(self, request: web.Request) -> web.Response:
+        _, err = self._admin_guard(request)
+        if err is not None:
+            return err
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid details."}, status=400)
+        email = normalize_email(data.get("email"))
+        if email is None:
+            return web.json_response({"error": "Invalid email."}, status=400)
+        rows = self.db.delete_user(email)
+        for row in rows:
+            try:
+                await self.cog.delete_embed_for_request(row)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Embed delete failed for deleted user %s: %s", email, exc)
+        return web.json_response({"ok": True, "deleted_requests": len(rows)})
+
+    async def api_admin_requests(self, request: web.Request) -> web.Response:
+        _, err = self._admin_guard(request)
+        if err is not None:
+            return err
+        rows = []
+        for row in self.db.list_requests():
+            rows.append({
+                "id": row["id"],
+                "bookName": row["bookName"],
+                "status": row["status"],
+                "requester": row["requester"],
+                "requesterName": row.get("requesterName") or "",
+                "linkToBook": row["linkToBook"],
+            })
+        return web.json_response({"requests": rows})
+
+    async def _admin_request_id(self, request: web.Request):
+        try:
+            data = await request.json()
+            return int(data.get("id"))
+        except Exception:
+            return None
+
+    async def api_admin_fulfill(self, request: web.Request) -> web.Response:
+        _, err = self._admin_guard(request)
+        if err is not None:
+            return err
+        request_id = await self._admin_request_id(request)
+        if request_id is None:
+            return web.json_response({"error": "not_found"}, status=404)
+        row, sent, error = await self.cog.admin_fulfill(request_id)
+        if error:
+            return web.json_response({"error": error}, status=409 if error != "not_found" else 404)
+        return web.json_response({"ok": True, "request": row, "sent": sent})
+
+    async def api_admin_fulfilled(self, request: web.Request) -> web.Response:
+        _, err = self._admin_guard(request)
+        if err is not None:
+            return err
+        request_id = await self._admin_request_id(request)
+        if request_id is None:
+            return web.json_response({"error": "not_found"}, status=404)
+        row, sent, error = await self.cog.admin_fulfilled(request_id)
+        if error:
+            return web.json_response({"error": error}, status=409 if error != "not_found" else 404)
+        return web.json_response({"ok": True, "request": row, "sent": sent})
+
+    async def api_admin_reject(self, request: web.Request) -> web.Response:
+        _, err = self._admin_guard(request)
+        if err is not None:
+            return err
+        try:
+            data = await request.json()
+            request_id = int(data.get("id"))
+            reason = (data.get("reason") or "").strip()
+        except Exception:
+            return web.json_response({"error": "not_found"}, status=404)
+        sent, error = await self.cog.admin_reject(request_id, reason)
+        if error:
+            return web.json_response({"error": error}, status=409 if error != "not_found" else 404)
+        return web.json_response({"ok": True, "sent": sent})
+
+    async def api_admin_edit_request(self, request: web.Request) -> web.Response:
+        _, err = self._admin_guard(request)
+        if err is not None:
+            return err
+        try:
+            data = await request.json()
+            request_id = int(data.get("id"))
+            updated = self.db.update_request(request_id, data.get("bookName") or "", data.get("linkToBook") or "")
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+        except Exception:
+            return web.json_response({"error": "not_found"}, status=404)
+        if updated is None:
+            return web.json_response({"error": "not_found"}, status=404)
+        try:
+            await self.cog.update_embed_for_request(updated)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Embed update failed for edited request %s: %s", request_id, exc)
+        return web.json_response({"ok": True, "request": updated})
+
+    async def api_admin_delete_request(self, request: web.Request) -> web.Response:
+        _, err = self._admin_guard(request)
+        if err is not None:
+            return err
+        request_id = await self._admin_request_id(request)
+        if request_id is None:
+            return web.json_response({"error": "not_found"}, status=404)
+        if not await self.cog.admin_delete_request(request_id):
+            return web.json_response({"error": "not_found"}, status=404)
+        return web.json_response({"ok": True, "deleted": True})
+
     async def api_logout(self, request: web.Request) -> web.Response:
         token = request.cookies.get(COOKIE)
         if token:
@@ -388,6 +669,18 @@ class AudiobooksWeb:
         app.router.add_get("/create-account", self.create_account_page)
         app.router.add_get("/requests", self.requests_html)
         app.router.add_get("/new-request", self.new_request_html)
+        app.router.add_get("/admin", self.admin_html)
+        app.router.add_get("/api/me", self.api_me)
+        app.router.add_get("/api/admin/users", self.api_admin_users)
+        app.router.add_post("/api/admin/users/create", self.api_admin_create_user)
+        app.router.add_post("/api/admin/users/edit", self.api_admin_edit_user)
+        app.router.add_post("/api/admin/users/delete", self.api_admin_delete_user)
+        app.router.add_get("/api/admin/requests", self.api_admin_requests)
+        app.router.add_post("/api/admin/requests/fulfill", self.api_admin_fulfill)
+        app.router.add_post("/api/admin/requests/fulfilled", self.api_admin_fulfilled)
+        app.router.add_post("/api/admin/requests/reject", self.api_admin_reject)
+        app.router.add_post("/api/admin/requests/edit", self.api_admin_edit_request)
+        app.router.add_post("/api/admin/requests/delete", self.api_admin_delete_request)
         app.router.add_post("/api/login", self.api_login)
         app.router.add_post("/api/users", self.api_create_user)
         app.router.add_get("/api/requests", self.api_list_requests)

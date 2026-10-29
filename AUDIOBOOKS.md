@@ -43,6 +43,17 @@ run-book for the feature; the design document is the full spec.
   to the rejection email after the original wording ("Reason:
   {reason}") and shown as a Reason field on the Rejected embed. If
   left blank, the email is exactly the original wording.
+- Admin web dashboard (2026-10-29): `/admin`, accessible **only** to
+  the logged-in user `theruvial237@gmail.com` (config
+  `audiobooks.admin_email` / env `AUDIOBOOKS_ADMIN_EMAIL` can change
+  it). Everyone else gets 403, even Discord admins. It lists all
+  users (edit email — which cascades to their requests and sessions —
+  edit first name, create user, delete user including all of their
+  requests and Discord messages) and all requests (edit book name /
+  link, Fulfill, Request Fulfilled, Reject with an optional reason,
+  Delete). Dashboard actions send the same emails and update the
+  same Discord embeds as the Discord buttons. An "Admin dashboard"
+  link appears on the requests page only for the admin account.
 - Goodreads series (2026-10-29): only **primary works** are picked,
   not all works. The page's "X primary works" count caps the list in
   series order, and books headed with a range ("Book 1-3") are dropped

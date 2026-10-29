@@ -296,28 +296,43 @@ async def default_fetch(url: str, timeout: float = 10.0) -> str | None:
         return None
 
 
-def audible_slug_title(path: str) -> str | None:
-    """Title from an Audible /pd/ slug, without fetching the page.
+def audible_title(path: str) -> str | None:
+    """Title for an Audible link, without fetching anything.
 
-    Audible blocks most non-browser fetches (bot protection / CloudFront
-    403s, and in some environments the TLS handshake itself fails), so
-    a live Audible fetch is not a reliable gate. An Audible product
-    URL is itself the evidence: Audible only sells audio titles, and
-    its /pd/ URLs carry the title as a slug, e.g.
+    Audible has no regular books: an Audible product link IS an
+    audiobook link, so there is nothing to scrape to validate. The
+    title comes from the URL itself, e.g.
     /pd/Dune-Audiobook/B002V1OF70 -> "Dune".
-    Returns None for search pages, the homepage, and slug-less URLs
-    (/pd/B002V1OF70), where there is no title to recover.
+    Returns None only for pages that are not a book at all (search,
+    homepage), where there is no title to recover. A slug-less
+    product URL (/pd/<ASIN>) falls back to the ASIN as the title,
+    which can be edited later in the admin dashboard.
     """
-    match = re.match(r"/pd/([^/]+)/[^/]+/?$", path)
-    if not match:
+    if "/search" in path or path in ("/", ""):
         return None
-    slug = match.group(1)
-    # Slugs end in "-Audiobook" for most titles; strip it, then
-    # turn dashes back into spaces. Keep the original capitalisation.
-    if slug.lower().endswith("-audiobook"):
-        slug = slug[: -len("-audiobook")]
-    title = slug.replace("-", " ").strip()
-    return title or None
+    parts = [part for part in path.split("/") if part]
+    if not parts:
+        return None
+    # First part that is not a route word and not a bare ASIN is the
+    # title slug (covers /pd/, /series/, and /web/audiobook/ URLs).
+    for part in parts:
+        if part in ("pd", "series", "web", "audiobook"):
+            continue
+        if re.fullmatch(r"[A-Z0-9]{10}", part):
+            continue
+        slug = part
+        if slug.lower().endswith("-audiobook"):
+            slug = slug[: -len("-audiobook")]
+        title = slug.replace("-", " ").strip()
+        if title:
+            return title
+    # Slug-less product URL: the ASIN is the only identifier available.
+    return parts[-1]
+
+
+def audible_slug_title(path: str) -> str | None:
+    """Backwards-compatible alias for audible_title()."""
+    return audible_title(path)
 
 
 async def check_single(
@@ -333,16 +348,11 @@ async def check_single(
         return None
     path = urlparse(clean).path
     if provider == "Audible":
-        # Try the live page first (best title), but do not fail the
-        # request if Audible blocks the fetch: fall back to the slug.
-        html = await fetch(clean)
-        if html is not None:
-            title, text = extract_title_and_text(html)
-            if title and has_audiobook_evidence(text, provider, path):
-                return {"bookName": title, "linkToBook": clean}
-        slug_title = audible_slug_title(path)
-        if slug_title is not None:
-            return {"bookName": slug_title, "linkToBook": clean}
+        # No scrape at all: Audible links are audiobook links by
+        # definition, so the URL alone accepts the request.
+        title = audible_title(path)
+        if title is not None:
+            return {"bookName": title, "linkToBook": clean}
         return None
     html = await fetch(clean)
     if html is None:
@@ -372,6 +382,14 @@ async def check_link(
     except ValueError:
         return {"created": [], "skipped": [url], "error": "url"}
     path = urlparse(clean).path
+
+    if provider == "Audible" and is_series_url(provider, path):
+        # Audible series pages are not enumerated and not scraped:
+        # the series link itself is one audiobook item.
+        single = await check_single(clean, fetch=fetch)
+        if single:
+            return {"created": [single], "skipped": []}
+        return {"created": [], "skipped": [url], "error": "audiobook"}
 
     if is_series_url(provider, path):
         html = await fetch(clean)

@@ -127,11 +127,25 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(len(result["created"]), 1)
         self.assertEqual(result["created"][0]["bookName"], "Dune")
 
-    def test_audible_slugless_and_search_still_fail(self):
+    def test_audible_no_scrape(self):
+        # Audible is never fetched: even a failing fetcher must not
+        # block a product link, and the fetcher must not be called.
+        calls = []
+
+        async def fail_fetch(url):
+            calls.append(url)
+            return None
+        result = asyncio.run(check_link(
+            "https://www.audible.com/pd/Dune-Audiobook/B002V1OF70",
+            fetch=fail_fetch))
+        self.assertEqual(result["created"][0]["bookName"], "Dune")
+        self.assertEqual(calls, [])
+
+    def test_audible_search_still_fails(self):
         async def fail_fetch(url):
             return None
-        for url in ("https://www.audible.com/pd/B002V1OF70",
-                    "https://www.audible.com/search?keywords=dune"):
+        for url in ("https://www.audible.com/search?keywords=dune",
+                    "https://www.audible.com/"):
             result = asyncio.run(check_link(url, fetch=fail_fetch))
             self.assertEqual(result["created"], [])
 

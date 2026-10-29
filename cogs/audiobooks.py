@@ -42,7 +42,7 @@ import discord
 from discord.ext import commands
 
 from .audiobooks_db import AudiobooksDB
-from .audiobooks_notify import send_text
+from .audiobooks_notify import configure_sms, send_text
 from .audiobooks_web import AudiobooksWeb
 
 log = logging.getLogger("audiobooks")
@@ -165,6 +165,7 @@ class Audiobooks(commands.Cog):
     def __init__(self, bot, *, db=None, notifier=None, config_override=None):
         self.bot = bot
         self.config = config_override if config_override is not None else _audiobooks_config(bot)
+        configure_sms(self.config.get("sms") or {})
         self.db = db if db is not None else AudiobooksDB(self.config.get("db_path", "audiobooks.db"))
         self.notifier = notifier if notifier is not None else send_text
         self.web = AudiobooksWeb(self)

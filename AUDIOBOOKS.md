@@ -84,8 +84,15 @@ and override the config values:
   buttons (fix 2026-10-29: the old code read `bot.owner_id` directly,
   which Astrabot never sets, so everyone was denied).
 - `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` —
-  SMS provider. Without these, texts are logged (number masked) and
+  SMS provider, as environment variables on the machine running the
+  bot. Alternatively, put them in the config's `audiobooks` object as
+  `sms: { "account_sid": "...", "auth_token": "...",
+  "from_number": "+1..." }` — environment variables win if both are
+  set. Without any of these, texts are logged (number masked) and
   reported to the admin as not sent; statuses still update.
+- Trial warning: a Twilio trial account can only text numbers you
+  have verified with Twilio, and trial texts are prefixed. To text
+  arbitrary requesters, upgrade Twilio to a paid account.
 
 ## Running
 

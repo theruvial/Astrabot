@@ -224,6 +224,61 @@ class Audiobooks(commands.Cog):
                 pass
         return False
 
+    async def resync_channel(self) -> None:
+        """Clear the requests channel and re-post every DB request.
+
+        Runs on every bot start (see ``cog_load``). The channel is
+        treated as dedicated to audiobook requests: every message in
+        it is deleted first, then one embed per database row is posted
+        oldest-first, with buttons matching its current status:
+
+        - ``Requested``   -> Fulfill Request + Reject Request, enabled
+        - ``In Progress`` -> Request Fulfilled + Reject Request, enabled
+        - ``Fulfilled``   -> Request Fulfilled + Reject Request, disabled
+        - ``Cancelled``   -> Fulfill Request + Reject Request, disabled
+
+        Each new message ID is stored back on its row, so button clicks
+        on the re-posted embeds route to the right request. If the
+        channel is not configured or cannot be reached, this logs and
+        returns -- it must never stop the bot or the web UI starting.
+        """
+        channel = await self._get_channel()
+        if channel is None:
+            return
+        # Clear: delete one by one (bulk purge fails on messages older
+        # than 14 days, and this channel is expected to be small).
+        try:
+            async for message in channel.history(limit=None):
+                try:
+                    await message.delete()
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("Could not delete channel message %s: %s",
+                                getattr(message, "id", "?"), exc)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not clear audiobook channel: %s", exc)
+            return
+        rows = self.db.list_requests()
+        # list_requests is newest-first; post oldest-first so the
+        # channel reads chronologically.
+        count = 0
+        for row in reversed(rows):
+            status = row["status"]
+            if status == "In Progress":
+                view = view_for_status(self, "In Progress")
+            elif status == "Fulfilled":
+                view = view_for_status(self, "In Progress", disabled=True)
+            elif status == "Cancelled":
+                view = view_for_status(self, "Requested", disabled=True)
+            else:
+                view = view_for_status(self, "Requested")
+            try:
+                message = await channel.send(embed=build_embed(row), view=view)
+                self.db.set_discord_message(row["id"], message.id, channel.id)
+                count += 1
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Could not re-post request %s: %s", row["id"], exc)
+        log.info("Audiobook channel resynced: %s request(s) re-posted.", count)
+
     async def cog_load(self) -> None:
         # Persistent views: register before any interaction is dispatched.
         try:
@@ -231,6 +286,11 @@ class Audiobooks(commands.Cog):
             self.bot.add_view(_InProgressView(self))
         except Exception as exc:  # noqa: BLE001 -- view registration must not kill the cog
             log.warning("Could not register persistent audiobook views: %s", exc)
+        # Rebuild the requests channel from the database on every start.
+        try:
+            await self.resync_channel()
+        except Exception as exc:  # noqa: BLE001 -- resync must not kill the cog
+            log.warning("Audiobook channel resync failed: %s", exc)
         # Web server on the bot's event loop (aiohttp is already a
         # discord.py dependency, so this adds no new runtime package).
         try:

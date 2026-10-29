@@ -30,6 +30,18 @@ run-book for the feature; the design document is the full spec.
   has an audiobook; books without one are skipped and listed back to
   the user. If no book in the series has an audiobook, nothing is
   created.
+- **Restart resync (2026-10-29):** every time the bot starts, the cog
+  clears the requests channel completely and re-posts one embed per
+  database row, oldest first, with buttons matching its status
+  (Requested: Fulfill + Reject enabled; In Progress: Request
+  Fulfilled + Reject enabled; Fulfilled: Request Fulfilled + Reject
+  disabled; Cancelled: Fulfill + Reject disabled). New message IDs
+  are stored back on each row, so clicks on the re-posted embeds work.
+  Treat that channel as dedicated to these embeds — anything else in
+  it is deleted on restart. The bot needs permission to read, send,
+  and manage messages in that channel. If the channel cannot be
+  reached at startup, the resync logs a warning and the bot and web
+  UI still start; the next restart will resync.
 
 ## Files
 

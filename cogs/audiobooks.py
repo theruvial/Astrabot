@@ -259,10 +259,15 @@ class Audiobooks(commands.Cog):
             return
         rows = self.db.list_requests()
         # list_requests is newest-first; post oldest-first so the
-        # channel reads chronologically.
+        # channel reads chronologically. Cancelled rows are never
+        # re-posted: a cancelled request is deleted (see the website
+        # cancel flow), and any legacy Cancelled rows are simply gone
+        # from the channel after a restart, since it is cleared first.
         count = 0
         for row in reversed(rows):
             status = row["status"]
+            if status == "Cancelled":
+                continue
             if status == "In Progress":
                 view = view_for_status(self, "In Progress")
             elif status == "Fulfilled":
@@ -365,6 +370,24 @@ class Audiobooks(commands.Cog):
         else:
             await message.edit(embed=build_embed(row),
                                view=view_for_status(self, status))
+
+    async def delete_embed_for_request(self, row: dict) -> None:
+        """Delete the Discord message for a request, if it still exists.
+
+        Used by the website cancel flow. A failure to delete (message
+        already gone, missing permission) is logged, not raised: the
+        cancellation itself must not be rolled back because of it.
+        """
+        if not row.get("discordMessageId") or not row.get("discordChannelId"):
+            return
+        try:
+            channel = self.bot.get_channel(int(row["discordChannelId"]))
+            if channel is None:
+                channel = await self.bot.fetch_channel(int(row["discordChannelId"]))
+            message = await channel.fetch_message(int(row["discordMessageId"]))
+            await message.delete()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not delete embed for request %s: %s", row["id"], exc)
 
     async def _disable_embed(self, interaction: discord.Interaction, row: dict) -> None:
         try:

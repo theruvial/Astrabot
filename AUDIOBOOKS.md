@@ -32,6 +32,12 @@ run-book for the feature; the design document is the full spec.
   created.
 - Web UI theme (2026-10-29): Material Design **dark mode** —
   dark surfaces, light text, light-purple primary buttons.
+- Website cancel (2026-10-29): cancelling from the website **deletes**
+  the request — it is removed from the website list, its Discord
+  message is deleted, and the requester is emailed "Your audiobook
+  request for {book} has been cancelled." It is no longer kept as a
+  `Cancelled` row. (Admin Reject is different: it deletes the row but
+  edits its embed to Rejected, so the rejection stays visible.)
 - Goodreads series (2026-10-29): only **primary works** are picked,
   not all works. The page's "X primary works" count caps the list in
   series order, and books headed with a range ("Book 1-3") are dropped

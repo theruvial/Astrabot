@@ -291,6 +291,10 @@ class AudiobooksWeb:
             return web.json_response({"error": "unauthorized"}, status=401)
         rows = []
         for row in self.db.list_requests():
+            # Cancelled requests are deleted, not listed. This also
+            # hides any legacy Cancelled rows left by the old flow.
+            if row["status"] == "Cancelled":
+                continue
             rows.append({
                 "id": row["id"],
                 "bookName": row["bookName"],
@@ -346,14 +350,29 @@ class AudiobooksWeb:
             return web.json_response({"error": "not_found"}, status=404)
         if row["requester"] != email:
             return web.json_response({"error": "forbidden"}, status=403)
-        if row["status"] in ("Cancelled", "Fulfilled"):
+        if row["status"] == "Fulfilled":
             return web.json_response({"error": "already_closed"}, status=409)
-        updated = self.db.set_request_status(request_id, "Cancelled")
+        # Cancel = remove, not "Cancelled" status. Capture everything
+        # needed first, then email the requester, delete the Discord
+        # message, and delete the row. A failed email or a failed
+        # message delete is logged, never a reason to keep the row:
+        # the requester asked to cancel, so it is cancelled.
+        requester_email = row["requester"]
+        book_name = row["bookName"]
         try:
-            await self.cog.update_embed_for_request(updated, disabled=True)
+            await self.cog.notifier(
+                requester_email,
+                "Your audiobook request has been cancelled",
+                f"Your audiobook request for {book_name} has been cancelled.",
+            )
         except Exception as exc:  # noqa: BLE001
-            log.warning("Embed update failed for cancelled request %s: %s", request_id, exc)
-        return web.json_response({"ok": True, "request": updated})
+            log.warning("Cancel email failed for request %s: %s", request_id, exc)
+        try:
+            await self.cog.delete_embed_for_request(row)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Embed delete failed for cancelled request %s: %s", request_id, exc)
+        self.db.delete_request(request_id)
+        return web.json_response({"ok": True, "deleted": True})
 
     async def api_logout(self, request: web.Request) -> web.Response:
         token = request.cookies.get(COOKIE)

@@ -32,6 +32,10 @@ Discord flow (persistent views, discord.py):
   the reason, if one was given.
 - Requester web cancel -> row is hard-deleted, its Discord message
   is deleted, and the requester is emailed that it was cancelled.
+- Custom email -> the admin-only ``/email_user`` slash command (and
+  the Email section of the admin dashboard) emails one requester a
+  message typed by Thea, e.g. a special offer. The message is sent
+  exactly as typed; it is not tied to a request row.
 Buttons are routed by the Discord message ID stored on the request
 row, so the same two persistent views work after a bot restart.
 """
@@ -42,9 +46,10 @@ import logging
 import os
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
-from .audiobooks_db import AudiobooksDB
+from .audiobooks_db import AudiobooksDB, normalize_email
 from .audiobooks_notify import configure_email, send_email
 from .audiobooks_web import AudiobooksWeb
 
@@ -351,6 +356,108 @@ class Audiobooks(commands.Cog):
         await self.delete_embed_for_request(row)
         self.db.delete_request(request_id)
         return True
+
+    # -- Custom email to one requester (slash + dashboard) ---------
+    def resolve_requester(self, value: str):
+        """Resolve a typed name or email to a user row.
+
+        Returns ``(user, error)`` with exactly one None. A value
+        containing ``@`` is treated as an email address; anything
+        else is matched case-insensitively against first names.
+        A name shared by several users is ambiguous on purpose --
+        the caller must pick one by email, not guess which one.
+        """
+        raw = (value or "").strip()
+        if not raw:
+            return None, "empty_requester"
+        if "@" in raw:
+            email = normalize_email(raw)
+            if email is None:
+                return None, "invalid_email"
+            user = self.db.get_user(email)
+            return (user, None) if user else (None, "not_found")
+        matches = [u for u in self.db.list_users()
+                   if u["firstName"].strip().lower() == raw.lower()]
+        if len(matches) == 1:
+            return matches[0], None
+        if len(matches) > 1:
+            emails = ", ".join(u["email"] for u in matches)
+            return None, f"ambiguous: several users are named {raw} ({emails}) -- use an email address"
+        return None, "not_found"
+
+    async def send_custom_email(self, requester: str, message: str,
+                                subject: str | None = None):
+        """Email one requester a custom message (offers, news, etc.).
+
+        Returns ``(user, sent, error)``. The message body is sent
+        exactly as typed -- no greeting or footer is added, so Thea
+        controls the wording. A blank subject becomes
+        "A message from Thea". This is not tied to a request row.
+        """
+        body = (message or "").strip()
+        if not body:
+            return None, False, "empty_message"
+        user, error = self.resolve_requester(requester)
+        if error:
+            return None, False, error
+        subject = (subject or "").strip() or "A message from Thea"
+        sent = await self.notifier(user["email"], subject, body)
+        return user, sent, None
+
+    @app_commands.command(name="email_user",
+                          description="Email an audiobook user a custom message (admin only)")
+    @app_commands.describe(
+        requester="Requester's name (pick from the list) or email address",
+        message="Message to email them",
+        subject="Optional email subject (default: A message from Thea)",
+    )
+    async def email_user(self, interaction: discord.Interaction,
+                         requester: str, message: str,
+                         subject: str | None = None) -> None:
+        if not await self.is_admin(interaction):
+            await interaction.response.send_message(
+                "You are not allowed to do that.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        user, sent, error = await self.send_custom_email(
+            requester, message, subject)
+        if error == "not_found":
+            await interaction.followup.send(
+                f"No user found for {requester!r}.", ephemeral=True)
+        elif error == "empty_message":
+            await interaction.followup.send(
+                "The message was blank -- nothing was sent.", ephemeral=True)
+        elif error:
+            await interaction.followup.send(error, ephemeral=True)
+        elif sent:
+            await interaction.followup.send(
+                f"Email sent to {user['firstName']} ({user['email']}).",
+                ephemeral=True)
+        else:
+            await interaction.followup.send(
+                f"Email to {user['firstName']} ({user['email']}) could not "
+                "be sent -- check the email configuration.",
+                ephemeral=True)
+
+    @email_user.autocomplete("requester")
+    async def email_user_autocomplete(self, interaction: discord.Interaction,
+                                      current: str):
+        # Admins only, so a non-admin typing the command cannot
+        # enumerate users' names and emails from the suggestions.
+        if not await self.is_admin(interaction):
+            return []
+        query = (current or "").strip().lower()
+        choices = []
+        for user in self.db.list_users():
+            if query and query not in user["firstName"].lower() \
+                    and query not in user["email"].lower():
+                continue
+            choices.append(app_commands.Choice(
+                name=f"{user['firstName']} ({user['email']})",
+                value=user["email"]))
+            if len(choices) >= 25:
+                break
+        return choices
 
     async def is_admin(self, interaction) -> bool:
         """Who may click Fulfill / Reject / Request Fulfilled.

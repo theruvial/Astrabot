@@ -68,6 +68,69 @@ class DBTests(unittest.TestCase):
         self.assertEqual(self.db.list_requests(), [])
 
 
+class CustomEmailTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+        self.tmp.close()
+        self.db = AudiobooksDB(self.tmp.name)
+        self.db.get_or_create_user("alice@example.com", "Alice")
+        self.db.get_or_create_user("sam-one@example.com", "Sam")
+        self.db.get_or_create_user("sam-two@example.com", "Sam")
+        self.sent = []
+
+        async def fake_notifier(email, subject, body):
+            self.sent.append((email, subject, body))
+            return True
+
+        # Import here so Discord is only needed for this suite's cog.
+        from cogs.audiobooks import Audiobooks
+
+        class FakeBot:
+            config = {}
+
+        self.cog = Audiobooks(FakeBot(), db=self.db,
+                              notifier=fake_notifier, config_override={})
+
+    def tearDown(self):
+        self.db.close()
+        os.unlink(self.tmp.name)
+
+    def test_by_name_sends_exact_message(self):
+        user, sent, error = asyncio.run(
+            self.cog.send_custom_email("Alice", "Special offer: 50% off!"))
+        self.assertIsNone(error)
+        self.assertTrue(sent)
+        self.assertEqual(user["email"], "alice@example.com")
+        self.assertEqual(self.sent, [("alice@example.com",
+                                      "A message from Thea",
+                                      "Special offer: 50% off!")])
+
+    def test_by_email_and_custom_subject(self):
+        user, sent, error = asyncio.run(self.cog.send_custom_email(
+            "alice@example.com", "Hello", subject="Special offer"))
+        self.assertIsNone(error)
+        self.assertEqual(self.sent[0][1], "Special offer")
+
+    def test_unknown_user_sends_nothing(self):
+        user, sent, error = asyncio.run(
+            self.cog.send_custom_email("Nobody", "Hi"))
+        self.assertEqual(error, "not_found")
+        self.assertFalse(sent)
+        self.assertEqual(self.sent, [])
+
+    def test_ambiguous_name_sends_nothing(self):
+        user, sent, error = asyncio.run(
+            self.cog.send_custom_email("Sam", "Hi"))
+        self.assertTrue(error.startswith("ambiguous"))
+        self.assertEqual(self.sent, [])
+
+    def test_blank_message_sends_nothing(self):
+        user, sent, error = asyncio.run(
+            self.cog.send_custom_email("Alice", "   "))
+        self.assertEqual(error, "empty_message")
+        self.assertEqual(self.sent, [])
+
+
 def fake_fetch_factory(pages):
     async def fetch(url, timeout=10.0):
         return pages.get(url)

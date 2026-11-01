@@ -214,14 +214,19 @@ def admin_page(section: str = "users") -> web.Response:
     (/admin/users, /admin/requests), not stacked on one page.
     """
     is_users = section == "users"
+    is_requests = section == "requests"
+    is_email = section == "email"
     users_cls = " active" if is_users else ""
-    req_cls = " active" if not is_users else ""
+    req_cls = " active" if is_requests else ""
+    email_cls = " active" if is_email else ""
     sidebar = f"""
 <nav class="admin-sidebar" aria-label="Admin sections">
 <a href="/admin/users" class="side-icon{users_cls}" title="Users" aria-label="Users">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.5-6 8-6s8 2 8 6"/></svg><span>Users</span></a>
 <a href="/admin/requests" class="side-icon{req_cls}" title="Requests" aria-label="Requests">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5z"/><path d="M4 19a2 2 0 0 1 2-2h13"/><path d="M9 7h6"/></svg><span>Requests</span></a>
+<a href="/admin/email" class="side-icon{email_cls}" title="Email" aria-label="Email">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 6L2 7"/></svg><span>Email</span></a>
 <div class="side-spacer"></div>
 <a href="/requests" class="side-icon" title="View site" aria-label="View site">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18"/><path d="M12 3v18"/></svg><span>Site</span></a>
@@ -246,7 +251,17 @@ def admin_page(section: str = "users") -> web.Response:
 .danger { background: #b3261e !important; color: #fff !important; }
 h2 { margin: 8px 0 12px; font-weight: 500; }
 </style>"""
-    if is_users:
+    if is_email:
+        main = """
+<h2>Email a user</h2>
+<p>Send one user a custom message, e.g. a special offer. The message is emailed exactly as typed.</p>
+<form id="emailUserForm" style="margin-top:12px;">
+<label>Requester<br><select id="emailUser" style="max-width:320px;"></select></label><br><br>
+<label>Subject (optional, default: A message from Thea)<br><input type="text" id="emailSubject" style="max-width:480px;"></label><br><br>
+<label>Message<br><textarea id="emailMessage" rows="8" style="width:100%; max-width:640px;"></textarea></label><br><br>
+<button type="submit" class="small">Send email</button>
+</form>"""
+    elif is_users:
         main = """
 <h2>Users</h2>
 <div class="scrollbox" style="max-height:none;"><table class="admin-table"><thead><tr><th>Email</th><th>First name</th><th>Created</th><th></th></tr></thead><tbody id="users"></tbody></table></div>
@@ -273,7 +288,31 @@ async function api(path, body) {
 }
 function esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
 """
-    if is_users:
+    if is_email:
+        script = common + """
+async function loadEmailUsers() {
+  const res = await fetch('/api/admin/users');
+  if (res.status === 401) { window.location = '/'; return; }
+  if (!res.ok) { showMsg('Could not load users.'); return; }
+  const data = await res.json();
+  const sel = document.getElementById('emailUser'); sel.innerHTML = '';
+  for (const u of data.users) {
+    const opt = document.createElement('option');
+    opt.value = u.email; opt.textContent = u.firstName + ' (' + u.email + ')';
+    sel.appendChild(opt);
+  }
+}
+document.getElementById('emailUserForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const d = await api('/api/admin/email', {email: document.getElementById('emailUser').value, subject: document.getElementById('emailSubject').value, message: document.getElementById('emailMessage').value});
+    showMsg('Email sent.' + (d.sent ? '' : ' (email could not be sent)'), true);
+    document.getElementById('emailMessage').value = '';
+  } catch (err) { showMsg(err.message); }
+});
+loadEmailUsers();
+"""
+    elif is_users:
         script = common + """
 async function loadUsers() {
   const res = await fetch('/api/admin/users');
@@ -544,7 +583,8 @@ class AudiobooksWeb:
             return web.Response(text="Forbidden: this dashboard is only for the admin account.", status=403)
         if request.path.rstrip("/") == "/admin":
             raise web.HTTPFound("/admin/users")
-        section = "requests" if request.path.rstrip("/") == "/admin/requests" else "users"
+        path = request.path.rstrip("/")
+        section = "email" if path == "/admin/email" else "requests" if path == "/admin/requests" else "users"
         return admin_page(section)
 
     async def api_me(self, request: web.Request) -> web.Response:
@@ -709,6 +749,26 @@ class AudiobooksWeb:
             return web.json_response({"error": "not_found"}, status=404)
         return web.json_response({"ok": True, "deleted": True})
 
+    async def api_admin_email(self, request: web.Request) -> web.Response:
+        """Dashboard equivalent of the /email_user slash command."""
+        _, err = self._admin_guard(request)
+        if err is not None:
+            return err
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid details."}, status=400)
+        user, sent, error = await self.cog.send_custom_email(
+            data.get("email") or data.get("requester") or "",
+            data.get("message") or "",
+            data.get("subject"),
+        )
+        if error == "not_found":
+            return web.json_response({"error": "No user found for that requester."}, status=404)
+        if error:
+            return web.json_response({"error": error}, status=400)
+        return web.json_response({"ok": True, "user": user, "sent": sent})
+
     async def api_logout(self, request: web.Request) -> web.Response:
         token = request.cookies.get(COOKIE)
         if token:
@@ -726,6 +786,7 @@ class AudiobooksWeb:
         app.router.add_get("/admin", self.admin_html)
         app.router.add_get("/admin/users", self.admin_html)
         app.router.add_get("/admin/requests", self.admin_html)
+        app.router.add_get("/admin/email", self.admin_html)
         app.router.add_get("/api/me", self.api_me)
         app.router.add_get("/api/admin/users", self.api_admin_users)
         app.router.add_post("/api/admin/users/create", self.api_admin_create_user)
@@ -737,6 +798,7 @@ class AudiobooksWeb:
         app.router.add_post("/api/admin/requests/reject", self.api_admin_reject)
         app.router.add_post("/api/admin/requests/edit", self.api_admin_edit_request)
         app.router.add_post("/api/admin/requests/delete", self.api_admin_delete_request)
+        app.router.add_post("/api/admin/email", self.api_admin_email)
         app.router.add_post("/api/login", self.api_login)
         app.router.add_post("/api/users", self.api_create_user)
         app.router.add_get("/api/requests", self.api_list_requests)

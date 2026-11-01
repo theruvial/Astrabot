@@ -62,6 +62,19 @@ run-book for the feature; the design document is the full spec.
   narrow 72px icon sidebar on the left like Muse's sidebar (Users
   person icon, Requests book icon, current section highlighted,
   View site and Log out at the bottom).
+- Custom email to a user (2026-11-01): the admin-only slash command
+  `/email_user` takes a requester (pick their name from the
+  autocomplete list, or type their email) and a message, plus an
+  optional subject (default "A message from Thea"), and emails them
+  that message exactly as typed — for special offers and similar
+  one-off messages, not tied to a request. The same form is in the
+  admin dashboard as a third sidebar section, `/admin/email`
+  (requester dropdown, optional subject, message). A first name
+  shared by several users is refused as ambiguous — pick one by
+  email instead. Non-admins get no autocomplete suggestions and
+  cannot use the command. The command is synced by the bot on
+  startup like other slash commands, so a pull + restart is needed
+  for it to appear.
 - Audible links (2026-10-29): Audible is not scraped at all. Audible
   has no regular books, so an Audible product link is an audiobook
   link by definition, and the title comes from the URL slug

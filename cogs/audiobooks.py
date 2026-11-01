@@ -580,16 +580,20 @@ class Audiobooks(commands.Cog):
         except Exception as exc:  # noqa: BLE001
             log.warning("Audiobook web UI could not start: %s", exc)
 
-    def cog_unload(self) -> None:
-        # cog_unload is sync in discord.py; schedule the async cleanup.
-        try:
-            import asyncio
-
-            loop = asyncio.get_running_loop()
-            if self._web_runner is not None:
-                loop.create_task(self._web_runner.cleanup())
-        except Exception:
-            pass
+    async def cog_unload(self) -> None:
+        # Awaited by discord.py (via maybe_coroutine). Awaiting the
+        # web cleanup matters for cog reloads -- e.g. the self-update
+        # watcher: if the old runner were only scheduled for cleanup,
+        # the reloaded cog could try to bind the same port before
+        # the old server had released it, and the web UI would fail
+        # to start. Awaiting here frees the port before reload loads.
+        if self._web_runner is not None:
+            try:
+                await self._web_runner.cleanup()
+            except Exception:
+                pass
+            self._web_runner = None
+            self._web_site = None
 
     # -- Discord embed handling ---------------------------------------
     async def _get_channel(self):

@@ -62,6 +62,29 @@ run-book for the feature; the design document is the full spec.
   narrow 72px icon sidebar on the left like Muse's sidebar (Users
   person icon, Requests book icon, current section highlighted,
   View site and Log out at the bottom).
+- Self-update watcher (2026-11-01, `cogs/selfupdate.py`): one watcher
+  cog, not a poller per cog, that every 15 minutes (config
+  `selfupdate.interval_minutes`, or env
+  `SELFUPDATE_INTERVAL_MINUTES`) runs `git fetch` on the host
+  checkout, on whatever branch that checkout is on, and maps the
+  upstream-changed files to loaded extensions (a cog's own file
+  plus `*_` helpers, e.g. `audiobooks_db.py` -> `cogs.audiobooks`).
+  If no loaded cog changed, it pulls nothing and reloads nothing.
+  If one did, it pulls with `--ff-only` -- skipped entirely if a
+  local edit conflicts with an upstream change to the same file,
+  or if the pull fails -- then reloads only the affected cogs
+  with `bot.reload_extension()` (discord.py rolls back to the old
+  version if the new one fails to load). Changes to `bot.py` or
+  `config.json` never trigger a pull or reload; they need a full
+  bot restart, and host config is deliberately local. An
+  admin-only `/check_updates` slash command runs one check on
+  demand. Enable it by adding `"cogs.selfupdate"` to
+  `startup_extensions` in the host's `bot.py` -- that file is
+  deliberately NOT pushed from staging, because the host's copy
+  has local changes (clip commented out there). Also in this
+  change: `Audiobooks.cog_unload` is now async and awaits the web
+  runner cleanup, so a reload frees the web port before the new
+  cog binds it again.
 - Custom email to a user (2026-11-01): the admin-only slash command
   `/email_user` takes a requester (pick their name from the
   autocomplete list, or type their email) and a message, plus an

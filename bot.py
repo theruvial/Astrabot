@@ -18,6 +18,7 @@ startup_extensions = [
     # "cogs.tasks",
     "cogs.clip",
     "cogs.audiobooks",
+    "cogs.wiki",
 ]
 
 # Guilds where only the audiobooks commands (currently just

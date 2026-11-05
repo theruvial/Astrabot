@@ -2,7 +2,8 @@
 setlocal
 
 REM --- Crash tracking ---
-REM Bot output goes to logs\bot.log (appended, includes tracebacks).
+REM Bot output shows in this console AND is appended to
+REM logs\bot.log (tracebacks included), via PowerShell Tee-Object.
 REM One line per start/stop goes to logs\crashes.log with a
 REM timestamp and the bot's exit code, so you can see at a glance
 REM when it crashed and how often. After 5 crashes in a row it
@@ -23,7 +24,7 @@ start "absLogin" /D "G:\My Drive\codingShit\absLogin" cmd /k py -3.14 app.py
 set "CRASHES=0"
 :run_bot
 echo [%DATE% %TIME%] Starting bot >> "%CRASHLOG%"
-py -3.14 bot.py >> "%BOTLOG%" 2>&1
+powershell -NoProfile -Command "py -3.14 bot.py 2>&1 | Tee-Object -FilePath '%BOTLOG%' -Append; exit $LASTEXITCODE"
 set "EXITCODE=%ERRORLEVEL%"
 echo [%DATE% %TIME%] Bot stopped, exit code %EXITCODE% >> "%CRASHLOG%"
 if %EXITCODE%==0 goto :done

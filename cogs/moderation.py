@@ -1,78 +1,87 @@
 import discord
+from discord import app_commands
 from discord.ext import commands
 from discord.utils import get
 from discord_webhook import DiscordWebhook, DiscordEmbed
 import asyncio
-
 import random
 from config import config
+
 
 class Moderation(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command()
-    @commands.has_permissions(kick_members=True)
-    @commands.bot_has_permissions(kick_members=True)
-    async def kick(self, ctx, user:discord.Member):
+    @app_commands.command(name="kick", description="Kicks the specified user from the server")
+    @app_commands.checks.has_permissions(kick_members=True)
+    @app_commands.checks.bot_has_permissions(kick_members=True)
+    async def kick(self, interaction: discord.Interaction, user: discord.Member):
         """Kicks the specified user from the server"""
-        await ctx.author.guild.kick(user)
-        await ctx.send(f"Kicked <@{user.id}>")
+        await interaction.guild.kick(user)
+        await interaction.response.send_message(f"Kicked <@{user.id}>")
 
-    @commands.command(pass_context=True, aliases=['live'])
-    async def streamLive(self, ctx):
-        role = discord.utils.get(ctx.guild.roles, name="Admin")
-        if role in ctx.author.roles:
-            await self.bot.change_presence(activity=discord.Streaming(name="My Stream", url="twitch.tv/playastra"))
+    @app_commands.command(name="streamlive", description="Set the bot presence to streaming live")
+    async def streamLive(self, interaction: discord.Interaction):
+        role = discord.utils.get(interaction.guild.roles, name="Admin")
+        if role in interaction.user.roles:
+            await self.bot.change_presence(
+                activity=discord.Streaming(name="My Stream", url="https://twitch.tv/playastra")
+            )
+            await interaction.response.send_message("Stream status set to live!", ephemeral=True)
         else:
-            msg = await ctx.send(
-                "You do not have permission to use this command!")
-            await asyncio.sleep(3)
-            await msg.delete()
+            await interaction.response.send_message(
+                "You do not have permission to use this command!", ephemeral=True
+            )
 
-    @commands.command(pass_context=True, aliases=['ended'])
-    async def streamEnded(self, ctx):
-        role = discord.utils.get(ctx.guild.roles, name="Admin")
-        if role in ctx.author.roles:
-            await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="Metronome rant about girls"))
+    @app_commands.command(name="streamended", description="Reset the bot presence after a stream ends")
+    async def streamEnded(self, interaction: discord.Interaction):
+        role = discord.utils.get(interaction.guild.roles, name="Admin")
+        if role in interaction.user.roles:
+            await self.bot.change_presence(
+                activity=discord.Activity(
+                    type=discord.ActivityType.listening,
+                    name="Metronome rant about girls",
+                )
+            )
+            await interaction.response.send_message("Stream status ended!", ephemeral=True)
         else:
-            msg = await ctx.send(
-                "You do not have permission to use this command!")
-            await asyncio.sleep(3)
-            await msg.delete()
+            await interaction.response.send_message(
+                "You do not have permission to use this command!", ephemeral=True
+            )
 
     # Move out of points.
-    @commands.command()
-    async def speak(self, ctx, *, message: str):  #### INPUT
-        role = discord.utils.get(ctx.guild.roles, name="Admin")
+    @app_commands.command(name="speak", description="Make the bot send a message")
+    async def speak(self, interaction: discord.Interaction, message: str):  #### INPUT
+        role = discord.utils.get(interaction.guild.roles, name="Admin")
         channel = self.bot.get_channel(584936481924055050)
-        if role in ctx.author.roles:
-            msg = ctx.message
-            await channel.send(message)
-            await msg.delete()
+        if role in interaction.user.roles:
+            if channel:
+                await channel.send(message)
+            await interaction.response.send_message("Message sent!", ephemeral=True)
         else:
-            msg = await ctx.send(
-                "You do not have permission to use this command!")
-            await asyncio.sleep(3)
-            await msg.delete()
+            await interaction.response.send_message(
+                "You do not have permission to use this command!", ephemeral=True
+            )
 
-
-    @commands.command(pass_context=True, aliases=['reload'])
-    async def reloadCog(self, ctx, cogName):
-        role = discord.utils.get(ctx.guild.roles, name="Admin")
-        if role in ctx.author.roles:
+    @app_commands.command(name="reloadcog", description="Reload a cog extension")
+    async def reloadCog(self, interaction: discord.Interaction, cog_name: str):
+        role = discord.utils.get(interaction.guild.roles, name="Admin")
+        if role in interaction.user.roles:
             try:
-                self.bot.unload_extension(f"cogs.{cogName}")
-                self.bot.load_extension(f"cogs.{cogName}")
-                print(f"{cogName} successfully reloaded!")
-                await ctx.send(f"{cogName} successfully reloaded!")
+                await self.bot.unload_extension(f"cogs.{cog_name}")
+                await self.bot.load_extension(f"cogs.{cog_name}")
+                if interaction.guild:
+                    self.bot.tree.copy_global_to(guild=interaction.guild)
+                    await self.bot.tree.sync(guild=interaction.guild)
+                await self.bot.tree.sync()
+                print(f"{cog_name} successfully reloaded!")
+                await interaction.response.send_message(f"{cog_name} successfully reloaded!")
             except commands.ExtensionNotLoaded:
-                await ctx.send("This cog is not loaded")
+                await interaction.response.send_message("This cog is not loaded", ephemeral=True)
         else:
-            msg = await ctx.send(
-                "You do not have permission to use this command!")
-            await asyncio.sleep(3)
-            await msg.delete()
+            await interaction.response.send_message(
+                "You do not have permission to use this command!", ephemeral=True
+            )
 
     # Error catching listener
     @commands.Cog.listener()
@@ -87,7 +96,7 @@ class Moderation(commands.Cog):
         """
 
         # This prevents any commands with local handlers being handled here in on_command_error.
-        if hasattr(ctx.command, 'on_error'):
+        if hasattr(ctx.command, "on_error"):
             return
 
         # This prevents any cogs with an overwritten cog_command_error being handled here.
@@ -96,11 +105,11 @@ class Moderation(commands.Cog):
             if cog._get_overridden_method(cog.cog_command_error) is not None:
                 return
 
-        ignored = (commands.CommandNotFound, )
+        ignored = (commands.CommandNotFound,)
 
         # Allows us to check for original exceptions raised and sent to CommandInvokeError.
         # If nothing is found. We keep the exception passed to on_command_error.
-        error = getattr(error, 'original', error)
+        error = getattr(error, "original", error)
 
         # Anything in ignored will return and prevent anything happening.
         if isinstance(error, ignored):
@@ -111,14 +120,17 @@ class Moderation(commands.Cog):
             return
 
     ## Deletes messages when given a number of messages
-    @commands.command()
-    @commands.has_permissions(manage_messages=True)
-    async def purge(self, ctx, number):
-        msgs = [] #Empty list to put all the messages in the log
-        msgsToDelete = int(number) + 1 #Converting the amount of messages to delete to an integer
-        async for message in ctx.message.channel.history(limit=msgsToDelete):
-            msgs.append(message)
-        await ctx.message.channel.delete_messages(msgs)
+    @app_commands.command(name="purge", description="Deletes a given number of messages")
+    @app_commands.checks.has_permissions(manage_messages=True)
+    async def purge(self, interaction: discord.Interaction, number: int):
+        await interaction.response.defer(ephemeral=True)
+        msgs = [
+            message
+            async for message in interaction.channel.history(limit=int(number))
+        ]
+        await interaction.channel.delete_messages(msgs)
+        await interaction.followup.send(f"Deleted {len(msgs)} messages.", ephemeral=True)
 
-def setup(bot):
-    bot.add_cog(Moderation(bot))
+
+async def setup(bot):
+    await bot.add_cog(Moderation(bot))

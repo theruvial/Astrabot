@@ -1,5 +1,6 @@
 ## this is for pokemon battles
 import discord
+from discord import app_commands
 from discord.ext import commands
 from discord.utils import get
 import asyncio
@@ -23,43 +24,45 @@ constitution
 defense
 """
 
+
 class Pet(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-
     @commands.Cog.listener()
     async def on_ready(self):
-        sql_hp = '''Create table if not exists fct_pet_hp(
-                                discord_id bigint not null,
-                                cur_hp integer not null,
-                                ds bigint not null
+        cursor = self.bot.db.cursor()
+        sql_hp = '''CREATE TABLE IF NOT EXISTS fct_pet_hp(
+                                discord_id BIGINT NOT NULL,
+                                cur_hp INTEGER NOT NULL,
+                                ds BIGINT NOT NULL
                                 )
                 '''
-        await self.bot.pg_con.execute(sql_hp)
-        sql_xp = '''Create table if not exists fct_pet_xp(
-                                discord_id bigint not null, 
-                                xp bigint not null,
-                                ds bigint not null
+        cursor.execute(sql_hp)
+        sql_xp = '''CREATE TABLE IF NOT EXISTS fct_pet_xp(
+                                discord_id BIGINT NOT NULL,
+                                xp BIGINT NOT NULL,
+                                ds BIGINT NOT NULL
                                 )
                 '''
-        await self.bot.pg_con.execute(sql_xp)
-        sql_stats = '''Create table if not exists fct_pet_stats(
-                                discord_id bigint not null, 
-                                ds bigint not null,
-                                vitality integer not null,
-                                attack integer not null,
-                                defense integer not null,
-                                speed integer not null
+        cursor.execute(sql_xp)
+        sql_stats = '''CREATE TABLE IF NOT EXISTS fct_pet_stats(
+                                discord_id BIGINT NOT NULL,
+                                ds BIGINT NOT NULL,
+                                vitality INTEGER NOT NULL,
+                                attack INTEGER NOT NULL,
+                                defense INTEGER NOT NULL,
+                                speed INTEGER NOT NULL
                                 )
                 '''
-        await self.bot.pg_con.execute(sql_stats)
-        sql_static = '''Create table if not exists dim_pet(
-                                name text not null,
-                                type text not null
+        cursor.execute(sql_stats)
+        sql_static = '''CREATE TABLE IF NOT EXISTS dim_pet(
+                                name TEXT NOT NULL,
+                                type TEXT NOT NULL
                                 )
                 '''
-        await self.bot.pg_con.execute(sql_static)
+        cursor.execute(sql_static)
+        self.bot.db.commit()
 
         print("Pets cog ready!")
 
@@ -74,35 +77,38 @@ class Pet(commands.Cog):
     #     return (level+1) * attack
 
     # ## check row count
-    # async def check_if_has_pet(self, ctx, user:discord.Member) -> bool:
-    #     sql = f'''
-    #     select sum(bucks) from bucks
-    #     where discord_id  = {discord_id}
-    #     '''
-    #     queryResult = await self.bot.pg_con.fetchval(sql)
-    #     return queryResult - bet >= 0
+    # async def check_if_has_pet(self, interaction: discord.Interaction, user: discord.Member) -> bool:
+    #     cursor = self.bot.db.cursor()
+    #     cursor.execute(
+    #         "SELECT COALESCE(SUM(bucks), 0) FROM bucks WHERE discord_id = ?",
+    #         (user.id,),
+    #     )
+    #     queryResult = cursor.fetchone()[0]
+    #     return queryResult >= 0
 
-    # async def check_if_pet_has_hp(self, ctx, user:discord.Member) -> bool:
-    #     sql = f'''
-    #     select sum(curHP) from fct_pets
-    #     where discord_id  = {discord_id}
-    #     '''
-    #     queryResult = await self.bot.pg_con.fetchval(sql)
-    #     return queryResult - bet >= 0
+    # async def check_if_pet_has_hp(self, interaction: discord.Interaction, user: discord.Member) -> bool:
+    #     cursor = self.bot.db.cursor()
+    #     cursor.execute(
+    #         "SELECT COALESCE(SUM(cur_hp), 0) FROM fct_pet_hp WHERE discord_id = ?",
+    #         (user.id,),
+    #     )
+    #     queryResult = cursor.fetchone()[0]
+    #     return queryResult > 0
 
     # ## Offer a choice of 3 pokemon.
-    # @commands.command()
-    # async def adopt(self, ctx, user:discord.Member):
+    # @app_commands.command(name="adopt")
+    # async def adopt(self, interaction: discord.Interaction, user: discord.Member):
     #     return
 
     # ## attacks another player
-    # @commands.command()
-    # async def attack(self, ctx, user:discord.Member):
+    # @app_commands.command(name="attack")
+    # async def attack(self, interaction: discord.Interaction, user: discord.Member):
     #     level = 0
-    #     damage = (level +1) * attack
+    #     damage = (level + 1) * attack
     #     return
 
     # ## fights random pokemon
 
-def setup(bot):
-    bot.add_cog(Pet(bot))
+
+async def setup(bot):
+    await bot.add_cog(Pet(bot))

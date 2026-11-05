@@ -9,10 +9,12 @@ import asyncio
 import os
 import sys
 import unittest
+from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cogs.wiki import Wiki, wiki_file_path
+import cogs.wiki as wiki_mod
+from cogs.wiki import Wiki, api_config, wiki_file_path
 
 
 class FakeResponse:
@@ -52,9 +54,39 @@ class WikiTests(unittest.TestCase):
         self.assertEqual(sent["file"].filename, "astra-wiki.html")
         self.assertFalse(sent["ephemeral"])
 
-    def test_wiki_command_errors_ephemerally_when_file_missing(self):
-        import cogs.wiki as wiki_mod
+    def test_wiki_command_uses_backend_when_key_configured(self):
+        async def fake_fetch(api_url, api_key):
+            self.assertEqual(api_key, "testkey123")
+            return b"<html>fresh from backend</html>"
 
+        with patch.dict(os.environ, {"WIKI_API_KEY": "testkey123"}), patch.object(
+            wiki_mod, "fetch_backend_html", side_effect=fake_fetch
+        ):
+            cog = Wiki(bot=None)
+            interaction = FakeInteraction()
+            run(cog.wiki.callback(cog, interaction))
+            sent = interaction.response.sent[0]
+            self.assertEqual(sent["file"].filename, "astra-wiki.html")
+            self.assertEqual(sent["file"].fp.read(), b"<html>fresh from backend</html>")
+
+    def test_wiki_command_falls_back_to_bundled_file_when_backend_fails(self):
+        with patch.dict(os.environ, {"WIKI_API_KEY": "testkey123"}), patch.object(
+            wiki_mod, "fetch_backend_html", AsyncMock(return_value=None)
+        ):
+            cog = Wiki(bot=None)
+            interaction = FakeInteraction()
+            run(cog.wiki.callback(cog, interaction))
+            sent = interaction.response.sent[0]
+            self.assertEqual(sent["file"].filename, "astra-wiki.html")
+            self.assertFalse(sent["ephemeral"])
+
+    def test_api_config_defaults_to_loopback_without_key(self):
+        with patch.dict(os.environ, {}, clear=True):
+            url, key = api_config()
+            self.assertEqual(url, "http://127.0.0.1:13382")
+            self.assertIsNone(key)
+
+    def test_wiki_command_errors_ephemerally_when_file_missing(self):
         real = wiki_mod.WIKI_FILE
         wiki_mod.WIKI_FILE = real.parent / "does-not-exist.html"
         try:

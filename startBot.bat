@@ -13,7 +13,10 @@ if not exist "%LOGDIR%" mkdir "%LOGDIR%"
 set "CRASHLOG=%LOGDIR%\crashes.log"
 set "BOTLOG=%LOGDIR%\bot.log"
 
-FOR /F "tokens=2 delims= " %%P IN ('tasklist /FO Table /M /NH ^| Find /i "Py"') DO (TASKKILL /PID %%P /F)
+REM Kill only an already-running bot or audiobooks webserver, not
+REM every Python process on the machine. Matches python processes
+REM whose command line mentions bot.py or audiobooks_web.py.
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { $_.CommandLine -match 'bot\.py|audiobooks_web\.py' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
 cd C:\Coding\Astrabot
 git pull
 git -C "G:\My Drive\codingShit\absLogin" pull

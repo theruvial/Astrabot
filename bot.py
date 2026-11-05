@@ -16,9 +16,27 @@ startup_extensions = [
     # "cogs.shop",
     # "cogs.pet",
     # "cogs.tasks",
-    # "cogs.clip",
+    "cogs.clip",
     "cogs.audiobooks",
 ]
+
+# Guilds where only the audiobooks commands (currently just
+# /email_user) should be available — every other slash command is
+# hidden there. Everywhere else the bot gets all its commands.
+AUDIOBOOKS_ONLY_GUILD_IDS = frozenset({454792201633792001})
+
+
+def commands_for_guild(bot, guild_id):
+    """Slash commands that should be synced to one guild.
+
+    Global commands show up in every guild, so commands are synced
+    per-guild instead of globally: an audiobooks-only guild gets
+    only the Audiobooks cog's commands, everyone else gets them all.
+    """
+    if guild_id in AUDIOBOOKS_ONLY_GUILD_IDS:
+        cog = bot.get_cog("Audiobooks")
+        return list(cog.get_app_commands()) if cog is not None else []
+    return list(bot.tree.get_commands())
 
 
 class Astrabot(commands.Bot):
@@ -125,17 +143,31 @@ class Astrabot(commands.Bot):
             except Exception as e:
                 print(f"Failed to load extension {extension}\n{type(e).__name__}: {e}")
 
-        # Sync global slash commands
-        await self.tree.sync()
+        # No global sync on purpose: global commands appear in every
+        # guild, which would defeat the per-guild filtering in
+        # commands_for_guild. Commands are synced per-guild in
+        # on_ready / on_guild_join instead.
+
+    async def _sync_guild(self, guild):
+        """Sync this guild's commands (filtered for some guilds)."""
+        self.tree.clear_commands(guild=guild)
+        for command in commands_for_guild(self, guild.id):
+            self.tree.add_command(command, guild=guild)
+        synced = await self.tree.sync(guild=guild)
+        names = ", ".join(c.name for c in synced)
+        print(f"Synced {len(synced)} commands to '{getattr(guild, 'name', guild.id)}' ({guild.id}): {names}")
+
+    async def on_guild_join(self, guild):
+        try:
+            await self._sync_guild(guild)
+        except Exception as e:
+            print(f"Failed to sync commands to guild {guild.id}: {e}")
 
     async def on_ready(self):
         if not self._synced_on_ready:
             for guild in self.guilds:
                 try:
-                    self.tree.copy_global_to(guild=guild)
-                    synced = await self.tree.sync(guild=guild)
-                    names = ", ".join(c.name for c in synced)
-                    print(f"Synced {len(synced)} commands to '{guild.name}' ({guild.id}): {names}")
+                    await self._sync_guild(guild)
                 except Exception as e:
                     print(f"Failed to sync commands to guild {guild.id}: {e}")
             self._synced_on_ready = True

@@ -1,0 +1,1115 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aboard the Astra — Mechanics Wiki</title>
+<style>
+/* Aboard the Astra — Mechanics Wiki.
+   Styled after classic game wikis (Wikipedia / Bulbapedia):
+   light background, blue links, left sidebar, right infobox,
+   table-of-contents box, and blue section headings.
+   Dark mode is the default (data-theme="dark" on <html>); the
+   toggle in the top bar switches to light and remembers the
+   choice in localStorage. */
+:root {
+  --bg: #f8f9fa;
+  --content-bg: #ffffff;
+  --ink: #202122;
+  --ink-dim: #54595d;
+  --link: #3366cc;
+  --link-visited: #795cb2;
+  --accent: #2a4b8d;
+  --accent-light: #eaf3ff;
+  --line: #a2a9b1;
+  --line-light: #c8ccd1;
+  --sidebar-bg: #f8f9fa;
+  --good: #14866d;
+  --warn: #ac6600;
+  --bad: #b32424;
+  --info: #3366cc;
+}
+
+/* Dark mode (default) */
+[data-theme="dark"] {
+  --bg: #141218;
+  --content-bg: #1e1b24;
+  --ink: #e6e1ee;
+  --ink-dim: #b9b3c7;
+  --link: #8ec9ff;
+  --link-visited: #d0bcff;
+  --accent: #d0bcff;
+  --accent-light: #262230;
+  --line: #3a3448;
+  --line-light: #3a3448;
+  --sidebar-bg: #141218;
+  --good: #7fd8a4;
+  --warn: #ffcf6e;
+  --bad: #ff9d9d;
+  --info: #8ec9ff;
+}
+[data-theme="dark"] .topbar { background: #1e1b24; }
+[data-theme="dark"] .tab.active { background: #141218; color: var(--ink); }
+[data-theme="dark"] code { background: #262230; border-color: #3a3448; color: var(--ink); }
+[data-theme="dark"] .infobox { background: #262230; }
+[data-theme="dark"] .infobox caption { background: #3d2b4d; }
+[data-theme="dark"] .infobox-img { background: #262230; }
+[data-theme="dark"] .tocbox { background: #262230; }
+[data-theme="dark"] section.page h2 { background: #3d2b4d; }
+[data-theme="dark"] section.page h3 { color: var(--accent); }
+[data-theme="dark"] th { background: #262230; }
+[data-theme="dark"] tr:nth-child(even) td { background: #262230; }
+[data-theme="dark"] p.note { background: #2e2a1e; border-left-color: #fc3; }
+[data-theme="dark"] section.page mark { background: #ffcf6e; color: #1a1405; }
+[data-theme="dark"] .badge.implemented { background: #173d2a; color: var(--good); border-color: #2c5a44; }
+[data-theme="dark"] .badge.designed { background: #2c3a55; color: var(--info); border-color: #3d5578; }
+[data-theme="dark"] .badge.locked { background: #4a2f14; color: var(--warn); border-color: #6b4a1e; }
+[data-theme="dark"] .badge.transition, [data-theme="dark"] .badge.wip { background: #3d2b4d; color: var(--accent); border-color: #5a3d75; }
+[data-theme="dark"] .badge.conflict { background: #4d1f1f; color: var(--bad); border-color: #6b2d2d; }
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.6 sans-serif;
+}
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+a:visited { color: var(--link-visited); }
+code { background: #f8f9fa; border: 1px solid #eaecf0; padding: 1px 4px; border-radius: 2px; font-size: 13px; color: #000; }
+
+/* Top bar */
+.topbar { background: #fff; border-bottom: 1px solid var(--line-light); }
+.topbar-inner {
+  max-width: 1280px; margin: 0 auto; padding: 10px 20px;
+  display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+}
+.wordmark { font: 24px/1.2 Georgia, serif; color: var(--ink); }
+.wordmark span { color: var(--accent); }
+.wordmark:hover { text-decoration: none; }
+.searchbar { display: flex; gap: 8px; align-items: center; flex: 1; min-width: 220px; }
+.searchbar input {
+  flex: 1; max-width: 420px; padding: 6px 10px; font-size: 14px;
+  border: 1px solid var(--line); border-radius: 2px;
+}
+.searchbar input:focus { outline: 2px solid var(--link); border-color: var(--link); }
+#search-count { color: var(--ink-dim); font-size: 13px; white-space: nowrap; }
+.topbar-note { color: var(--ink-dim); font-size: 13px; }
+.tabs {
+  max-width: 1280px; margin: 0 auto; padding: 0 20px;
+  display: flex; gap: 2px;
+}
+.tab {
+  padding: 6px 14px; font-size: 13px; color: var(--link);
+  border: 1px solid transparent; border-bottom: none; border-radius: 4px 4px 0 0;
+  cursor: default;
+}
+.tab.active { background: var(--bg); border-color: var(--line-light); color: var(--ink); font-weight: 700; }
+
+/* Layout: sidebar + article */
+.layout {
+  max-width: 1280px; margin: 0 auto; padding: 0 20px;
+  display: flex; gap: 24px; align-items: flex-start;
+}
+.sidebar {
+  flex: 0 0 180px; position: sticky; top: 12px; padding: 16px 0;
+  font-size: 13px; background: var(--sidebar-bg);
+}
+.sidebar-logo { font-size: 44px; text-align: center; }
+.sidebar-title { font: 18px Georgia, serif; text-align: center; margin: 4px 0 12px; }
+.sidebar h3 {
+  margin: 16px 0 4px; padding-bottom: 4px; font-size: 13px;
+  color: var(--ink-dim); border-bottom: 1px solid var(--line-light);
+}
+.sidebar ul { list-style: none; margin: 0; padding: 0; }
+.sidebar li { margin: 2px 0; }
+.sidebar-note { color: var(--ink-dim); font-size: 12px; }
+.article { flex: 1; min-width: 0; background: var(--content-bg); border: 1px solid var(--line-light); border-left: none; border-right: none; padding: 16px 28px 32px; }
+.article-title {
+  font: 29px/1.3 Georgia, serif; margin: 4px 0 2px; padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.article-sub { color: var(--ink-dim); font-size: 13px; margin: 4px 0 12px; }
+.intro { font-size: 14.5px; }
+
+/* Infobox (right, like Wikipedia / Bulbapedia) */
+.infobox {
+  float: right; clear: right; width: 270px; margin: 0 0 16px 20px;
+  border: 1px solid var(--line); border-collapse: collapse;
+  background: #f8f9fa; font-size: 13px;
+}
+.infobox caption {
+  background: var(--accent); color: #fff; font: 18px Georgia, serif;
+  padding: 8px; text-align: center;
+}
+.infobox th, .infobox td { padding: 6px 10px; border-bottom: 1px solid #eaecf0; text-align: left; vertical-align: top; }
+.infobox th { width: 38%; }
+.infobox-img { font-size: 44px; text-align: center; background: var(--accent-light); }
+
+/* TOC box */
+.tocbox {
+  display: inline-block; min-width: 280px; max-width: 420px;
+  background: #f8f9fa; border: 1px solid var(--line);
+  padding: 10px 16px; margin: 8px 0 16px; font-size: 13.5px;
+}
+.tocbox-title { font-weight: 700; margin: 0 0 6px; }
+.tocbox-toggle { font-weight: 400; color: var(--link); }
+.tocbox ol { margin: 0; padding-left: 22px; }
+.tocbox li { margin: 1px 0; }
+
+/* Article sections — Bulbapedia-style blue headings */
+section.page { margin: 24px 0; }
+section.page.hidden { display: none; }
+section.page mark { background: #ffe270; padding: 0 2px; }
+section.page h2 {
+  font: 22px Georgia, serif; margin: 0 0 8px; padding: 4px 10px;
+  background: var(--accent); color: #fff; border-radius: 4px;
+}
+section.page h2 .badge { vertical-align: middle; }
+section.page h3 {
+  font-size: 16px; margin: 18px 0 6px; color: var(--accent);
+  border-bottom: 1px solid var(--line-light); padding-bottom: 3px;
+}
+p.src { color: var(--ink-dim); font-size: 12.5px; }
+p.note {
+  background: #fef6e7; border-left: 3px solid #fc3;
+  padding: 10px 12px; font-size: 13.5px;
+}
+table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13.5px; }
+th, td { text-align: left; padding: 7px 9px; border: 1px solid var(--line-light); vertical-align: top; }
+th { background: #eaecf0; color: var(--ink); }
+tr:nth-child(even) td { background: #f8f9fa; }
+ul, ol { padding-left: 22px; }
+li { margin: 4px 0; }
+.badge {
+  display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; padding: 2px 8px; border-radius: 20px; vertical-align: middle;
+}
+.badge.implemented { background: #d5fdf4; color: var(--good); border: 1px solid #a3d9c9; }
+.badge.designed { background: #eaf3ff; color: var(--info); border: 1px solid #a8c8f0; }
+.badge.locked { background: #fef6e7; color: var(--warn); border: 1px solid #f0c36d; }
+.badge.transition { background: #f3e8ff; color: #6b21a8; border: 1px solid #d8b4fe; }
+.badge.conflict { background: #fee7e6; color: var(--bad); border: 1px solid #f5b5b2; }
+.badge.wip { background: #f3e8ff; color: #6b21a8; border: 1px solid #d8b4fe; }
+.legend { list-style: none; padding-left: 0; }
+.legend li { margin: 8px 0; }
+footer { max-width: 1280px; margin: 0 auto; padding: 16px 20px 32px; color: var(--ink-dim); font-size: 12.5px; }
+@media (max-width: 760px) {
+  .layout { flex-direction: column; }
+  .sidebar { position: static; flex: none; width: 100%; }
+  .article { padding: 12px 16px 24px; }
+  .infobox { float: none; width: 100%; margin: 0 0 16px; }
+  .tocbox { max-width: 100%; }
+}
+
+.theme-toggle {
+  padding: 6px 12px; font-size: 13px; cursor: pointer;
+  background: var(--content-bg); color: var(--link);
+  border: 1px solid var(--line); border-radius: 20px;
+}
+.theme-toggle:hover { border-color: var(--accent); }
+
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" href="#top">Aboard the Astra <span>Wiki</span></a>
+    <div class="searchbar">
+      <input id="search" type="search" placeholder="Search the wiki…" aria-label="Search mechanics">
+      <span id="search-count"></span>
+    </div>
+    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle dark / light mode">☀️ Light mode</button>
+    <span class="topbar-note">Mechanics Wiki &middot; from the repo itself</span>
+  </div>
+  <nav class="tabs">
+    <span class="tab active">Article</span>
+    <span class="tab">Discussion</span>
+    <span class="tab">View source</span>
+    <span class="tab">History</span>
+  </nav>
+</header>
+<div class="layout">
+<aside class="sidebar">
+  <div class="sidebar-logo">🚀</div>
+  <p class="sidebar-title">Aboard the Astra</p>
+  <h3>Navigation</h3>
+  <ul>
+    <li><a href="#status">Main page</a></li>
+    <li><a href="#story">Story spine</a></li>
+    <li><a href="#run">The run &amp; star map</a></li>
+    <li><a href="#chase">The chase</a></li>
+    <li><a href="#rival">The Rival</a></li>
+    <li><a href="#ship-combat">Ship combat</a></li>
+    <li><a href="#ground-combat">Ground combat</a></li>
+    <li><a href="#damage-control">Damage control</a></li>
+    <li><a href="#systems">Ship systems</a></li>
+    <li><a href="#crew">Crew</a></li>
+    <li><a href="#economy">Economy &amp; stores</a></li>
+    <li><a href="#encounters">Encounters &amp; dialogue</a></li>
+    <li><a href="#boons">Boons &amp; burdens</a></li>
+    <li><a href="#spoils">Spoils</a></li>
+    <li><a href="#wip">Work in progress</a></li>
+    <li><a href="#conflicts">Conflicts</a></li>
+    <li><a href="#numbers">Generated numbers</a></li>
+    <li><a href="#sources">Sources</a></li>
+  </ul>
+  <h3>Tools</h3>
+  <ul>
+    <li><a href="mechanics.json">mechanics.json</a></li>
+    <li><a href="generated.md">Generated summary</a></li>
+    <li><a href="README.md">Wiki README</a></li>
+  </ul>
+  <p class="sidebar-note">Snapshot: <code>main</code> @ <code>e8824e89</code>, 2026-11-05. WIP items cover main up to <code>58f90483</code>.</p>
+</aside>
+<main class="article" id="top">
+<h1 class="article-title">Aboard the Astra — Mechanics</h1>
+<p class="article-sub">From the Aboard the Astra Wiki, the mechanics wiki for <i>Aboard the Astra</i>.</p>
+<table class="infobox">
+  <caption>Aboard the Astra</caption>
+  <tr><th colspan="2" class="infobox-img">🚀</th></tr>
+  <tr><th>Engine</th><td>Unity 6 (URP 2D)</td></tr>
+  <tr><th>Networking</th><td>Netcode for GameObjects</td></tr>
+  <tr><th>Players</th><td>2–4, co-op, one shared ship</td></tr>
+  <tr><th>Genre</th><td>FTL-style run, 2D space co-op</td></tr>
+  <tr><th>Goal</th><td>Outrun the Forgers, reach the Last Gate</td></tr>
+  <tr><th>Crew</th><td>8 characters, pick 4 per run</td></tr>
+  <tr><th>Status</th><td>In development (remake)</td></tr>
+</table>
+<div class="tocbox">
+  <p class="tocbox-title">Contents <span class="tocbox-toggle">[hide]</span></p>
+  <ol>
+    <li><a href="#status">Status key</a></li>
+    <li><a href="#story">Story spine</a></li>
+    <li><a href="#run">The run &amp; star map</a></li>
+    <li><a href="#chase">The chase</a></li>
+    <li><a href="#rival">The Rival</a></li>
+    <li><a href="#ship-combat">Ship combat</a></li>
+    <li><a href="#ground-combat">Ground combat</a></li>
+    <li><a href="#damage-control">Damage control</a></li>
+    <li><a href="#systems">Ship systems &amp; rooms</a></li>
+    <li><a href="#crew">Crew</a></li>
+    <li><a href="#economy">Economy &amp; stores</a></li>
+    <li><a href="#encounters">Encounters &amp; dialogue</a></li>
+    <li><a href="#boons">Boons &amp; burdens</a></li>
+    <li><a href="#spoils">Spoils</a></li>
+    <li><a href="#wip">Work in progress / placeholders</a></li>
+    <li><a href="#conflicts">Conflicts &amp; open questions</a></li>
+    <li><a href="#numbers">Generated numbers</a></li>
+    <li><a href="#sources">Sources</a></li>
+  </ol>
+</div>
+<p class="intro">A 2D co-op space game rebuilt in Unity 6 (URP 2D) with Netcode for GameObjects.
+2–4 players crew one shared ship, chart a course across a generated star map, and race
+the Forgers to the Last Gate. This wiki lists the actual mechanics, with their numbers
+where the repo states them — it never invents a number.</p>
+<section id="status" class="page">
+  <h2>Status key</h2>
+  <p>Every mechanic on this wiki carries one status. The wiki never invents a number:
+  values come from the design docs or the pure rules in <code>Assets/_Project/Scripts/Core</code>
+  (namespace <code>Astra.Core</code>), and each page cites its source file.</p>
+  <ul class="legend">
+    <li><span class="badge implemented">Implemented</span> Rules and tests exist in <code>Core</code>, and usually a network layer / scene wiring too.</li>
+    <li><span class="badge designed">Designed</span> Written up in a design doc; no code (or only partial code) yet.</li>
+    <li><span class="badge locked">Locked</span> A story decision Steven locked. Do not change without Steven.</li>
+    <li><span class="badge transition">In transition</span> Being removed or renamed; docs and code disagree for now.</li>
+    <li><span class="badge conflict">Conflict</span> Two repo sources disagree. The wiki flags it instead of picking a winner.</li>
+    <li><span class="badge wip">WIP</span> Work in progress / placeholder. Merged or written, but not finished, not yet given a full wiki page, or standing in with placeholder numbers, icons or art. See <a href="#wip">Work in progress / placeholders</a>.</li>
+  </ul>
+  <p><strong>Snapshot:</strong> this wiki was built from <code>main</code> at
+  <code>e8824e89</code> (“Merge branch 'feature/rival-crews'”, 2026-11-05). The numbers in
+  <a href="#numbers">Generated numbers</a> are re-parsed from the repo by
+  <code>tools/wiki/generate_wiki.py</code> on every update — see the
+  <a href="README.md">wiki README</a> for how the auto-update works.</p>
+</section>
+
+<section id="story" class="page">
+  <h2>Story spine <span class="badge locked">Locked</span></h2>
+  <p class="src">Source: <code>Astra_Story_Spine.md</code> (locked 2026-11-01), <code>Astra_World_Design.md</code> §1</p>
+  <p><strong>One sentence:</strong> a lovable-idiot misfit crew stole the map to the Last Gate from the
+  robotic Forgers who guarded it, and now the Forgers chase them across the run while the crew races
+  to the Gate, which jumps to secret coordinates holding an El Dorado-type prize.</p>
+  <ul>
+    <li><strong>One theft, one pursuer, one destination, one prize.</strong> The crew's motive is greedy,
+    selfish treasure-seeking — they are not saving the universe and not trying to get home.</li>
+    <li><strong>The pursuers are the Forgers</strong> (renamed from “Wardens” 2026-11-03, Steven):
+    a robotic race that gained sentience — enigmatic hoarders on poor terms with the rest of the
+    galaxy, not a police force. The map was a piece of their Collection. Code identifiers still use
+    the old name (<code>warden</code>, <code>wardenProximity</code>, <code>lastGateWarden…</code>)
+    and are legacy names to be renamed later — the wiki uses “Forgers” and notes the old IDs where they matter.</li>
+    <li><strong>The Last Gate</strong> teleports / jumps the crew to secret coordinates. “Last Gate” is just
+    its name — no lore explanation for why it is the last one. What is through the Gate stays ambiguous;
+    the Forgers cannot follow, because the map is the key.</li>
+    <li><strong>No starter encounter at all</strong> (Steven, 2026-11-01, later the same day as the lock).
+    The run opens with the getaway cutscene (short intro), then the crew chart a course. The old
+    <code>lastGateTheft</code> encounter is switched off, and the stolen map simply works — a planned
+    “decrypt the map” random encounter was cut 2026-11-04 (“decrypt the map feels weird as a random encounter”).</li>
+    <li><strong>The heist is not gameplay</strong> — at most the short intro/getaway cutscene.</li>
+    <li><strong>Run shape:</strong> FTL-style run, one main outcome, 2–4 player co-op only, comedic crew vs.
+    weird horror-tinged universe. Dialogue lives in the travel/encounter layer only, never interrupting live combat.</li>
+  </ul>
+  <h3>Cut — do not resurrect without Steven</h3>
+  <ul>
+    <li>Quarantine / contamination framing</li>
+    <li>A second antagonist creature (the Creature as a second chaser)</li>
+    <li>The wormhole as a plot driver</li>
+    <li>A black-hole opening</li>
+    <li>Wendigo as end boss — <span class="badge conflict">Conflict</span> the Wendigo still appears as a
+    large ship in <code>Astra_Space_Combat_Design.md</code> (v2); the wiki flags it, it does not resolve it.</li>
+    <li>The nine-boss sequential run (bosses are deferred, not cancelled — <code>Astra_World_Design.md</code> §5.6, D2)</li>
+  </ul>
+  <p><strong>Flavour targets (Steven's words):</strong> a little Guardians of the Galaxy, a little FTL,
+  a little Star Trek — plus Indiana Jones / Holy Grail quest energy.</p>
+</section>
+
+<section id="run" class="page">
+  <h2>The run &amp; star map <span class="badge implemented">Implemented</span></h2>
+  <p class="src">Source: <code>Assets/_Project/Scripts/Core/StarMap/SectorRun.cs</code>,
+  <code>StarMapGenerator.cs</code>, <code>StarMapState.cs</code>, <code>MapPatrols.cs</code>;
+  <code>Astra_World_Design.md</code> §5</p>
+  <h3>Run shape</h3>
+  <ul>
+    <li><strong>5 slots:</strong> slot 1 is always the Free Ports; the next three “breaks” each offer
+    2 core sector types (each type at most once a run; the cult is at half weight); the last slot is
+    always the Last Gate. About 2 runs in 3, one break offers a rare sector in place of a core type.</li>
+    <li><strong>Each sector map:</strong> 18 beacons — 6 columns × 3 rows — plus start and exit edge beacons,
+    with forward-only (Slay-the-Spire-style) paths. <strong>Every crossing is 7 jumps.</strong></li>
+    <li><strong>Store chance:</strong> 12% of stars are stores (<code>MapOptions.StoreChancePercent = 12</code>
+    in <code>SectorRun.cs</code>).
+    <span class="badge conflict">Conflict</span> <code>Astra_Store_Design.md</code> says about 1 in 5 (20%).</li>
+    <li>The Gate is placed at the farthest non-store star on the right of the map
+    (<code>StarMapState.PlaceGate</code>).</li>
+  </ul>
+  <h3>Sectors</h3>
+  <table>
+    <thead><tr><th>Sector</th><th>Kind</th><th>Pressure floor</th><th>Jumps / pressure level</th><th>Encounter decks</th></tr></thead>
+    <tbody>
+      <tr><td>The Free Ports</td><td>Start</td><td>0</td><td>4</td><td>Free Ports</td></tr>
+      <tr><td>The Guild Reaches</td><td>Core</td><td>0</td><td>3 (default)</td><td>Guild, Free Ports</td></tr>
+      <tr><td>Pirate Space</td><td>Core</td><td>0</td><td>3 (default)</td><td>Pirate</td></tr>
+      <tr><td>Lanternbearer Space</td><td>Core (cult, half weight)</td><td>0</td><td>4</td><td>Cult</td></tr>
+      <tr><td>Forger Space</td><td>Core</td><td>1</td><td>2</td><td>Forger</td></tr>
+      <tr><td>The Avian Homeworlds</td><td>Core</td><td>0</td><td>4</td><td>Avian Homeworlds</td></tr>
+      <tr><td>Hearth Haven</td><td>Rare</td><td>0</td><td>5</td><td>Hearth Haven</td></tr>
+      <tr><td>The Moth Caravan</td><td>Rare</td><td>0</td><td>4</td><td>Moth Caravan</td></tr>
+      <tr><td>The Dryad Bloom</td><td>Rare</td><td>0</td><td>4</td><td>Dryad Bloom</td></tr>
+      <tr><td>The Scientist Station</td><td>Rare</td><td>0</td><td>4</td><td>Scientist Station</td></tr>
+      <tr><td>The Last Gate</td><td>Gate</td><td>1</td><td>3</td><td>Gate</td></tr>
+    </tbody>
+  </table>
+  <p class="note">“Jumps / pressure level” is <code>SectorInfo.JumpsPerLevel</code> — how many jumps inside
+  the sector raise the Forger pressure by one level. Sectors without an explicit value use the default (3).
+  The cult sector's in-code name reads “Lanternbearer &lt;redacted&gt;” in <code>SectorRun.cs</code>;
+  the world doc calls it Lanternbearer / Cult Space.</p>
+  <p><strong>Races &amp; factions</strong> (see <code>Astra_World_Design.md</code> §3–§4): Humans, Avians,
+  Forgers, Moth people, Hearthkin (gentle giants), Dryads; factions are the Forgers hunting the map,
+  Enforcers, the cult, Pirates, Guilds, Scientists, Civilians. Locked rule (§2): <strong>race is not
+  allegiance</strong>.</p>
+</section>
+
+<section id="chase" class="page">
+  <h2>The chase — Forger pressure &amp; the fleet <span class="badge implemented">Implemented</span></h2>
+  <p class="src">Source: <code>Assets/_Project/Scripts/Core/GateRules.cs</code>
+  (<code>WardenPressure</code>, <code>WardenFleet</code> — old names, see Story)</p>
+  <h3>Pressure level (0–4)</h3>
+  <ul>
+    <li>0 = a rumour, 4 = on top of the crew. Set by the story flag <code>wardenProximity</code>,
+    and it also climbs by itself: <strong>one level every 3 jumps</strong> (or per
+    <code>JumpsPerLevel</code> inside a sector — see the sector table). Whichever is higher wins.</li>
+    <li>Inside a sector: level = sector pressure floor + slot number (capped at 3 from that alone),
+    +1 per <code>JumpsPerLevel</code> jumps made in the sector, or the story flag if higher.</li>
+    <li><strong>Patrol chance on a jump:</strong> 0% at level 0, otherwise
+    <strong>8 + 10 × level %</strong> (18% / 28% / 38% / 48% at levels 1–4). Boons/burdens can shift it.</li>
+    <li><strong>From level 2</strong>, a Forger encounter can be a <strong>checkpoint</strong>
+    instead of a patrol (about half the time).</li>
+  </ul>
+  <h3>The fleet front (FTL-style)</h3>
+  <ul>
+    <li>A front sweeps across the star map from the left. It starts <strong>8% of the map width</strong>
+    behind the landing star and advances <strong>4.5% of the map width per jump</strong>.</li>
+    <li>On a sector map it advances <strong>9.5% per jump</strong> — FTL's pace, so heading for the exit
+    stays ahead and a couple of detours for a store are about all the slack there is.</li>
+    <li>Every star behind the front is Forger-held; arriving at one means a Forger patrol.</li>
+  </ul>
+  <h3>Getting through the Gate</h3>
+  <ul>
+    <li>Arriving at the Gate triggers the approach encounter (<code>lastGateApproach</code>).
+    Every arrival brings the Gate's approach closer until the crew get through — getting through wins the run.</li>
+  </ul>
+</section>
+
+<section id="rival" class="page">
+  <h2>The Rival — a second hunter on the map <span class="badge implemented">Implemented</span></h2>
+  <p class="src">Sources: <code>Assets/_Project/Scripts/Core/StarMap/RivalHunt.cs</code>,
+  <code>MapPatrols.cs</code> (changed in the same merge), commit <code>1a345c25</code>
+  (“The Rival hunts the Astra on the star map; the sector exit is the Jump Gate”, StevenGin, 2026-11-05,
+  merged to main as <code>e8824e89</code>)</p>
+  <p>The Forgers chase from behind (the fleet front and their random patrols). The Rival is a different
+  kind of hunter: <strong>one ship on each sector's map, shown there, that hunts the Astra</strong> — a
+  treasure-hunter crew who want the stolen map. No proper name: it is “the Rival”, the same treasure
+  hunter as the Buyer (see <code>Astra_Recurring_Characters.md</code>).</p>
+  <ul>
+    <li><strong>Placement:</strong> when a new sector starts, the Rival turns up on its map on a star away
+    from the Astra — as far as it can, up to <strong>3 hops</strong> away
+    (<code>StartHopsFromShip = 3</code>), never on the start star, the Jump Gate, or a store. Not at all
+    once it is finished (see below).</li>
+    <li><strong>Movement:</strong> every time the Astra jumps, the Rival has a <strong>50% chance</strong>
+    (<code>MoveChancePercent = 50</code>) to move one lane closer to the Astra (never onto the start or
+    the Jump Gate). If it ends up where the Astra is, that is a meeting.</li>
+    <li><strong>Meetings — three, in turn:</strong> <code>rivalHunt1</code> (the first meeting),
+    <code>rivalHunt2</code> (the grudge), <code>rivalHunt3</code> (the last stand). Every meeting drives
+    it off this sector's map; it is back in the next sector, until the last stand, after which it is
+    gone for the run.</li>
+    <li><strong>Direction (Steven, 2026-11-05):</strong> “Better rival system of other ships/crews trying
+    to get a hold of your map, and them coming back later”, and “Replace patrols purely with rival crews”.
+    <span class="badge transition">In transition</span> — that replacement is a direction, not a completed
+    change: the Forger patrol/chance code in <code>GateRules.cs</code> still exists alongside the Rival.
+    See <a href="#conflicts">Conflicts</a>.</li>
+    <li><strong>Sector exit:</strong> the same merge names the sector exit the <strong>Jump Gate</strong>
+    (the exit beacon of a sector map).</li>
+  </ul>
+</section>
+
+<section id="ship-combat" class="page">
+  <h2>Ship combat <span class="badge implemented">Implemented</span> — two designs, newer wins</h2>
+  <p class="src">Sources: <code>Astra_Space_Combat_Design.md</code> (v2, 2026-10-20, updated 2026-11-03 — current),
+  <code>Astra_Ship_Combat_Design.md</code> (draft 2, 2026-10-15 — superseded where it disagrees),
+  <code>Assets/_Project/Scripts/Core/ShipCombat.cs</code>, <code>Balance.cs</code>,
+  <code>MissileSupply.cs</code>, <code>ActiveShield.cs</code>, <code>Astra_Faction_Combat.md</code> (proposed)</p>
+  <p><strong>Space combat v2 is the current design:</strong> no separate fight screen — the fight happens in
+  the same world space as the ship. The Astra stays still; enemy ships drift about in a patch of space in
+  front of its nose. The gunner aims with the mouse (the gun turns towards the cursor, limited turn speed);
+  whoever sits in the gunner's seat zooms the camera right out to see the whole patch.</p>
+  <h3>What v2 changed (and what it removed)</h3>
+  <ul>
+    <li><strong>No retreat.</strong> (Justin, 2026-11-03) A ship fight is fought to the end. The retreat drive,
+    the pilot's jump-away bar and its fuel cost were removed. Any mention of retreating below is out of date.
+    <span class="badge conflict">Conflict</span> the older draft-2 doc and the damage-control doc still describe
+    a retreat jump (charge ~20s at the helm, costs 1 fuel, counts as a failure) — and
+    <code>ShipCombat.cs</code> still models a pilot evasion bonus (see below).</li>
+    <li><strong>The pilot does nothing in combat for now</strong> — no evasion bonus in v2.
+    <span class="badge conflict">Conflict</span> <code>ShipCombat.cs</code> still has
+    <code>BaseEvasionPercent</code>, a pilot bonus default of +25 (cap 75), and
+    <code>Balance.BaseDodgePercent = 33</code>. The code and the v2 doc disagree here; the wiki reports both.</li>
+    <li><strong>Shield raised to 40, hull 300</strong> (placeholders to tune); enemy weapon damage was tripled
+    to suit. A crew member has 3 hearts next to a 300-hull ship, so the crew feel fragile next to it.</li>
+    <li><strong>The ship gun uses missiles.</strong> Each shot uses a missile from the gun's magazine:
+    <strong>3 for the Ship gun, 2 for the Heavy cannon</strong>. The magazine is full when a fight starts;
+    an empty gun cannot charge. Practice shots outside a fight stay free.</li>
+    <li><strong>Missiles come only from the Missile Making room:</strong> one every <strong>2 seconds</strong>,
+    and it holds only <strong>one</strong> (<code>Balance.MissileMakeSeconds = 2</code>,
+    <code>MissileCapacity = 1</code>). Someone has to carry each one to a gun's loading spot. Two guns share
+    the one maker, so once the starting magazines are spent the whole ship fires at most about one shot every
+    2 seconds plus the walk.</li>
+    <li><strong>One shot per press:</strong> holding the button charges for <strong>3 seconds</strong>
+    (<code>Balance.GunChargeSeconds</code>), then fires; a pellet can look like it touches an enemy and still miss.</li>
+  </ul>
+  <h3>Player weapons (draft 2 table — still the weapon list; v2 changes the ammo, not the guns)</h3>
+  <table>
+    <thead><tr><th>Weapon</th><th>Damage</th><th>Charge</th><th>Magazine</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Bridge cannon</td><td>6</td><td>4.0 s</td><td>3</td><td>Starter gun at the Bridge console</td></tr>
+      <tr><td>Gunnery repeater</td><td>4</td><td>2.5 s</td><td>4</td><td>One per mount in the Gunnery room</td></tr>
+      <tr><td>Gunnery heavy</td><td>12</td><td>7.0 s</td><td>2</td><td>Slow, hits hard</td></tr>
+    </tbody>
+  </table>
+  <p>Weapons are hand-fed: a weapon holds a few shells/missiles, then somebody has to fetch one from the
+  rack/maker, carry it across the room and load it. The Gunnery room has a rack and two mounts (limit of one
+  Gunnery room). The Bridge starts with a helm, one basic gun console and a small ammo crate.</p>
+  <h3>Defence</h3>
+  <ul>
+    <li><strong>Hull:</strong> at 0 the run is lost. <strong>Shield:</strong> a pool in front of the hull —
+    hits take shield first, then hull. It recharges after a few seconds without being hit
+    (<code>ShipDefence</code>: shield delay default 4 s, configurable regen).</li>
+    <li><strong>Evasion / dodge (code model):</strong> a percentage chance an incoming shot misses; pilot at
+    the helm adds +25 (capped at 75). <code>Balance.BaseDodgePercent = 33</code>, halved per engine down,
+    0 with none working. See the v2 conflict note above.</li>
+    <li><strong>Emergency shield (big enemy ships only):</strong> goes up when the ship is hit, blocks every
+    shot for <strong>4 s</strong>, then needs <strong>12 s</strong> to recharge
+    (<code>ShieldBounce</code> defaults; <code>ActiveShield</code>).</li>
+  </ul>
+  <h3>Enemy ships</h3>
+  <ul>
+    <li>Defined by <strong>race and class</strong>, from encounter text
+    (<code>spawnShip(race, class, qty)</code>). Each has hull, shield, shield recharge, evasion, and weapons
+    that fire automatically at the Astra whenever charged. Killing every enemy ship wins the ship side.</li>
+    <li><strong>Movement goes by size class</strong> (built 2026-11-02): Small = wander 360°, Medium = arc sweep
+    (half-angle 60°), Large = still, ahead only.</li>
+    <li><strong>Capital ship (test ship):</strong> 240 hull — needs 40 hits at 6 damage. Volley Fire: three
+    weapons (4, 4 and 8 damage on 4, 4 and 7 s charges) fire together as a <strong>16-damage volley every 7 s</strong>.
+    The Raider (30 hull) needs 5 hits — about what the starting magazines hold.</li>
+    <li><strong>Per-faction styles</strong> (<code>Astra_Faction_Combat.md</code> — much of it proposed/config-only,
+    not implemented): Forgers relentless fortress, Pirates fast/fragile boarding thieves, Death cult ritual
+    carrier, Trade guilds defensive convoy, Dryad regenerative bloomship, Avian fast/precise, Rival hit-and-run scout.</li>
+  </ul>
+  <h3>Boarders</h3>
+  <p>Enemy ships can send boarders: shuttles fly in (<code>Balance</code>: speed 5, attach 5 s, capacity 4,
+  stagger 3 s), boarders walk at 70% of player speed and attack every 2.5 s. See
+  <a href="#ground-combat">Ground combat</a> for their damage. Boarders can breach doors
+  (<code>Combat.cs</code>: breach rate, break-down vs other breach kinds).</p>
+</section>
+
+<section id="ground-combat" class="page">
+  <h2>Ground / onboard combat <span class="badge implemented">Implemented</span></h2>
+  <p class="src">Sources: <code>Assets/_Project/Scripts/Core/Combat.cs</code>, <code>Health.cs</code>,
+  <code>Balance.cs</code>, <code>Oxygen.cs</code>, <code>Boarding.cs</code>,
+  <code>Astra_Space_Combat_Design.md</code> §Boarders</p>
+  <h3>Crew health</h3>
+  <ul>
+    <li>Each crew member has <strong>3 hearts</strong>. Hearts have hit points; damage is tracked in
+    quarter-hearts (<code>CrewMemberHealth</code>). Down at 0; revive restores a fraction of max
+    (<code>ReviveWeak</code> revives crew below 20% to 20%).</li>
+    <li><strong>Boarder attacks</strong> (every 2.5 s): glancing blow — quarter heart, <strong>50%</strong>;
+    regular hit — half a heart, <strong>35%</strong>; critical — a whole heart, <strong>15%</strong>.
+    Average 0.45 hearts per attack, so one boarder takes about <strong>17 seconds</strong> to kill someone
+    standing still. A critical is announced in the feed.</li>
+    <li><strong>Movement:</strong> player speed 2.8 tiles/s; enemies at 70% of that. <strong>Dash:</strong>
+    start speed ×5, slows at rate 9, ends ×0.67 — about 1.35 tiles in ~0.22 s, cooldown 2 s.</li>
+    <li><strong>Personal gun:</strong> handgun damage 66 per module point (~100 hits to knock out a
+    50-health module); bullet speed ×0.5, fire rate ×0.5, minimum bullet speed 4. Cannot shoot while
+    carrying a shell or a repair kit.</li>
+    <li><strong>Medical Bay:</strong> heals a quarter-heart every 6 s
+    (<code>Balance.MedicalBayQuarterSeconds = 6</code>).</li>
+  </ul>
+  <h3>Oxygen, fire &amp; leaks</h3>
+  <ul>
+    <li><strong>Oxygen:</strong> drains 0.5/s per person in a room, refills at 2.5/s, equalises through open
+    doors at 0.04/s. Low oxygen at 25; suffocation costs a quarter-heart every 4 s. Rooms show an air gauge
+    (bigger/coloured below 60%, red at 25% and below) with the cause: LEAK, FIRE, O2 OFF, OPEN DOOR, CROWDED.
+    Below 25% the screen edges pulse red with “NO AIR — GET OUT” and an arrow to the nearest room with at
+    least half its air.</li>
+    <li><strong>Fire:</strong> 25% chance on a damaging hit; spreads every 7 s with 60% chance (5 s cooldown
+    between spreads); burns hull at 0.25/s and air at 0.5/s; goes out when air is at 15 or below.
+    Putting a fire out takes 2.5 s; a fire burns a quarter-heart every 2 s.</li>
+    <li><strong>Leaks:</strong> 25% chance on a damaging hit; leak drains air at 1.5/s. Breached rooms show
+    air wisps swirling into the crack.</li>
+    <li><strong>Weapon hazard:</strong> 40% chance (<code>Balance.WeaponHazardChancePercent</code>) — context
+    in <code>Balance.cs</code> / ship systems.</li>
+  </ul>
+</section>
+
+<section id="damage-control" class="page">
+  <h2>Damage control <span class="badge implemented">Implemented</span></h2>
+  <p class="src">Sources: <code>Astra_Damage_Control_Design.md</code> (status: built and pushed — rules, tests,
+  network layer, scene wiring; play-tested solo on the Bridge only),
+  <code>Assets/_Project/Scripts/Core/DamageControl.cs</code>,
+  <code>RoomHealthSet</code> / <code>RoomPerformance</code></p>
+  <h3>Room health &amp; stages</h3>
+  <table>
+    <thead><tr><th>Stage</th><th>Health (doc)</th><th>Colour</th></tr></thead>
+    <tbody>
+      <tr><td>Fine</td><td>76–100</td><td>—</td></tr>
+      <tr><td>Damaged</td><td>41–75</td><td>yellow</td></tr>
+      <tr><td>Critical</td><td>1–40</td><td>orange</td></tr>
+      <tr><td>Offline</td><td>0</td><td>red</td></tr>
+    </tbody>
+  </table>
+  <p class="note"><span class="badge conflict">Conflict</span> The doc says room health is 0–100, but
+  <code>DamageControl.cs</code> has <code>RoomPerformance.MaxHealth = 50</code> with
+  <code>FineAbove = 75</code> and <code>DamagedAbove = 40</code>. The thresholds and the max do not line up
+  on a 0–100 scale — check whether the code thresholds are percentages or the doc scale is stale.
+  The doc also says room damage = the hit's hull damage × 4; the code has
+  <code>DamagePerHullPoint = 1</code>. Same check needed.</p>
+  <ul>
+    <li>A hit that gets through the shield damages the hull <strong>and</strong> the room it lands in.
+    Damage stays between encounters until repaired. The ship tab shows each room's stage; the feed says
+    what it costs (“Gunnery is damaged: guns charge slower”).</li>
+    <li><strong>Which room is hit:</strong> each enemy weapon has an Aim (<code>Random</code>, <code>Guns</code>,
+    <code>Power</code>, <code>Bridge</code>, <code>Medical</code>, <code>Lab</code>). A hit goes to the aimed
+    kind of room <strong>60% of the time</strong> if the ship has one, otherwise to a random built room.
+    Examples (starting point, author to confirm): pirate popguns <code>Random</code>, avian feather cannons
+    <code>Bridge</code>, dryad spore launchers <code>Power</code>, imperial lances <code>Guns</code>,
+    cyber lasers <code>Lab</code>.</li>
+  </ul>
+  <h3>What a damaged room does</h3>
+  <table>
+    <thead><tr><th>Room</th><th>Damaged</th><th>Critical</th><th>Offline</th></tr></thead>
+    <tbody>
+      <tr><td>Gunnery</td><td>guns charge 25% slower</td><td>50% slower</td><td>its guns cannot fire</td></tr>
+      <tr><td>Bridge</td><td>pilot evasion bonus 25 → 18, Bridge cannon 25% slower, retreat jump charges 25% slower</td><td>bonus 10, 50% slower</td><td>no evasion bonus, Bridge cannon cannot fire, retreat jump does not charge</td></tr>
+      <tr><td>Generator</td><td>shield regen and per-encounter production ×0.75</td><td>×0.5</td><td>shield does not regenerate, no production</td></tr>
+      <tr><td>Medical Bay</td><td>per-encounter healing ×0.75</td><td>×0.5</td><td>no healing</td></tr>
+      <tr><td>Lab</td><td>research works as normal</td><td>research advances only every other encounter</td><td>research paused, terminal dead</td></tr>
+    </tbody>
+  </table>
+  <p class="note">The numbers are placeholders (balance comes later); they live in one config asset.
+  In code, <code>RoomPerformance</code> gives charge rate ×1 / ×0.75 / ×0.5 / 0, evasion factor ×1 / ×0.72 /
+  ×0.4 / 0, and output factor ×1 / ×0.75 / ×0.5 / 0 across the four stages. The Bridge row's retreat
+  references are stale under space-combat v2 (no retreat) — see
+  <a href="#conflicts">Conflicts</a>. The Helm is a console in the Bridge, covered by the Bridge row.</p>
+  <h3>Repair — carry a kit</h3>
+  <ul>
+    <li><strong>Repair locker:</strong> holds repair kits. One in the Bridge to start; more could be added later.
+    Taking a kit costs <strong>1 Scrap</strong> from the crew's shared pool.</li>
+    <li><strong>Carrying:</strong> one kit at a time, like a shell — slower (×0.7), personal gun off, kit dropped
+    if the crew member goes down. Cannot carry a shell and a kit at once.</li>
+    <li><strong>Using it:</strong> stand at the damaged room's repair point (spanner icon) and hold E for about
+    <strong>1.5 seconds</strong>. One kit restores <strong>30 health</strong> (about one stage) and is used up.</li>
+    <li><strong>Passive repair:</strong> <code>DamageControl.cs</code> has
+    <code>PassiveRepairAmount = 10</code> — a small free repair per room after every encounter, so a ship that
+    never gets a kit does not slowly die. (The doc listed this as a recommended open choice; the constant exists in code.)</li>
+    <li>Fires, sparks and crew damage from rooms: <strong>not yet</strong> — rooms only. Boarders do not damage
+    rooms (for now — only enemy ship weapons do).</li>
+  </ul>
+</section>
+
+<section id="systems" class="page">
+  <h2>Ship systems &amp; rooms <span class="badge implemented">Implemented</span></h2>
+  <p class="src">Sources: <code>Astra_Ship_Design_V2.md</code>, <code>Astra_Ship_Design_V3_Building.md</code>,
+  <code>Astra_Ship_Hull_Design.md</code>, <code>Assets/_Project/Scripts/Core/Research.cs</code>,
+  <code>Rooms.cs</code> (Core), <code>MissileSupply.cs</code></p>
+  <ul>
+    <li><strong>Bridge</strong> — helm (pilot seat), gun console, small ammo crate. The Helm is a console in the
+    Bridge, not a separate room.</li>
+    <li><strong>Gunnery</strong> — ammo rack and two weapon mounts (one Gunnery room max). Build it to add mounts
+    and a proper rack beyond the Bridge's starter gun.</li>
+    <li><strong>Generator</strong> — shield regen and per-encounter production (see the damage-control table for
+    what damage does to it).</li>
+    <li><strong>Medical Bay</strong> — heals crew (quarter-heart every 6 s) and per-encounter healing.</li>
+    <li><strong>Lab</strong> — research. See below.</li>
+    <li><strong>Missile Making room</strong> — makes 1 missile every 2 s, holds only 1 (see Ship combat).</li>
+    <li><strong>Oxygen room</strong> — supplies air; if it is broken, rooms show O2 OFF.</li>
+    <li><strong>Repair locker</strong> — in the Bridge to start; holds repair kits at 1 Scrap each.</li>
+  </ul>
+  <h3>Research (Lab)</h3>
+  <p class="src">Source: <code>Assets/_Project/Scripts/Core/Research.cs</code></p>
+  <ul>
+    <li>Research specs have an id, name, description, <strong>coin cost</strong>, and a number of
+    <strong>steps</strong>; some have prerequisites. One active project at a time; steps advance per encounter.</li>
+    <li>Effects: <strong>unlock a room</strong>, <strong>unlock a weapon</strong>, <strong>ship stat bonus</strong>,
+    or <strong>crew stat bonus</strong>. A damaged Lab still researches normally; a Critical Lab advances only
+    every other encounter; an Offline Lab pauses research.</li>
+  </ul>
+</section>
+
+<section id="crew" class="page">
+  <h2>Crew <span class="badge locked">Locked</span> (roster) / <span class="badge implemented">Implemented</span> (health)</h2>
+  <p class="src">Sources: <code>Astra_World_Design.md</code> §6, <code>Astra_Roster_Eight_Pick_Four.md</code>,
+  <code>Assets/_Project/Scripts/Core/Health.cs</code></p>
+  <ul>
+    <li><strong>8 characters, pick 4 per run — LOCKED (2026-11-01).</strong> Four players each pick a different
+    character per run. Custom character creation is cut. Names for the newer four are working titles.</li>
+    <li>Confirmed roster (World Design §6): <strong>Idol</strong> (Moth, performer — the music face of the moths),
+    <strong>EdgyBoi</strong> (Human, brooding/sarcastic), <strong>ChonkyBoi</strong> (Moth, cook — cooking is his
+    craft, locked 2026-11-03), <strong>CopMustash</strong> (Human, Free Ports Enforcer, terse authority),
+    <strong>Fixer</strong> (further slots in §6 — see the doc for the full table; the wiki does not invent the rest).</li>
+    <li><strong>Health:</strong> 3 hearts each (see <a href="#ground-combat">Ground combat</a>). Roles in a fight
+    are positional, not classes: pilot at the helm, gunner at a console, loader carrying shells/missiles,
+    defender fighting boarders, repairer carrying kits.</li>
+    <li><strong>Dialogue:</strong> premade roster plus player-made characters (BG3-style backgrounds as traits),
+    decided 2026-10-26 — see <a href="#encounters">Encounters &amp; dialogue</a>. Unpicked premades can appear as NPCs.</li>
+  </ul>
+</section>
+
+<section id="economy" class="page">
+  <h2>Economy &amp; stores <span class="badge transition">In transition</span></h2>
+  <p class="src">Sources: <code>Astra_Store_Design.md</code>, <code>Assets/_Project/Scripts/Core/Store.cs</code>,
+  <code>Astra_Fuel_Removal.md</code>, <code>Astra_Production_Removal.md</code> (both 2026-11-02)</p>
+  <h3>Resources — what Last Gate encounters use now</h3>
+  <p><strong>Coins, Food and Scrap only.</strong> Fuel and Production were cut from the Last Gate encounter
+  sheets on 2026-11-02 (Steven's direction), with a strict rule: fuel costs became scrap costs of the same
+  size (scrap is now the engine-strain currency), fuel rewards became production and then, when production
+  was cut the same day, production rewards became scrap (or, for the Forge trades, coins / a looser chase).
+  After both cuts, no Last Gate choice row contains “fuel” or “production”.</p>
+  <p class="note"><span class="badge transition">In transition</span> — the cuts cover the Last Gate encounter
+  sheets only. Fuel and Production are <strong>not yet out of the game</strong>: starting resources were
+  Coins 60, Food 20, Scrap 20, Fuel 15, Production 10 (Nov 1 code read, quoted in the removal docs), and
+  removing them from the resource type, UI, starting setup and the original (non–Last Gate) encounters is
+  Justin's follow-up, not yet confirmed. Do not tell players fuel/production are gone until that lands.
+  Scrap now carries both cuts' load and is the most-taxed resource — the docs flag this as a balance watch, not a lock.</p>
+  <h3>Stores</h3>
+  <p class="src">Status (doc): built — rules, tests, network layer, Store page, map markers; play-tested solo by script, not on two machines.</p>
+  <ul>
+    <li>A store star is marked with a gold mark and <code>[STORE]</code> from the start so the crew can plan.
+    Jumping to a store star draws <strong>no encounter</strong>. The store is open while docked, no encounter or
+    fight running, and the run still going. Leaving closes it.</li>
+    <li>Shop from the <strong>STORE page on the ship menu (I)</strong>. Any crew member can buy and sell; the
+    server checks every deal. Store chance is 12% per star in code (see
+    <a href="#run">The run</a> — the doc says ~20%).</li>
+    <li><strong>Prices</strong> (defaults in <code>StorePrices</code>, editable in the config asset; buy / sell per unit):
+    Food 4 / 1, Scrap 5 / 2, Fuel 10 / 4, Production 8 / 3 — Coins cannot be bought or sold. (Fuel/Production
+    rows are still in the code prices; see the transition note above.)</li>
+    <li><strong>Hull repair:</strong> up to 50 hull for 10 Coins (a part pack costs in proportion).
+    <strong>Room repair:</strong> 5 Coins per damaged room, brings every room to full health.</li>
+    <li><strong>Weapons:</strong> 3 on the shelf per store, rolled the first time you dock and kept (a bought
+    weapon stays sold). Price = coin value (10 if none) × level multiplier (1, 2, 3, 5, 8, 12). The store pays
+    50% when you sell. You cannot sell a weapon someone is holding.</li>
+    <li><strong>Not stranded at a store:</strong> running out of fuel normally ends the run (Adrift). While docked
+    at a store you are not adrift if your Coins, plus what the store would pay for your other resources and spare
+    weapons, cover the fuel for one jump. (Fuel wording is pre-cut; the rule needs re-checking once fuel is out of the code.)</li>
+    <li><strong>Not built yet:</strong> per-star stock or price variation; store art; buying crew healing or repair
+    kits (kits already cost 1 Scrap at the locker); selling hull/room upgrades.</li>
+  </ul>
+  <h3>Coins from combat</h3>
+  <p>Defeated boarders drop coins (<code>Combat.cs</code> <code>CoinDrops</code>: enemy templates roll a coin
+  range, defaults 1–3). Ship-fight spoils are on the <a href="#spoils">Spoils</a> page.</p>
+</section>
+
+<section id="encounters" class="page">
+  <h2>Encounters &amp; dialogue <span class="badge implemented">Implemented</span> (spec is a draft)</h2>
+  <p class="src">Sources: <code>Astra_Dialogue_System_Spec.md</code> v3 (2026-10-26; status: DRAFT SPEC — code built to v3
+  on 2026-10-28), <code>Astra_Encounter_Outlines_Toward_Last_Gate.md</code>,
+  <code>Astra_Last_Gate_Encounters_Build.md</code>, <code>Astra_Encounter_Quality_Standard.md</code>,
+  <code>Astra_Encounter_Outcomes_Review.md</code>,
+  <code>Assets/_Project/Scripts/Core/Encounters/*</code>,
+  <code>Assets/_Project/Scripts/Core/Dialogue/*</code></p>
+  <h3>Encounters</h3>
+  <ul>
+    <li><strong>32 Last Gate encounters</strong> with 95 choices (verified counts in
+    <code>Astra_Production_Removal.md</code> after the fuel/production migrations; choice counts unchanged by
+    those migrations). Encounters are data in <code>Content/Encounters/*.csv</code>, with choices that spend or
+    grant resources, set story flags (e.g. <code>wardenProximity</code> 0–4), spawn enemies/ships, or chain to
+    other encounters.</li>
+    <li><strong>Outcome verbs</strong> are split into <em>applied</em> (the game does them now) vs
+    <em>deferred</em> (“parse but do nothing”) — see <code>Astra_Encounter_Outcomes_Review.md</code> for the
+    per-verb list. Positive <code>shiphp</code> (hull repair from a choice) is untested and deliberately not used
+    in the fuel/production migrations.</li>
+    <li>Encounters are voted on by the crew (see Dialogue). The run flow, vote sessions and encounter decks live
+    in <code>Core/Encounters</code> (<code>EncounterFlow.cs</code>, <code>VoteSession.cs</code>,
+    <code>EncounterDecks.cs</code>, <code>OutcomeActions.cs</code>).</li>
+  </ul>
+  <h3>Dialogue (Ink)</h3>
+  <ul>
+    <li><strong>Content:</strong> <code>.ink</code> files under <code>Assets/_Project/Content/Dialogue/</code>,
+    one knot per scene (ink Unity integration 2.0.0). Two scene kinds in one system: talking scenes and
+    FTL-style encounters. The <code>Astra.ink</code> story ships with <code>Encounters.ink</code> (six example
+    encounters, two ambient aftermaths).</li>
+    <li><strong>Session:</strong> the crew votes on every choice unless a choice is written as one character's
+    moment (no rotating lead). Speakers resolve against the crew; interjections appear as sliding portraits;
+    choices can be gated; there are timers / disconnect handling and a spotlight-fairness rule so no one
+    character hogs the scene.</li>
+    <li><strong>Game hooks:</strong> Ink <code>EXTERNAL</code> functions call into the game
+    (<code>IDialogueScript</code>). Tags cover images (<code>#image</code>), countdowns with
+    <code>#default</code> and <code>#timeout</code>, and BG3-style backgrounds as traits.</li>
+    <li><strong>Built to v3 (2026-10-28):</strong> <code>DialogueSession</code>, <code>VoiceTracker</code>
+    (replacing <code>LeadTracker</code>), tag parser with BG3 backgrounds, <code>InkDialogueScript</code>,
+    ambient scenes, encounter pages, dialogue pictures (collected by <em>Astra &gt; Dialogue &gt; Collect
+    Dialogue Pictures</em>), and a content test that checks every tag and walks every background.</li>
+    <li><strong>Scope rule:</strong> the spec invents no story content, character names or identities — the four
+    ported characters (<code>idol</code>, <code>edgy</code>, <code>chonky</code>, <code>cop</code>) appear only as
+    placeholder premade ids. Dialogue is travel/encounter layer only, never interrupting live combat.</li>
+  </ul>
+</section>
+
+<section id="boons" class="page">
+  <h2>Boons &amp; burdens (Oddities) <span class="badge implemented">Implemented</span></h2>
+  <p class="src">Source: <code>Assets/_Project/Scripts/Core/Boons.cs</code>
+  (<code>BoonDef</code>, <code>BoonCatalogue</code>, <code>RunBoons</code>)</p>
+  <p>Run-long modifiers, good (boons) and bad (burdens), held for the run. Each has an id, name, text and a
+  burden flag. Effects the catalogue can apply include: max hull, crew hearts, skill bonus, patrol chance,
+  Warden/Forger level, hull / coins / scrap per jump, fire spread, repair speed, move speed, dash recharge,
+  shield up-time and recharge, missile capacity, dodge, air drain, healing, scrap per fire put out, damage
+  taken and damage dealt. They feed the chase (patrol chance, Forger level), the economy (per-jump resources)
+  and combat (dodge, shield, damage) — see <code>RunBoons</code> for the exact sums.</p>
+  <p>Oddities are also a spoils choice after a won ship fight — see <a href="#spoils">Spoils</a>.</p>
+</section>
+
+<section id="spoils" class="page">
+  <h2>Spoils — after a won ship fight <span class="badge implemented">Implemented</span></h2>
+  <p class="src">Source: commit <code>d8791e91</code> (“Spoils: after a won ship fight…”, StevenGin, 2026-11-05,
+  merged to main as <code>50bfdd66</code>). The spoils code itself was not re-read line-by-line for this wiki —
+  the summary below is from the commit message; treat the exact numbers as per-commit.</p>
+  <p>After a won ship fight the crew <strong>vote on one of three</strong> spoils:</p>
+  <ol>
+    <li>An <strong>Oddity not held yet</strong> (a boon/burden from the catalogue).</li>
+    <li>A <strong>gun a level better</strong> than a kill drop.</li>
+    <li><strong>Supplies: 60 hull or 15 scrap.</strong></li>
+  </ol>
+  <p>Built as an encounter in code, so it uses the usual vote panel. Debug panel: “Win ship fight”.</p>
+</section>
+
+<section id="wip" class="page">
+  <h2>Work in progress / placeholders <span class="badge wip">WIP</span></h2>
+  <p class="src">Sources: commits on <code>main</code> after the snapshot, plus placeholder notes already in the docs and code at the snapshot. Nothing here is a full mechanic page yet — these are the items to promote to a full page (or drop) once they settle.</p>
+  <p><strong>What “WIP” means here:</strong> the thing exists in the repo — merged, written, or in code — but it is unfinished, untested, standing in with placeholder numbers / icons / art, or it landed after the hand-written pages were snapshotted. The wiki lists it so it does not look finished, and does not invent the missing detail.</p>
+
+  <h3>New on main since the snapshot — merged, no full page yet</h3>
+  <p class="note">Hand-written pages above were built from <code>main</code> @ <code>e8824e89</code> (2026-11-05). The items below merged after that, up to <code>main</code> @ <code>58f90483</code> (“Merge branch 'feature/many-hands'”, 2026-11-05 19:24 UTC). Summaries are from the commit messages only — the code was not re-read line-by-line for these, so treat exact numbers as per-commit until a full page is written.</p>
+  <table>
+    <thead><tr><th>Item</th><th>What landed</th><th>Commit</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Salvage Stars</strong></td><td>Two per sector map, placed off the shortest route. Landing on one gives a spoils pick with <strong>no fight</strong> — a spoils choice without having to win a ship fight first.</td><td><code>2840bd66</code>, merged as <code>e6bac5e5</code></td></tr>
+      <tr><td><strong>Set pieces</strong></td><td>What an encounter is about now stands in front of the Astra: stations, anomalies and beacons as <strong>labelled placeholders</strong>; wrecks, other ships and asteroids reuse art from the original Astra. Chosen by a <code>Setpiece:</code> tag, or guessed from the encounter's words; enemy-ship encounters show their ships.</td><td><code>a9bfb483</code>, merged as <code>42decca4</code></td></tr>
+      <tr><td><strong>Sector hazards</strong></td><td>Each sector kind has its own hazard, shown on the star map: nebula, ion storm, asteroids, solar flares. Nebula and ion storm change shield and dodge while the Astra is there (<code>RunBoons.Condition</code>); asteroids and flares strike now and then (a breach or a fire). <strong>Hearth Haven has none.</strong></td><td><code>6ceb0117</code>, merged as <code>a9381c67</code></td></tr>
+      <tr><td><strong>Weird encounters</strong></td><td>Five new sci-fi encounters in the standard deck, any sector, each with its own banter and a set piece: time loop, the other Astra, a duplicated crew member, sideways gravity, the repair booth. New stakes: an Oddity swapped, a Fault erased, max hull, a heart for everyone. Steven: “more Rick and Morty style thought experiments”.</td><td><code>99a76021</code>, merged as <code>cc9e1f57</code></td></tr>
+      <tr><td><strong>Many hands</strong></td><td>Fires, breaches and repairs go <strong>60% faster per helper, up to three</strong> helpers in the room (Steven: more Barotrauma-style teamwork). The prompt shows how many hands are on it.</td><td><code>264d469b</code>, merged as <code>58f90483</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Placeholders already in the game at the snapshot</h3>
+  <ul>
+    <li><strong>Shield 40 / hull 300 are placeholders to tune</strong> (space-combat v2). Enemy damage was tripled to suit. The capital ship (240 hull, 16-damage volley every 7 s) is a test ship, and the Raider (30 hull) is sized to about what the starting magazines hold.</li>
+    <li><strong>Oddities / Boons have placeholder icons</strong> (commit <code>79cb47ae</code>, “Oddities and Faults: boons renamed for players, rule-changing effects, placeholder icons”). The effects are implemented; the icons are not final art.</li>
+    <li><strong>Dialogue placeholder premades:</strong> the four ported characters (<code>idol</code>, <code>edgy</code>, <code>chonky</code>, <code>cop</code>) appear only as placeholder premade ids in the dialogue spec — the spec invents no story content or identities.</li>
+    <li><strong>Enemy ship placeholders:</strong> the draft-2 ship-combat doc's first playable version used enemy ship placeholders, and the Gunnery room / fight panel were built before art and balance.</li>
+    <li><strong>Damage-control numbers are placeholders:</strong> room-stage effects (charge ×0.75 / ×0.5 / 0, etc.) are marked “balance comes later” and live in one config asset.</li>
+    <li><strong>Room-health scale is unresolved</strong> — doc 0–100 vs code <code>MaxHealth = 50</code> — see <a href="#conflicts">Conflicts</a>. Do not treat either scale as final.</li>
+  </ul>
+
+  <h3>In transition / still to finish</h3>
+  <ul>
+    <li><strong>Patrols → Rival crews:</strong> Steven's direction is to replace Forger patrols purely with rival crews; the patrol code still exists alongside the Rival. See <a href="#rival">The Rival</a> and <a href="#conflicts">Conflicts</a>.</li>
+    <li><strong>Wardens → Forgers rename:</strong> docs use Forgers; code IDs still say <code>warden…</code>. Renaming the IDs is outstanding.</li>
+    <li><strong>Fuel &amp; production removal:</strong> out of Last Gate encounters, not yet out of the code, starting resources, UI or original encounters. See <a href="#economy">Economy</a>.</li>
+    <li><strong>Bosses deferred, not cancelled</strong> (<code>Astra_World_Design.md</code> D2) — revisit once sectors are right. The nine-boss sequential run is cut for now.</li>
+    <li><strong>Stores / damage control / boons on two machines:</strong> damage control was play-tested solo on the Bridge only; stores solo by script only. Two-machine testing is still to do.</li>
+    <li><strong>Ship design v2, step 1 only:</strong> tile rules, preset layout and tests are built; the scene is not changed yet (<code>Astra_Ship_Design_V2.md</code>).</li>
+  </ul>
+  <p>When one of these settles, promote it: write its full page, move its numbers into the generator if they are constants, and remove it from this list. The generator keeps this list in <code>mechanics.json</code> under <code>wip</code> — see <code>tools/wiki/generate_wiki.py</code> (<code>WIP_ITEMS</code>).</p>
+</section>
+
+<section id="conflicts" class="page">
+  <h2>Conflicts &amp; open questions</h2>
+  <p>Things the repo disagrees with itself about, or has not decided. The wiki lists them; it does not pick a winner.</p>
+  <ol>
+    <li><strong>Retreat / pilot evasion:</strong> space-combat v2 (2026-11-03) removes the retreat drive and says
+    the pilot does nothing in combat; draft 2 (2026-10-15), the damage-control doc and <code>ShipCombat.cs</code>
+    still model a retreat jump and a +25 pilot evasion bonus (cap 75). <code>Balance.BaseDodgePercent = 33</code>
+    is a third, related number (dodge, not evasion).</li>
+    <li><strong>Room-health scale:</strong> the damage-control doc says 0–100 with stages at 76 / 41 / 1 / 0 and
+    room damage = hull damage × 4; <code>DamageControl.cs</code> has <code>MaxHealth = 50</code>,
+    <code>FineAbove = 75</code>, <code>DamagedAbove = 40</code>, <code>DamagePerHullPoint = 1</code>.</li>
+    <li><strong>Store chance:</strong> 12% per star in <code>SectorRun.cs</code> vs ~20% (1 in 5) in
+    <code>Astra_Store_Design.md</code>.</li>
+    <li><strong>Fuel &amp; production:</strong> out of Last Gate encounters, not yet out of the code, starting
+    resources, UI or original encounters (see <a href="#economy">Economy</a>).</li>
+    <li><strong>Wendigo:</strong> cut as end boss in the locked spine, still named as a large ship in
+    <code>Astra_Space_Combat_Design.md</code> v2.</li>
+    <li><strong>Wardens → Forgers rename (2026-11-03):</strong> docs use Forgers; code IDs still say
+    <code>warden…</code>. Renaming the IDs is outstanding.</li>
+    <li><strong>Patrols vs the Rival:</strong> Steven's 2026-11-05 direction is to “replace patrols purely
+    with rival crews”, but the Forger patrol/chance code (<code>GateRules.cs</code>) still exists next to
+    the new Rival hunt (<code>RivalHunt.cs</code>). The replacement is in progress, not done.</li>
+    <li><strong>Shield / hull numbers are placeholders:</strong> shield 40 / hull 300 in space-combat v2, enemy
+    damage tripled to suit — all marked “to tune” by playing. Capital ship 240 hull / 16-damage volley is a test ship.</li>
+    <li><strong>Bosses deferred, not cancelled</strong> (<code>Astra_World_Design.md</code> D2) — revisit once sectors are right.</li>
+    <li><strong>Not verified for this wiki:</strong> Unity scenes and the <code>Scripts/Game</code> networked
+    layer (this wiki covers design docs + <code>Core</code> rules only); Ink content counts beyond the six example
+    encounters; whether <code>Balance.cs</code> values match the current docs everywhere; exact
+    implemented-vs-designed status for stores / damage control / boons on two machines (damage control: solo
+    Bridge play-test only; stores: solo script play-test only).</li>
+  </ol>
+</section>
+
+<section id="numbers" class="page">
+  <h2>Generated numbers</h2>
+  <p class="src">Parsed live from the repo by <code>tools/wiki/generate_wiki.py</code> into
+  <code>mechanics.json</code>. If the table below is empty, open <code>mechanics.json</code> directly —
+  the values are the same data.</p>
+  <div id="generated-tables"><p>Loading <code>mechanics.json</code>…</p></div>
+  <p><a href="generated.md">Generated summary (Markdown)</a> ·
+  <a href="mechanics.json">mechanics.json</a> ·
+  <a href="README.md">Wiki README</a></p>
+</section>
+
+<section id="sources" class="page">
+  <h2>Sources</h2>
+  <p>Repo root design docs (25 at the snapshot): <code>Astra_Story_Spine.md</code>,
+  <code>Astra_World_Design.md</code>, <code>Astra_Conceptual_Game_Design.md</code>,
+  <code>Astra_Ship_Combat_Design.md</code>, <code>Astra_Space_Combat_Design.md</code>,
+  <code>Astra_Damage_Control_Design.md</code>, <code>Astra_Dialogue_System_Spec.md</code>,
+  <code>Astra_Store_Design.md</code>, <code>Astra_Fuel_Removal.md</code>,
+  <code>Astra_Production_Removal.md</code>, <code>Astra_Faction_Combat.md</code>,
+  <code>Astra_Encounter_Outcomes_Review.md</code>, <code>Astra_Encounter_Outlines_Toward_Last_Gate.md</code>,
+  <code>Astra_Last_Gate_Encounters_Build.md</code>, <code>Astra_Encounter_Quality_Standard.md</code>,
+  <code>Astra_Ship_Design_V2.md</code>, <code>Astra_Ship_Design_V3_Building.md</code>,
+  <code>Astra_Ship_Hull_Design.md</code>, <code>Astra_Roster_Eight_Pick_Four.md</code>,
+  <code>Astra_Sectors_Redesign_FTL.md</code> (proposal, not locked — superseded by World Design §5),
+  <code>Astra_Dialogue_Story_Plan.md</code>, plus superseded stubs
+  <code>Astra_Act_Sectors_And_Bosses.md</code>, <code>Astra_Factions.md</code>,
+  <code>Astra_Three_Act_Structure.md</code>, <code>Astra_Wardens.md</code>.</p>
+  <p>Core rules (namespace <code>Astra.Core</code>, no UnityEngine):
+  <code>Balance.cs</code>, <code>ShipCombat.cs</code>, <code>DamageControl.cs</code>, <code>Store.cs</code>,
+  <code>Combat.cs</code>, <code>Health.cs</code>, <code>Research.cs</code>, <code>Boons.cs</code>,
+  <code>Oxygen.cs</code>, <code>MissileSupply.cs</code>, <code>Boarding.cs</code>, <code>ActiveShield.cs</code>,
+  <code>GateRules.cs</code>, <code>StarMap/SectorRun.cs</code>, <code>StarMap/StarMapGenerator.cs</code>,
+  <code>StarMap/StarMapState.cs</code>, <code>StarMap/MapPatrols.cs</code>, <code>StarMap/SectorLooks.cs</code>,
+  <code>StarMap/RivalHunt.cs</code>,
+  <code>Encounters/OutcomeActions.cs</code>, <code>Encounters/EncounterFlow.cs</code>,
+  <code>Encounters/VoteSession.cs</code>, <code>Encounters/EncounterDecks.cs</code>,
+  <code>Dialogue/DialogueSession.cs</code>, <code>Dialogue/Banter.cs</code>, <code>Dialogue/ShipTalk.cs</code>,
+  <code>Dialogue/VoiceTracker.cs</code>.</p>
+  <p>Superseded docs are listed for completeness and are <strong>not</strong> used as sources for mechanics above.
+  <code>Astra_Sectors_Redesign_FTL.md</code> is a proposal, not locked. Where a doc and the code disagree, both
+  are shown on the <a href="#conflicts">Conflicts</a> page.</p>
+</section>
+</main>
+</div>
+
+<footer>
+  <p>Aboard the Astra — Mechanics Wiki · generated from <code>main</code> @ <code>e8824e89</code> (2026-11-05) ·
+  auto-update: <code>.github/workflows/wiki.yml</code> · generator: <code>tools/wiki/generate_wiki.py</code></p>
+</footer>
+<script>
+window.__MECHANICS__ = {"generator": "tools/wiki/generate_wiki.py (stdlib only)", "note": "Numbers are parsed from the repo; nothing here is invented. If a value disagrees with a design doc, the code value is listed here and the disagreement belongs on the wiki's Conflicts page.", "balance": {"PlayerSpeed": {"value": "2.8f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "EnemySpeedFactor": {"value": "0.7f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "EnemyAttackSeconds": {"value": "2.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "GlancingPercent": {"value": "50", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "CriticalPercent": {"value": "15", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "MedicalBayQuarterSeconds": {"value": "6f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "OxygenDrainPerSecond": {"value": "0.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "OxygenDoorEqualizePerSecond": {"value": "0.04f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "OxygenRefillPerSecond": {"value": "2.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "SuffocationQuarterSeconds": {"value": "4f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireChancePercent": {"value": "25", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "LeakChancePercent": {"value": "25", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireSpreadSeconds": {"value": "7f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireSpreadChancePercent": {"value": "60", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireSpreadCooldownSeconds": {"value": "5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "HandGunDamagePerModulePoint": {"value": "66f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "HandGunBulletSpeedFactor": {"value": "0.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "HandGunFireRateFactor": {"value": "0.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "HandGunBulletMinSpeed": {"value": "4f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireHullPointsPerSecond": {"value": "0.25f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireAirPerSecond": {"value": "0.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireOutAirLevel": {"value": "15f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "LeakAirPerSecond": {"value": "1.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "PutOutSeconds": {"value": "2.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "GunChargeSeconds": {"value": "3f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "ShuttleSpeed": {"value": "5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "ShuttleAttachSeconds": {"value": "5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "ShuttleCapacity": {"value": "4", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "ShuttleStaggerSeconds": {"value": "3f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "DashStartSpeedFactor": {"value": "5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "DashSlowdownRate": {"value": "9f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "DashEndSpeedFactor": {"value": "0.67f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "DashCooldownSeconds": {"value": "2f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "MissileMakeSeconds": {"value": "2f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "MissileCapacity": {"value": "1", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "ShieldUpSeconds": {"value": "3f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "ShieldRechargeSeconds": {"value": "10f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "LowOxygenLevel": {"value": "25f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireBurnQuarterSeconds": {"value": "2f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "BaseDodgePercent": {"value": "33", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "WeaponHazardChancePercent": {"value": "40", "source": "Assets/_Project/Scripts/Core/Balance.cs"}}, "warden": {"ApproachEncounterId": {"value": "\"lastGateApproach\"", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "ProximityFlag": {"value": "\"wardenProximity\"", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "MaxLevel": {"value": "4", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "PatrolEncounterId": {"value": "\"lastGatePatrol\"", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "CheckpointEncounterId": {"value": "\"lastGateCheckpoint\"", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "StartBehind": {"value": "0.08f", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "AdvancePerJump": {"value": "0.045f", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "SectorAdvancePerJump": {"value": "0.095f", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}}, "sectors": [{"name": "The Free Ports", "kind": "Start", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 4, "decks": ["Free Ports"]}, {"name": "The Guild Reaches", "kind": "Core", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "decks": ["Guild", "Free Ports"]}, {"name": "Pirate Space", "kind": "Core", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "decks": ["Pirate"]}, {"name": "Lanternbearer Space", "kind": "Core", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 4, "weight": 1, "decks": ["Cult"]}, {"name": "Forger Space", "kind": "Core", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "proximityFloor": 1, "jumpsPerLevel": 2, "decks": ["Forger"]}, {"name": "The Avian Homeworlds", "kind": "Core", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 4, "decks": ["Avian Homeworlds"]}, {"name": "Hearth Haven", "kind": "Rare", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 5, "decks": ["Hearth Haven"]}, {"name": "The Moth Caravan", "kind": "Rare", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 4, "decks": ["Moth Caravan"]}, {"name": "The Dryad Bloom", "kind": "Rare", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 4, "decks": ["Dryad Bloom"]}, {"name": "The Scientist Station", "kind": "Rare", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 4, "decks": ["Scientist Station"]}, {"name": "The Last Gate", "kind": "Gate", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "proximityFloor": 1, "jumpsPerLevel": 3, "decks": ["Gate"]}], "store": {"ResourceBuy": {"value": "{ 0, 4, 5, 10, 8 }", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "ResourceSell": {"value": "{ 0, 1, 2, 4, 3 }", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "HullPackPoints": {"value": "50", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "HullPackPrice": {"value": "10", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "RoomRepairPrice": {"value": "5", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "GunLevelMultiplier": {"value": "{ 1, 2, 3, 5, 8, 12 }", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "DefaultGunValue": {"value": "10", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "GunSellPercent": {"value": "50", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "GunsInStock": {"value": "3", "source": "Assets/_Project/Scripts/Core/Store.cs"}}, "room_stages": {"MaxHealth": {"value": "50f", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}, "FineAbove": {"value": "75f", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}, "DamagedAbove": {"value": "40f", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}, "DamagePerHullPoint": {"value": "1f", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}, "PreferredPercent": {"value": "60", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}, "FullRepair": {"value": "100f", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}, "PassiveRepairAmount": {"value": "10f", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}}, "rival": {"MoveChancePercent": {"value": "50", "source": "Assets/_Project/Scripts/Core/StarMap/RivalHunt.cs"}, "StartHopsFromShip": {"value": "3", "source": "Assets/_Project/Scripts/Core/StarMap/RivalHunt.cs"}}, "core_files_present": ["Balance.cs", "GateRules.cs", "SectorRun.cs", "Store.cs", "DamageControl.cs", "ShipCombat.cs", "Combat.cs", "Health.cs", "Research.cs", "Boons.cs", "Oxygen.cs", "MissileSupply.cs", "Boarding.cs", "ActiveShield.cs", "RivalHunt.cs"], "docs": [{"file": "Astra_Act_Sectors_And_Bosses.md", "title": "Act sectors and bosses \u2014 SUPERSEDED", "status": null}, {"file": "Astra_Conceptual_Game_Design.md", "title": "Aboard the Astra \u2014 Conceptual Game Design Reference", "status": null}, {"file": "Astra_Damage_Control_Design.md", "title": "Aboard the Astra: Damage Control (design draft)", "status": "built and pushed (rules, tests, network layer, scene wiring, Muse art, status icons); play-tested solo on the Bridge only, fight effects and two machines still to test."}, {"file": "Astra_Dialogue_Story_Plan.md", "title": "Aboard the Astra 2 \u2014 Dialogue, Story & Game Plan", "status": null}, {"file": "Astra_Dialogue_System_Spec.md", "title": "Aboard the Astra 2 \u2014 Dialogue System Spec v3 (P2)", "status": null}, {"file": "Astra_Encounter_Outcomes_Review.md", "title": "Encounter outcomes review: what can actually happen, vs FTL and BG3, and what it does to gameplay", "status": null}, {"file": "Astra_Encounter_Outlines_Toward_Last_Gate.md", "title": "Aboard the Astra 2 \u2014 Encounter Outlines Toward the Last Gate", "status": "Draft for Steven's review, Nov 1, 2026."}, {"file": "Astra_Encounter_Quality_Standard.md", "title": "Encounter quality standard (Steven, 2026-11-02)", "status": null}, {"file": "Astra_Faction_Combat.md", "title": "Faction combat: different attributes and styles per faction", "status": null}, {"file": "Astra_Factions.md", "title": "Factions \u2014 SUPERSEDED", "status": null}, {"file": "Astra_Fuel_Removal.md", "title": "Removing fuel from the game \u2014 what was done, what is left", "status": null}, {"file": "Astra_Last_Gate_Encounters_Build.md", "title": "Aboard the Astra 2 \u2014 Last Gate Encounters, Built (2026-11-01)", "status": "Built, not yet playtested in Unity."}, {"file": "Astra_Production_Removal.md", "title": "Production removal \u2014 Last Gate encounters", "status": null}, {"file": "Astra_Roster_Eight_Pick_Four.md", "title": "Roster: 8 characters, pick 4 \u2014 SUPERSEDED", "status": null}, {"file": "Astra_Sectors_Redesign_FTL.md", "title": "Sectors redesign \u2014 FTL comparison (PROPOSAL, not locked)", "status": null}, {"file": "Astra_Ship_Combat_Design.md", "title": "Ship-to-ship combat: design (draft 2, 2026-10-15)", "status": "rules built (307 tests); first playable version built: network layer, Bridge gun console, ammo rack and cannon, enemy ship placeholders, fight panel, retreat jump, ships and boarders together. Gunnery room built (rack and two mounts, limit of one); art and balance are next."}, {"file": "Astra_Ship_Design_V2.md", "title": "Astra: ship design v2 (tile grid, FTL-style, top-down)", "status": "approved; step 1 (tile rules, preset layout, tests) is built; the scene is not changed yet."}, {"file": "Astra_Ship_Design_V3_Building.md", "title": "Ship design v3: building in the world, hulls of any shape", "status": null}, {"file": "Astra_Ship_Hull_Design.md", "title": "Astra: a smaller ship with a hull around it", "status": "SUPERSEDED by `Astra_Ship_Design_V2.md` (tile grid, FTL-style, top-down) on 2026-10-19."}, {"file": "Astra_Space_Combat_Design.md", "title": "Space combat v2: aim and shoot in the world, and softer boarders", "status": null}, {"file": "Astra_Store_Design.md", "title": "Astra: Stores", "status": "built (rules, tests, network layer, Store page, map markers); play-tested solo by script, not on two machines."}, {"file": "Astra_Story_Spine.md", "title": "Aboard the Astra 2 \u2014 Story Spine (locked 2026-11-01)", "status": "LOCKED by Steven, voice call Sun Nov 1, 2026"}, {"file": "Astra_Three_Act_Structure.md", "title": "Three-act structure \u2014 SUPERSEDED", "status": null}, {"file": "Astra_Wardens.md", "title": "The Wardens (now Forgers) \u2014 SUPERSEDED", "status": null}, {"file": "Astra_World_Design.md", "title": "Aboard the Astra 2 \u2014 World Design: Races, Factions, Run, Sectors, Cast", "status": null}], "store_chance_percent": {"value": 12, "source": "Assets/_Project/Scripts/Core/SectorRun.cs"}, "wip": [{"item": "Salvage Stars", "what": "Two per sector map, off the shortest route; a spoils pick with no fight.", "commit": "2840bd66 (merged as e6bac5e5)", "since": "main after e8824e89, 2026-11-05"}, {"item": "Set pieces", "what": "Stations, anomalies and beacons as labelled placeholders; wrecks, other ships and asteroids from the original Astra's art.", "commit": "a9bfb483 (merged as 42decca4)", "since": "main after e8824e89, 2026-11-05"}, {"item": "Sector hazards", "what": "Per-sector hazards (nebula, ion storm, asteroids, solar flares); nebula/ion change shield and dodge, asteroids/flares strike (breach or fire); Hearth Haven has none.", "commit": "6ceb0117 (merged as a9381c67)", "since": "main after e8824e89, 2026-11-05"}, {"item": "Weird encounters", "what": "Five sci-fi encounters (time loop, the other Astra, duplicated crew member, sideways gravity, repair booth); stakes include an Oddity swapped, a Fault erased, max hull, a heart for everyone.", "commit": "99a76021 (merged as cc9e1f57)", "since": "main after e8824e89, 2026-11-05"}, {"item": "Many hands", "what": "Fires, breaches and repairs go 60% faster per helper, up to three helpers in the room.", "commit": "264d469b (merged as 58f90483)", "since": "main after e8824e89, 2026-11-05"}, {"item": "Placeholder numbers: shield 40 / hull 300", "what": "Space-combat v2 shield/hull are placeholders to tune; capital ship is a test ship.", "commit": "Astra_Space_Combat_Design.md (v2)", "since": "at snapshot e8824e89"}, {"item": "Placeholder Oddity icons", "what": "Boons/burdens effects implemented; icons are placeholders.", "commit": "79cb47ae", "since": "at snapshot e8824e89"}, {"item": "Fuel & production removal (in transition)", "what": "Out of Last Gate encounters, not yet out of the code, starting resources, UI or original encounters.", "commit": "Astra_Fuel_Removal.md / Astra_Production_Removal.md (2026-11-02)", "since": "at snapshot e8824e89"}, {"item": "Patrols -> Rival crews (in transition)", "what": "Direction is to replace Forger patrols purely with rival crews; patrol code still exists alongside the Rival.", "commit": "RivalHunt.cs / GateRules.cs", "since": "at snapshot e8824e89"}]};
+</script>
+<script>
+/* Aboard the Astra — Mechanics Wiki.
+   Plain static JS: client-side search across the wiki sections, and a
+   renderer for the generated numbers (docs/wiki/mechanics.json).
+   No build step, no dependencies. If mechanics.json fails to load
+   (e.g. opened as a bare file), the hand-written pages still stand. */
+(function () {
+  var input = document.getElementById('search');
+  var count = document.getElementById('search-count');
+  var sections = Array.prototype.slice.call(document.querySelectorAll('section.page'));
+
+  function escapeRegExp(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function clearMarks(root) {
+    root.querySelectorAll('mark').forEach(function (m) {
+      m.replaceWith(document.createTextNode(m.textContent));
+    });
+  }
+
+  function markMatches(root, q) {
+    var re = new RegExp('(' + escapeRegExp(q) + ')', 'gi');
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (node) {
+        if (!node.nodeValue || !re.test(node.nodeValue)) return NodeFilter.FILTER_REJECT;
+        if (node.parentNode && (node.parentNode.tagName === 'SCRIPT' || node.parentNode.tagName === 'STYLE')) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    var nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach(function (node) {
+      var frag = document.createDocumentFragment();
+      var last = 0;
+      node.nodeValue.replace(re, function (match, _g, offset) {
+        frag.appendChild(document.createTextNode(node.nodeValue.slice(last, offset)));
+        var m = document.createElement('mark');
+        m.textContent = match;
+        frag.appendChild(m);
+        last = offset + match.length;
+      });
+      frag.appendChild(document.createTextNode(node.nodeValue.slice(last)));
+      node.replaceWith(frag);
+    });
+  }
+
+  function runSearch() {
+    var q = input.value.trim().toLowerCase();
+    var shown = 0;
+    sections.forEach(function (sec) {
+      clearMarks(sec);
+      if (!q) { sec.classList.remove('hidden'); shown++; return; }
+      var hit = sec.textContent.toLowerCase().indexOf(q) !== -1;
+      sec.classList.toggle('hidden', !hit);
+      if (hit) { shown++; markMatches(sec, input.value.trim()); }
+    });
+    count.textContent = q ? (shown + ' of ' + sections.length + ' pages match') : '';
+  }
+
+  input.addEventListener('input', runSearch);
+
+  /* ---- Theme: dark is the default, toggle switches to light ---- */
+  var themeBtn = document.getElementById('theme-toggle');
+  var root = document.documentElement;
+  function applyTheme(theme) {
+    root.setAttribute('data-theme', theme);
+    if (themeBtn) themeBtn.textContent = theme === 'dark' ? '☀️ Light mode' : '🌙 Dark mode';
+    try { localStorage.setItem('astra-wiki-theme', theme); } catch (e) {}
+  }
+  try {
+    var saved = localStorage.getItem('astra-wiki-theme');
+    if (saved === 'light' || saved === 'dark') applyTheme(saved);
+    else applyTheme('dark');
+  } catch (e) { applyTheme('dark'); }
+  if (themeBtn) {
+    themeBtn.addEventListener('click', function () {
+      applyTheme(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    });
+  }
+
+
+  /* ---- Generated numbers: render mechanics.json into #generated-tables ---- */
+  function table(title, rows) {
+    var html = '<h3>' + title + '</h3><table><thead><tr><th>Name</th><th>Value</th><th>Source</th></tr></thead><tbody>';
+    rows.forEach(function (r) {
+      html += '<tr><td><code>' + r[0] + '</code></td><td>' + r[1] + '</td><td><code>' + r[2] + '</code></td></tr>';
+    });
+    return html + '</tbody></table>';
+  }
+
+  /* Live numbers from the backend (session cookie, same origin when
+     served from /wiki/). A 401 means the session expired — back to login. */
+  var LOGIN_URL = 'https://theruvial.github.io/astra-wiki/';
+  Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ mechanics: window.__MECHANICS__ }); } })
+    .then(function (resp) {
+      if (resp.status === 401) { window.location.href = LOGIN_URL; throw new Error('login required'); }
+      if (!resp.ok) throw new Error(resp.status);
+      return resp.json();
+    })
+    .then(function (env) { return env.mechanics || env; })
+    .then(function (data) {
+      var el = document.getElementById('generated-tables');
+      var html = '';
+      if (data.balance) {
+        html += table('Balance constants', Object.keys(data.balance).sort().map(function (k) {
+          return [k, data.balance[k].value, data.balance[k].source];
+        }));
+      }
+      if (data.warden) {
+        html += table('Warden / Forger pressure', Object.keys(data.warden).sort().map(function (k) {
+          return [k, data.warden[k].value, data.warden[k].source];
+        }));
+      }
+      if (data.rival && Object.keys(data.rival).length) {
+        html += table('Rival hunt', Object.keys(data.rival).sort().map(function (k) {
+          return [k, data.rival[k].value, data.rival[k].source];
+        }));
+      }
+      if (data.store && Object.keys(data.store).length) {
+        html += table('Store prices (defaults)', Object.keys(data.store).sort().map(function (k) {
+          return [k, data.store[k].value, data.store[k].source];
+        }));
+      }
+      if (data.sectors && data.sectors.length) {
+        html += '<h3>Sectors</h3><table><thead><tr><th>Sector</th><th>Kind</th><th>Details</th></tr></thead><tbody>';
+        data.sectors.forEach(function (s) {
+          var bits = [];
+          if (s.proximityFloor !== undefined) bits.push('pressure floor ' + s.proximityFloor);
+          if (s.jumpsPerLevel !== undefined) bits.push(s.jumpsPerLevel + ' jumps/level');
+          if (s.weight !== undefined) bits.push('weight ' + s.weight);
+          if (s.decks) bits.push('decks: ' + s.decks.join(', '));
+          html += '<tr><td>' + s.name + '</td><td>' + s.kind + '</td><td>' + bits.join(' · ') + '</td></tr>';
+        });
+        html += '</tbody></table>';
+        if (data.store_chance_percent) {
+          html += '<p>Store chance per star: <strong>' + data.store_chance_percent.value +
+            '%</strong> (<code>' + data.store_chance_percent.source + '</code>).</p>';
+        }
+      }
+      if (data.wip && data.wip.length) {
+        html += '<h3>Work in progress / placeholders</h3><table><thead><tr><th>Item</th><th>What</th><th>Commit / source</th></tr></thead><tbody>';
+        data.wip.forEach(function (w) {
+          html += '<tr><td>' + w.item + '</td><td>' + w.what + '</td><td><code>' + w.commit + '</code></td></tr>';
+        });
+        html += '</tbody></table><p>Full prose version: the <a href="#wip">WIP page</a> above.</p>';
+      }
+      if (data.docs && data.docs.length) {
+        html += '<h3>Design docs found at repo root</h3><ul>';
+        data.docs.forEach(function (d) {
+          html += '<li><code>' + d.file + '</code> — ' + d.title +
+            (d.status ? ' <em>(' + d.status + ')</em>' : '') + '</li>';
+        });
+        html += '</ul>';
+      }
+      el.innerHTML = html;
+    })
+    .catch(function () {
+      document.getElementById('generated-tables').innerHTML =
+        '<p>Could not load numbers from the backend. ' +
+        'The hand-written pages above are unaffected.</p>';
+    });
+})();
+
+</script>
+</body>
+</html>

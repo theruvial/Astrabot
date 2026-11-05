@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Aboard the Astra — Mechanics Wiki</title>
+<title>Aboard the Astra — Mechanics — Aboard the Astra Wiki</title>
 <style>
 /* Aboard the Astra — Mechanics Wiki.
    Styled after classic game wikis (Wikipedia / Bulbapedia):
@@ -95,6 +95,15 @@ code { background: #f8f9fa; border: 1px solid #eaecf0; padding: 1px 4px; border-
 }
 .searchbar input:focus { outline: 2px solid var(--link); border-color: var(--link); }
 #search-count { color: var(--ink-dim); font-size: 13px; white-space: nowrap; }
+.searchbar { position: relative; }
+.search-results {
+  position: absolute; top: 100%; left: 0; z-index: 20; min-width: 280px;
+  background: var(--content-bg); border: 1px solid var(--line);
+  border-radius: 2px; padding: 4px 0; box-shadow: 0 4px 12px rgba(0,0,0,.2);
+}
+.search-results a { display: block; padding: 6px 12px; }
+.search-results a:hover { background: var(--accent-light); text-decoration: none; }
+.search-results p { margin: 4px 12px; color: var(--ink-dim); font-size: 13px; }
 .topbar-note { color: var(--ink-dim); font-size: 13px; }
 .tabs {
   max-width: 1280px; margin: 0 auto; padding: 0 20px;
@@ -124,6 +133,8 @@ code { background: #f8f9fa; border: 1px solid #eaecf0; padding: 1px 4px; border-
 }
 .sidebar ul { list-style: none; margin: 0; padding: 0; }
 .sidebar li { margin: 2px 0; }
+.sidebar a.active { font-weight: 700; color: var(--ink); }
+.page-view.hidden { display: none; }
 .sidebar-note { color: var(--ink-dim); font-size: 12px; }
 .article { flex: 1; min-width: 0; background: var(--content-bg); border: 1px solid var(--line-light); border-left: none; border-right: none; padding: 16px 28px 32px; }
 .article-title {
@@ -215,10 +226,11 @@ footer { max-width: 1280px; margin: 0 auto; padding: 16px 20px 32px; color: var(
 <body>
 <header class="topbar">
   <div class="topbar-inner">
-    <a class="wordmark" href="#top">Aboard the Astra <span>Wiki</span></a>
+    <a class="wordmark" href="#/home">Aboard the Astra <span>Wiki</span></a>
     <div class="searchbar">
       <input id="search" type="search" placeholder="Search the wiki…" aria-label="Search mechanics">
       <span id="search-count"></span>
+      <div id="search-results" class="search-results" hidden></div>
     </div>
     <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle dark / light mode">☀️ Light mode</button>
     <span class="topbar-note">Mechanics Wiki &middot; from the repo itself</span>
@@ -236,34 +248,35 @@ footer { max-width: 1280px; margin: 0 auto; padding: 16px 20px 32px; color: var(
   <p class="sidebar-title">Aboard the Astra</p>
   <h3>Navigation</h3>
   <ul>
-    <li><a href="#status">Main page</a></li>
-    <li><a href="#story">Story spine</a></li>
-    <li><a href="#run">The run &amp; star map</a></li>
-    <li><a href="#chase">The chase</a></li>
-    <li><a href="#rival">The Rival</a></li>
-    <li><a href="#ship-combat">Ship combat</a></li>
-    <li><a href="#ground-combat">Ground combat</a></li>
-    <li><a href="#damage-control">Damage control</a></li>
-    <li><a href="#systems">Ship systems</a></li>
-    <li><a href="#crew">Crew</a></li>
-    <li><a href="#economy">Economy &amp; stores</a></li>
-    <li><a href="#encounters">Encounters &amp; dialogue</a></li>
-    <li><a href="#boons">Boons &amp; burdens</a></li>
-    <li><a href="#spoils">Spoils</a></li>
-    <li><a href="#wip">Work in progress</a></li>
-    <li><a href="#conflicts">Conflicts</a></li>
-    <li><a href="#numbers">Generated numbers</a></li>
-    <li><a href="#sources">Sources</a></li>
+    <li><a href="#/home" class="active">Main page</a></li>
+    <li><a href="#/story">Story spine</a></li>
+    <li><a href="#/run">The run & star map</a></li>
+    <li><a href="#/chase">The chase</a></li>
+    <li><a href="#/rival">The Rival</a></li>
+    <li><a href="#/ship-combat">Ship combat</a></li>
+    <li><a href="#/ground-combat">Ground combat</a></li>
+    <li><a href="#/damage-control">Damage control</a></li>
+    <li><a href="#/systems">Ship systems</a></li>
+    <li><a href="#/crew">Crew</a></li>
+    <li><a href="#/economy">Economy & stores</a></li>
+    <li><a href="#/encounters">Encounters & dialogue</a></li>
+    <li><a href="#/boons">Boons & burdens</a></li>
+    <li><a href="#/spoils">Spoils</a></li>
+    <li><a href="#/wip">Work in progress</a></li>
+    <li><a href="#/conflicts">Conflicts</a></li>
+    <li><a href="#/numbers">Generated numbers</a></li>
+    <li><a href="#/sources">Sources</a></li>
   </ul>
   <h3>Tools</h3>
   <ul>
-    <li><a href="mechanics.json">mechanics.json</a></li>
-    <li><a href="generated.md">Generated summary</a></li>
-    <li><a href="README.md">Wiki README</a></li>
+    <li><a href="#/numbers">Generated numbers</a></li>
+    <li><a href="#/numbers">Generated summary</a></li>
+    <li><a href="#/sources">Sources</a></li>
   </ul>
   <p class="sidebar-note">Snapshot: <code>main</code> @ <code>e8824e89</code>, 2026-11-05. WIP items cover main up to <code>58f90483</code>.</p>
 </aside>
 <main class="article" id="top">
+<div class="page-view" data-page="home" data-file="index.html" data-title="Aboard the Astra — Mechanics">
 <h1 class="article-title">Aboard the Astra — Mechanics</h1>
 <p class="article-sub">From the Aboard the Astra Wiki, the mechanics wiki for <i>Aboard the Astra</i>.</p>
 <table class="infobox">
@@ -280,24 +293,24 @@ footer { max-width: 1280px; margin: 0 auto; padding: 16px 20px 32px; color: var(
 <div class="tocbox">
   <p class="tocbox-title">Contents <span class="tocbox-toggle">[hide]</span></p>
   <ol>
-    <li><a href="#status">Status key</a></li>
-    <li><a href="#story">Story spine</a></li>
-    <li><a href="#run">The run &amp; star map</a></li>
-    <li><a href="#chase">The chase</a></li>
-    <li><a href="#rival">The Rival</a></li>
-    <li><a href="#ship-combat">Ship combat</a></li>
-    <li><a href="#ground-combat">Ground combat</a></li>
-    <li><a href="#damage-control">Damage control</a></li>
-    <li><a href="#systems">Ship systems &amp; rooms</a></li>
-    <li><a href="#crew">Crew</a></li>
-    <li><a href="#economy">Economy &amp; stores</a></li>
-    <li><a href="#encounters">Encounters &amp; dialogue</a></li>
-    <li><a href="#boons">Boons &amp; burdens</a></li>
-    <li><a href="#spoils">Spoils</a></li>
-    <li><a href="#wip">Work in progress / placeholders</a></li>
-    <li><a href="#conflicts">Conflicts &amp; open questions</a></li>
-    <li><a href="#numbers">Generated numbers</a></li>
-    <li><a href="#sources">Sources</a></li>
+    <li><a href="#/home">Status key</a></li>
+    <li><a href="#/story">Story spine</a></li>
+    <li><a href="#/run">The run &amp; star map</a></li>
+    <li><a href="#/chase">The chase</a></li>
+    <li><a href="#/rival">The Rival</a></li>
+    <li><a href="#/ship-combat">Ship combat</a></li>
+    <li><a href="#/ground-combat">Ground combat</a></li>
+    <li><a href="#/damage-control">Damage control</a></li>
+    <li><a href="#/systems">Ship systems &amp; rooms</a></li>
+    <li><a href="#/crew">Crew</a></li>
+    <li><a href="#/economy">Economy &amp; stores</a></li>
+    <li><a href="#/encounters">Encounters &amp; dialogue</a></li>
+    <li><a href="#/boons">Boons &amp; burdens</a></li>
+    <li><a href="#/spoils">Spoils</a></li>
+    <li><a href="#/wip">Work in progress / placeholders</a></li>
+    <li><a href="#/conflicts">Conflicts &amp; open questions</a></li>
+    <li><a href="#/numbers">Generated numbers</a></li>
+    <li><a href="#/sources">Sources</a></li>
   </ol>
 </div>
 <p class="intro">A 2D co-op space game rebuilt in Unity 6 (URP 2D) with Netcode for GameObjects.
@@ -315,15 +328,17 @@ where the repo states them — it never invents a number.</p>
     <li><span class="badge locked">Locked</span> A story decision Steven locked. Do not change without Steven.</li>
     <li><span class="badge transition">In transition</span> Being removed or renamed; docs and code disagree for now.</li>
     <li><span class="badge conflict">Conflict</span> Two repo sources disagree. The wiki flags it instead of picking a winner.</li>
-    <li><span class="badge wip">WIP</span> Work in progress / placeholder. Merged or written, but not finished, not yet given a full wiki page, or standing in with placeholder numbers, icons or art. See <a href="#wip">Work in progress / placeholders</a>.</li>
+    <li><span class="badge wip">WIP</span> Work in progress / placeholder. Merged or written, but not finished, not yet given a full wiki page, or standing in with placeholder numbers, icons or art. See <a href="#/wip">Work in progress / placeholders</a>.</li>
   </ul>
   <p><strong>Snapshot:</strong> this wiki was built from <code>main</code> at
   <code>e8824e89</code> (“Merge branch 'feature/rival-crews'”, 2026-11-05). The numbers in
-  <a href="#numbers">Generated numbers</a> are re-parsed from the repo by
-  <code>tools/wiki/generate_wiki.py</code> on every update — see the
+  <a href="#/numbers">Generated numbers</a> are re-parsed from the repo by
+  <code>Tools/wiki/generate_wiki.py</code> on every update — see the
   <a href="README.md">wiki README</a> for how the auto-update works.</p>
 </section>
+</div>
 
+<div class="page-view" data-page="story" data-file="story.html" data-title="Story spine">
 <section id="story" class="page">
   <h2>Story spine <span class="badge locked">Locked</span></h2>
   <p class="src">Source: <code>Astra_Story_Spine.md</code> (locked 2026-11-01), <code>Astra_World_Design.md</code> §1</p>
@@ -362,7 +377,9 @@ where the repo states them — it never invents a number.</p>
   <p><strong>Flavour targets (Steven's words):</strong> a little Guardians of the Galaxy, a little FTL,
   a little Star Trek — plus Indiana Jones / Holy Grail quest energy.</p>
 </section>
+</div>
 
+<div class="page-view" data-page="run" data-file="run.html" data-title="The run & star map">
 <section id="run" class="page">
   <h2>The run &amp; star map <span class="badge implemented">Implemented</span></h2>
   <p class="src">Source: <code>Assets/_Project/Scripts/Core/StarMap/SectorRun.cs</code>,
@@ -407,7 +424,9 @@ where the repo states them — it never invents a number.</p>
   Enforcers, the cult, Pirates, Guilds, Scientists, Civilians. Locked rule (§2): <strong>race is not
   allegiance</strong>.</p>
 </section>
+</div>
 
+<div class="page-view" data-page="chase" data-file="chase.html" data-title="The chase — Forger pressure & the fleet">
 <section id="chase" class="page">
   <h2>The chase — Forger pressure &amp; the fleet <span class="badge implemented">Implemented</span></h2>
   <p class="src">Source: <code>Assets/_Project/Scripts/Core/GateRules.cs</code>
@@ -438,7 +457,9 @@ where the repo states them — it never invents a number.</p>
     Every arrival brings the Gate's approach closer until the crew get through — getting through wins the run.</li>
   </ul>
 </section>
+</div>
 
+<div class="page-view" data-page="rival" data-file="rival.html" data-title="The Rival — a second hunter on the map">
 <section id="rival" class="page">
   <h2>The Rival — a second hunter on the map <span class="badge implemented">Implemented</span></h2>
   <p class="src">Sources: <code>Assets/_Project/Scripts/Core/StarMap/RivalHunt.cs</code>,
@@ -465,12 +486,14 @@ where the repo states them — it never invents a number.</p>
     to get a hold of your map, and them coming back later”, and “Replace patrols purely with rival crews”.
     <span class="badge transition">In transition</span> — that replacement is a direction, not a completed
     change: the Forger patrol/chance code in <code>GateRules.cs</code> still exists alongside the Rival.
-    See <a href="#conflicts">Conflicts</a>.</li>
+    See <a href="#/conflicts">Conflicts</a>.</li>
     <li><strong>Sector exit:</strong> the same merge names the sector exit the <strong>Jump Gate</strong>
     (the exit beacon of a sector map).</li>
   </ul>
 </section>
+</div>
 
+<div class="page-view" data-page="ship-combat" data-file="ship-combat.html" data-title="Ship combat">
 <section id="ship-combat" class="page">
   <h2>Ship combat <span class="badge implemented">Implemented</span> — two designs, newer wins</h2>
   <p class="src">Sources: <code>Astra_Space_Combat_Design.md</code> (v2, 2026-10-20, updated 2026-11-03 — current),
@@ -546,10 +569,12 @@ where the repo states them — it never invents a number.</p>
   <h3>Boarders</h3>
   <p>Enemy ships can send boarders: shuttles fly in (<code>Balance</code>: speed 5, attach 5 s, capacity 4,
   stagger 3 s), boarders walk at 70% of player speed and attack every 2.5 s. See
-  <a href="#ground-combat">Ground combat</a> for their damage. Boarders can breach doors
+  <a href="#/ground-combat">Ground combat</a> for their damage. Boarders can breach doors
   (<code>Combat.cs</code>: breach rate, break-down vs other breach kinds).</p>
 </section>
+</div>
 
+<div class="page-view" data-page="ground-combat" data-file="ground-combat.html" data-title="Ground / onboard combat">
 <section id="ground-combat" class="page">
   <h2>Ground / onboard combat <span class="badge implemented">Implemented</span></h2>
   <p class="src">Sources: <code>Assets/_Project/Scripts/Core/Combat.cs</code>, <code>Health.cs</code>,
@@ -588,7 +613,9 @@ where the repo states them — it never invents a number.</p>
     in <code>Balance.cs</code> / ship systems.</li>
   </ul>
 </section>
+</div>
 
+<div class="page-view" data-page="damage-control" data-file="damage-control.html" data-title="Damage control">
 <section id="damage-control" class="page">
   <h2>Damage control <span class="badge implemented">Implemented</span></h2>
   <p class="src">Sources: <code>Astra_Damage_Control_Design.md</code> (status: built and pushed — rules, tests,
@@ -637,7 +664,7 @@ where the repo states them — it never invents a number.</p>
   In code, <code>RoomPerformance</code> gives charge rate ×1 / ×0.75 / ×0.5 / 0, evasion factor ×1 / ×0.72 /
   ×0.4 / 0, and output factor ×1 / ×0.75 / ×0.5 / 0 across the four stages. The Bridge row's retreat
   references are stale under space-combat v2 (no retreat) — see
-  <a href="#conflicts">Conflicts</a>. The Helm is a console in the Bridge, covered by the Bridge row.</p>
+  <a href="#/conflicts">Conflicts</a>. The Helm is a console in the Bridge, covered by the Bridge row.</p>
   <h3>Repair — carry a kit</h3>
   <ul>
     <li><strong>Repair locker:</strong> holds repair kits. One in the Bridge to start; more could be added later.
@@ -653,7 +680,9 @@ where the repo states them — it never invents a number.</p>
     rooms (for now — only enemy ship weapons do).</li>
   </ul>
 </section>
+</div>
 
+<div class="page-view" data-page="systems" data-file="systems.html" data-title="Ship systems & rooms">
 <section id="systems" class="page">
   <h2>Ship systems &amp; rooms <span class="badge implemented">Implemented</span></h2>
   <p class="src">Sources: <code>Astra_Ship_Design_V2.md</code>, <code>Astra_Ship_Design_V3_Building.md</code>,
@@ -682,7 +711,9 @@ where the repo states them — it never invents a number.</p>
     every other encounter; an Offline Lab pauses research.</li>
   </ul>
 </section>
+</div>
 
+<div class="page-view" data-page="crew" data-file="crew.html" data-title="Crew">
 <section id="crew" class="page">
   <h2>Crew <span class="badge locked">Locked</span> (roster) / <span class="badge implemented">Implemented</span> (health)</h2>
   <p class="src">Sources: <code>Astra_World_Design.md</code> §6, <code>Astra_Roster_Eight_Pick_Four.md</code>,
@@ -694,14 +725,16 @@ where the repo states them — it never invents a number.</p>
     <strong>EdgyBoi</strong> (Human, brooding/sarcastic), <strong>ChonkyBoi</strong> (Moth, cook — cooking is his
     craft, locked 2026-11-03), <strong>CopMustash</strong> (Human, Free Ports Enforcer, terse authority),
     <strong>Fixer</strong> (further slots in §6 — see the doc for the full table; the wiki does not invent the rest).</li>
-    <li><strong>Health:</strong> 3 hearts each (see <a href="#ground-combat">Ground combat</a>). Roles in a fight
+    <li><strong>Health:</strong> 3 hearts each (see <a href="#/ground-combat">Ground combat</a>). Roles in a fight
     are positional, not classes: pilot at the helm, gunner at a console, loader carrying shells/missiles,
     defender fighting boarders, repairer carrying kits.</li>
     <li><strong>Dialogue:</strong> premade roster plus player-made characters (BG3-style backgrounds as traits),
-    decided 2026-10-26 — see <a href="#encounters">Encounters &amp; dialogue</a>. Unpicked premades can appear as NPCs.</li>
+    decided 2026-10-26 — see <a href="#/encounters">Encounters &amp; dialogue</a>. Unpicked premades can appear as NPCs.</li>
   </ul>
 </section>
+</div>
 
+<div class="page-view" data-page="economy" data-file="economy.html" data-title="Economy & stores">
 <section id="economy" class="page">
   <h2>Economy &amp; stores <span class="badge transition">In transition</span></h2>
   <p class="src">Sources: <code>Astra_Store_Design.md</code>, <code>Assets/_Project/Scripts/Core/Store.cs</code>,
@@ -726,7 +759,7 @@ where the repo states them — it never invents a number.</p>
     fight running, and the run still going. Leaving closes it.</li>
     <li>Shop from the <strong>STORE page on the ship menu (I)</strong>. Any crew member can buy and sell; the
     server checks every deal. Store chance is 12% per star in code (see
-    <a href="#run">The run</a> — the doc says ~20%).</li>
+    <a href="#/run">The run</a> — the doc says ~20%).</li>
     <li><strong>Prices</strong> (defaults in <code>StorePrices</code>, editable in the config asset; buy / sell per unit):
     Food 4 / 1, Scrap 5 / 2, Fuel 10 / 4, Production 8 / 3 — Coins cannot be bought or sold. (Fuel/Production
     rows are still in the code prices; see the transition note above.)</li>
@@ -743,38 +776,71 @@ where the repo states them — it never invents a number.</p>
   </ul>
   <h3>Coins from combat</h3>
   <p>Defeated boarders drop coins (<code>Combat.cs</code> <code>CoinDrops</code>: enemy templates roll a coin
-  range, defaults 1–3). Ship-fight spoils are on the <a href="#spoils">Spoils</a> page.</p>
+  range, defaults 1–3). Ship-fight spoils are on the <a href="#/spoils">Spoils</a> page.</p>
 </section>
+</div>
 
+<div class="page-view" data-page="encounters" data-file="encounters.html" data-title="Encounters & dialogue">
 <section id="encounters" class="page">
   <h2>Encounters &amp; dialogue <span class="badge implemented">Implemented</span> (spec is a draft)</h2>
-  <p class="src">Sources: <code>Astra_Dialogue_System_Spec.md</code> v3 (2026-10-26; status: DRAFT SPEC — code built to v3
+  <p class="src">Sources: <code>Assets/_Project/Content/Encounters/Encounter.csv</code> +
+  <code>Encounter_Choice.csv</code> (the data), <code>Assets/_Project/Scripts/Core/Encounters/*</code>
+  (the loader, decks, flow, votes), <code>Assets/_Project/Content/Dialogue/*.ink</code> (Ink scenes),
+  <code>Astra_Dialogue_System_Spec.md</code> v3 (2026-10-26; status: DRAFT SPEC — code built to v3
   on 2026-10-28), <code>Astra_Encounter_Outlines_Toward_Last_Gate.md</code>,
   <code>Astra_Last_Gate_Encounters_Build.md</code>, <code>Astra_Encounter_Quality_Standard.md</code>,
-  <code>Astra_Encounter_Outcomes_Review.md</code>,
-  <code>Assets/_Project/Scripts/Core/Encounters/*</code>,
-  <code>Assets/_Project/Scripts/Core/Dialogue/*</code></p>
-  <h3>Encounters</h3>
+  <code>Astra_Encounter_Outcomes_Review.md</code></p>
+  <h3>How encounters work</h3>
   <ul>
-    <li><strong>32 Last Gate encounters</strong> with 95 choices (verified counts in
-    <code>Astra_Production_Removal.md</code> after the fuel/production migrations; choice counts unchanged by
-    those migrations). Encounters are data in <code>Content/Encounters/*.csv</code>, with choices that spend or
-    grant resources, set story flags (e.g. <code>wardenProximity</code> 0–4), spawn enemies/ships, or chain to
-    other encounters.</li>
-    <li><strong>Outcome verbs</strong> are split into <em>applied</em> (the game does them now) vs
-    <em>deferred</em> (“parse but do nothing”) — see <code>Astra_Encounter_Outcomes_Review.md</code> for the
-    per-verb list. Positive <code>shiphp</code> (hull repair from a choice) is untested and deliberately not used
-    in the fuel/production migrations.</li>
-    <li>Encounters are voted on by the crew (see Dialogue). The run flow, vote sessions and encounter decks live
-    in <code>Core/Encounters</code> (<code>EncounterFlow.cs</code>, <code>VoteSession.cs</code>,
+    <li>Encounters are data, not code: rows in <code>Encounter.csv</code> (tab-separated, despite the
+    <code>.csv</code> name), with their choices in <code>Encounter_Choice.csv</code>. The loader
+    (<code>EncounterTsvLoader</code>) only loads rows whose first column is <code>TRUE</code> — that flag
+    is the encounter's on/off switch. A test (<code>RealEncounterDataTests</code>) loads these files and
+    fails on data errors, so mistakes here are caught.</li>
+    <li>Only the Last Gate story's encounters are in the files. The 91 encounters ported from the original
+    Astra (ambushes, the Wendigo, distress calls, the tournament and the rest, with 259 choices) were removed
+    after the 2026-11-02 playtest; they are still in git history and the original repo if any is wanted back.</li>
+    <li>Choices spend or grant resources, set story flags (e.g. <code>wardenProximity</code> 0–4), spawn
+    enemies/ships, or chain to other encounters. Outcome verbs are split into <em>applied</em> (the game
+    does them now) vs <em>deferred</em> (“parse but do nothing”) — see
+    <code>Astra_Encounter_Outcomes_Review.md</code> for the per-verb list. Positive <code>shiphp</code>
+    (hull repair from a choice) is untested and deliberately not used in the fuel/production migrations.</li>
+    <li>Encounters are voted on by the crew (see Dialogue below). The run flow, vote sessions and encounter
+    decks live in <code>Core/Encounters</code> (<code>EncounterFlow.cs</code>, <code>VoteSession.cs</code>,
     <code>EncounterDecks.cs</code>, <code>OutcomeActions.cs</code>).</li>
+    <li><strong>Decks:</strong> there is one draw pile in the data, the <code>standard</code> deck — every
+    ready encounter that names a deck names that one. Twelve ready encounters name <em>no</em> deck: they
+    are never drawn at random, they only happen when something chains to them — the Gate approach and finale
+    (<code>lastGateApproach</code>, <code>lastGateFinal</code>), the Buyer
+    (<code>lastGateBuyer</code>), the “Returns” follow-ups, and the three Rival meetings
+    (<code>rivalHunt1–3</code>).</li>
+    <li><strong>Off, but still in the file:</strong> <code>lastGateTheft</code> (the theft opener) is switched
+    off — there is no starter encounter, the run opens with the getaway cutscene. <code>lastGateDecrypt</code>
+    is also off in the current data, even though the Gate approach logic still references it. The other
+    not-ready rows are encounters written but not switched on yet. They are listed at the bottom of this page.</li>
   </ul>
+  <h3>All encounters in the data — verified from <code>Encounter.csv</code> on <code>main</code></h3>
+  <p>The table below is rendered from <code>mechanics.json</code> (generated by
+  <code>Tools/wiki/generate_wiki.py</code> from the CSV files), so it updates when the data does. Each
+  encounter shows its title, its id, its deck, and its choices as written. If the table is empty here,
+  open <code>mechanics.json</code> directly — or the standalone wiki file, which has the data embedded.</p>
+  <div id="encounter-list"><p>Loading encounters from <code>mechanics.json</code>&hellip;</p></div>
   <h3>Dialogue (Ink)</h3>
   <ul>
     <li><strong>Content:</strong> <code>.ink</code> files under <code>Assets/_Project/Content/Dialogue/</code>,
     one knot per scene (ink Unity integration 2.0.0). Two scene kinds in one system: talking scenes and
     FTL-style encounters. The <code>Astra.ink</code> story ships with <code>Encounters.ink</code> (six example
     encounters, two ambient aftermaths).</li>
+    <li><strong>Example encounters in <code>Encounters.ink</code> — test content, not canon</strong> (the file
+    says so itself: “FORMAT TEST CONTENT ONLY: not canon”). They are the dialogue system's worked examples,
+    shaped after the ported encounters: <strong>derelict</strong> (a dark ship — strip it, board it, or leave
+    it; chains to the <code>derelict_aftermath</code> banter), <strong>pirate_toll</strong> (pay 15 coins, refuse
+    and fight, or bluff), <strong>distress_call</strong> (answer it, send supplies, or keep flying; chains to
+    the <code>rescued_pilot</code> talking scene), <strong>trader</strong> (buy/sell scrap, haggle),
+    <strong>asteroid_field</strong> (thread it, go around, or fly it by feel), and
+    <strong>the_caller</strong> (the ship's extended warranty — chains to <code>the_caller_again</code>, which
+    is not in any deck at the start). These six are <em>not</em> in <code>Encounter.csv</code> and are not drawn
+    by the encounter decks; they exist to exercise the Ink system.</li>
     <li><strong>Session:</strong> the crew votes on every choice unless a choice is written as one character's
     moment (no rotating lead). Speakers resolve against the crew; interjections appear as sliding portraits;
     choices can be gated; there are timers / disconnect handling and a spotlight-fairness rule so no one
@@ -790,8 +856,14 @@ where the repo states them — it never invents a number.</p>
     ported characters (<code>idol</code>, <code>edgy</code>, <code>chonky</code>, <code>cop</code>) appear only as
     placeholder premade ids. Dialogue is travel/encounter layer only, never interrupting live combat.</li>
   </ul>
+  <p class="note"><strong>Count note:</strong> an older doc (<code>Astra_Production_Removal.md</code>) counts
+  32 Last Gate encounters with 95 choices. The CSV on <code>main</code> has grown past that since (mega-batch,
+  Rival meetings, weird encounters): <strong>85 rows, 59 ready, 254 choices (176 on ready encounters)</strong>.
+  The table above is the current count.</p>
 </section>
+</div>
 
+<div class="page-view" data-page="boons" data-file="boons.html" data-title="Boons & burdens (Oddities)">
 <section id="boons" class="page">
   <h2>Boons &amp; burdens (Oddities) <span class="badge implemented">Implemented</span></h2>
   <p class="src">Source: <code>Assets/_Project/Scripts/Core/Boons.cs</code>
@@ -802,9 +874,11 @@ where the repo states them — it never invents a number.</p>
   shield up-time and recharge, missile capacity, dodge, air drain, healing, scrap per fire put out, damage
   taken and damage dealt. They feed the chase (patrol chance, Forger level), the economy (per-jump resources)
   and combat (dodge, shield, damage) — see <code>RunBoons</code> for the exact sums.</p>
-  <p>Oddities are also a spoils choice after a won ship fight — see <a href="#spoils">Spoils</a>.</p>
+  <p>Oddities are also a spoils choice after a won ship fight — see <a href="#/spoils">Spoils</a>.</p>
 </section>
+</div>
 
+<div class="page-view" data-page="spoils" data-file="spoils.html" data-title="Spoils — after a won ship fight">
 <section id="spoils" class="page">
   <h2>Spoils — after a won ship fight <span class="badge implemented">Implemented</span></h2>
   <p class="src">Source: commit <code>d8791e91</code> (“Spoils: after a won ship fight…”, StevenGin, 2026-11-05,
@@ -818,7 +892,9 @@ where the repo states them — it never invents a number.</p>
   </ol>
   <p>Built as an encounter in code, so it uses the usual vote panel. Debug panel: “Win ship fight”.</p>
 </section>
+</div>
 
+<div class="page-view" data-page="wip" data-file="wip.html" data-title="Work in progress / placeholders">
 <section id="wip" class="page">
   <h2>Work in progress / placeholders <span class="badge wip">WIP</span></h2>
   <p class="src">Sources: commits on <code>main</code> after the snapshot, plus placeholder notes already in the docs and code at the snapshot. Nothing here is a full mechanic page yet — these are the items to promote to a full page (or drop) once they settle.</p>
@@ -844,21 +920,23 @@ where the repo states them — it never invents a number.</p>
     <li><strong>Dialogue placeholder premades:</strong> the four ported characters (<code>idol</code>, <code>edgy</code>, <code>chonky</code>, <code>cop</code>) appear only as placeholder premade ids in the dialogue spec — the spec invents no story content or identities.</li>
     <li><strong>Enemy ship placeholders:</strong> the draft-2 ship-combat doc's first playable version used enemy ship placeholders, and the Gunnery room / fight panel were built before art and balance.</li>
     <li><strong>Damage-control numbers are placeholders:</strong> room-stage effects (charge ×0.75 / ×0.5 / 0, etc.) are marked “balance comes later” and live in one config asset.</li>
-    <li><strong>Room-health scale is unresolved</strong> — doc 0–100 vs code <code>MaxHealth = 50</code> — see <a href="#conflicts">Conflicts</a>. Do not treat either scale as final.</li>
+    <li><strong>Room-health scale is unresolved</strong> — doc 0–100 vs code <code>MaxHealth = 50</code> — see <a href="#/conflicts">Conflicts</a>. Do not treat either scale as final.</li>
   </ul>
 
   <h3>In transition / still to finish</h3>
   <ul>
-    <li><strong>Patrols → Rival crews:</strong> Steven's direction is to replace Forger patrols purely with rival crews; the patrol code still exists alongside the Rival. See <a href="#rival">The Rival</a> and <a href="#conflicts">Conflicts</a>.</li>
+    <li><strong>Patrols → Rival crews:</strong> Steven's direction is to replace Forger patrols purely with rival crews; the patrol code still exists alongside the Rival. See <a href="#/rival">The Rival</a> and <a href="#/conflicts">Conflicts</a>.</li>
     <li><strong>Wardens → Forgers rename:</strong> docs use Forgers; code IDs still say <code>warden…</code>. Renaming the IDs is outstanding.</li>
-    <li><strong>Fuel &amp; production removal:</strong> out of Last Gate encounters, not yet out of the code, starting resources, UI or original encounters. See <a href="#economy">Economy</a>.</li>
+    <li><strong>Fuel &amp; production removal:</strong> out of Last Gate encounters, not yet out of the code, starting resources, UI or original encounters. See <a href="#/economy">Economy</a>.</li>
     <li><strong>Bosses deferred, not cancelled</strong> (<code>Astra_World_Design.md</code> D2) — revisit once sectors are right. The nine-boss sequential run is cut for now.</li>
     <li><strong>Stores / damage control / boons on two machines:</strong> damage control was play-tested solo on the Bridge only; stores solo by script only. Two-machine testing is still to do.</li>
     <li><strong>Ship design v2, step 1 only:</strong> tile rules, preset layout and tests are built; the scene is not changed yet (<code>Astra_Ship_Design_V2.md</code>).</li>
   </ul>
-  <p>When one of these settles, promote it: write its full page, move its numbers into the generator if they are constants, and remove it from this list. The generator keeps this list in <code>mechanics.json</code> under <code>wip</code> — see <code>tools/wiki/generate_wiki.py</code> (<code>WIP_ITEMS</code>).</p>
+  <p>When one of these settles, promote it: write its full page, move its numbers into the generator if they are constants, and remove it from this list. The generator keeps this list in <code>mechanics.json</code> under <code>wip</code> — see <code>Tools/wiki/generate_wiki.py</code> (<code>WIP_ITEMS</code>).</p>
 </section>
+</div>
 
+<div class="page-view" data-page="conflicts" data-file="conflicts.html" data-title="Conflicts & open questions">
 <section id="conflicts" class="page">
   <h2>Conflicts &amp; open questions</h2>
   <p>Things the repo disagrees with itself about, or has not decided. The wiki lists them; it does not pick a winner.</p>
@@ -873,7 +951,7 @@ where the repo states them — it never invents a number.</p>
     <li><strong>Store chance:</strong> 12% per star in <code>SectorRun.cs</code> vs ~20% (1 in 5) in
     <code>Astra_Store_Design.md</code>.</li>
     <li><strong>Fuel &amp; production:</strong> out of Last Gate encounters, not yet out of the code, starting
-    resources, UI or original encounters (see <a href="#economy">Economy</a>).</li>
+    resources, UI or original encounters (see <a href="#/economy">Economy</a>).</li>
     <li><strong>Wendigo:</strong> cut as end boss in the locked spine, still named as a large ship in
     <code>Astra_Space_Combat_Design.md</code> v2.</li>
     <li><strong>Wardens → Forgers rename (2026-11-03):</strong> docs use Forgers; code IDs still say
@@ -891,10 +969,12 @@ where the repo states them — it never invents a number.</p>
     Bridge play-test only; stores: solo script play-test only).</li>
   </ol>
 </section>
+</div>
 
+<div class="page-view" data-page="numbers" data-file="numbers.html" data-title="Generated numbers">
 <section id="numbers" class="page">
   <h2>Generated numbers</h2>
-  <p class="src">Parsed live from the repo by <code>tools/wiki/generate_wiki.py</code> into
+  <p class="src">Parsed live from the repo by <code>Tools/wiki/generate_wiki.py</code> into
   <code>mechanics.json</code>. If the table below is empty, open <code>mechanics.json</code> directly —
   the values are the same data.</p>
   <div id="generated-tables"><p>Loading <code>mechanics.json</code>…</p></div>
@@ -902,7 +982,9 @@ where the repo states them — it never invents a number.</p>
   <a href="mechanics.json">mechanics.json</a> ·
   <a href="README.md">Wiki README</a></p>
 </section>
+</div>
 
+<div class="page-view" data-page="sources" data-file="sources.html" data-title="Sources">
 <section id="sources" class="page">
   <h2>Sources</h2>
   <p>Repo root design docs (25 at the snapshot): <code>Astra_Story_Spine.md</code>,
@@ -932,39 +1014,102 @@ where the repo states them — it never invents a number.</p>
   <code>Dialogue/VoiceTracker.cs</code>.</p>
   <p>Superseded docs are listed for completeness and are <strong>not</strong> used as sources for mechanics above.
   <code>Astra_Sectors_Redesign_FTL.md</code> is a proposal, not locked. Where a doc and the code disagree, both
-  are shown on the <a href="#conflicts">Conflicts</a> page.</p>
+  are shown on the <a href="#/conflicts">Conflicts</a> page.</p>
 </section>
+</div>
 </main>
+
 </div>
 
 <footer>
-  <p>Aboard the Astra — Mechanics Wiki · generated from <code>main</code> @ <code>e8824e89</code> (2026-11-05) ·
-  auto-update: <code>.github/workflows/wiki.yml</code> · generator: <code>tools/wiki/generate_wiki.py</code></p>
+  <p>Aboard the Astra — Mechanics Wiki &middot; generated from <code>main</code> @ <code>e8824e89</code> (2026-11-05) &middot;
+  auto-update: <code>.github/workflows/wiki.yml</code> &middot; generator: <code>Tools/wiki/generate_wiki.py</code></p>
 </footer>
 <script>
-window.__MECHANICS__ = {"generator": "tools/wiki/generate_wiki.py (stdlib only)", "note": "Numbers are parsed from the repo; nothing here is invented. If a value disagrees with a design doc, the code value is listed here and the disagreement belongs on the wiki's Conflicts page.", "balance": {"PlayerSpeed": {"value": "2.8f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "EnemySpeedFactor": {"value": "0.7f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "EnemyAttackSeconds": {"value": "2.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "GlancingPercent": {"value": "50", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "CriticalPercent": {"value": "15", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "MedicalBayQuarterSeconds": {"value": "6f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "OxygenDrainPerSecond": {"value": "0.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "OxygenDoorEqualizePerSecond": {"value": "0.04f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "OxygenRefillPerSecond": {"value": "2.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "SuffocationQuarterSeconds": {"value": "4f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireChancePercent": {"value": "25", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "LeakChancePercent": {"value": "25", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireSpreadSeconds": {"value": "7f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireSpreadChancePercent": {"value": "60", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireSpreadCooldownSeconds": {"value": "5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "HandGunDamagePerModulePoint": {"value": "66f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "HandGunBulletSpeedFactor": {"value": "0.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "HandGunFireRateFactor": {"value": "0.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "HandGunBulletMinSpeed": {"value": "4f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireHullPointsPerSecond": {"value": "0.25f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireAirPerSecond": {"value": "0.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireOutAirLevel": {"value": "15f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "LeakAirPerSecond": {"value": "1.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "PutOutSeconds": {"value": "2.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "GunChargeSeconds": {"value": "3f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "ShuttleSpeed": {"value": "5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "ShuttleAttachSeconds": {"value": "5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "ShuttleCapacity": {"value": "4", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "ShuttleStaggerSeconds": {"value": "3f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "DashStartSpeedFactor": {"value": "5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "DashSlowdownRate": {"value": "9f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "DashEndSpeedFactor": {"value": "0.67f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "DashCooldownSeconds": {"value": "2f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "MissileMakeSeconds": {"value": "2f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "MissileCapacity": {"value": "1", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "ShieldUpSeconds": {"value": "3f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "ShieldRechargeSeconds": {"value": "10f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "LowOxygenLevel": {"value": "25f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireBurnQuarterSeconds": {"value": "2f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "BaseDodgePercent": {"value": "33", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "WeaponHazardChancePercent": {"value": "40", "source": "Assets/_Project/Scripts/Core/Balance.cs"}}, "warden": {"ApproachEncounterId": {"value": "\"lastGateApproach\"", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "ProximityFlag": {"value": "\"wardenProximity\"", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "MaxLevel": {"value": "4", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "PatrolEncounterId": {"value": "\"lastGatePatrol\"", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "CheckpointEncounterId": {"value": "\"lastGateCheckpoint\"", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "StartBehind": {"value": "0.08f", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "AdvancePerJump": {"value": "0.045f", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "SectorAdvancePerJump": {"value": "0.095f", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}}, "sectors": [{"name": "The Free Ports", "kind": "Start", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 4, "decks": ["Free Ports"]}, {"name": "The Guild Reaches", "kind": "Core", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "decks": ["Guild", "Free Ports"]}, {"name": "Pirate Space", "kind": "Core", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "decks": ["Pirate"]}, {"name": "Lanternbearer Space", "kind": "Core", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 4, "weight": 1, "decks": ["Cult"]}, {"name": "Forger Space", "kind": "Core", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "proximityFloor": 1, "jumpsPerLevel": 2, "decks": ["Forger"]}, {"name": "The Avian Homeworlds", "kind": "Core", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 4, "decks": ["Avian Homeworlds"]}, {"name": "Hearth Haven", "kind": "Rare", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 5, "decks": ["Hearth Haven"]}, {"name": "The Moth Caravan", "kind": "Rare", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 4, "decks": ["Moth Caravan"]}, {"name": "The Dryad Bloom", "kind": "Rare", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 4, "decks": ["Dryad Bloom"]}, {"name": "The Scientist Station", "kind": "Rare", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 4, "decks": ["Scientist Station"]}, {"name": "The Last Gate", "kind": "Gate", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "proximityFloor": 1, "jumpsPerLevel": 3, "decks": ["Gate"]}], "store": {"ResourceBuy": {"value": "{ 0, 4, 5, 10, 8 }", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "ResourceSell": {"value": "{ 0, 1, 2, 4, 3 }", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "HullPackPoints": {"value": "50", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "HullPackPrice": {"value": "10", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "RoomRepairPrice": {"value": "5", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "GunLevelMultiplier": {"value": "{ 1, 2, 3, 5, 8, 12 }", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "DefaultGunValue": {"value": "10", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "GunSellPercent": {"value": "50", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "GunsInStock": {"value": "3", "source": "Assets/_Project/Scripts/Core/Store.cs"}}, "room_stages": {"MaxHealth": {"value": "50f", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}, "FineAbove": {"value": "75f", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}, "DamagedAbove": {"value": "40f", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}, "DamagePerHullPoint": {"value": "1f", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}, "PreferredPercent": {"value": "60", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}, "FullRepair": {"value": "100f", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}, "PassiveRepairAmount": {"value": "10f", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}}, "rival": {"MoveChancePercent": {"value": "50", "source": "Assets/_Project/Scripts/Core/StarMap/RivalHunt.cs"}, "StartHopsFromShip": {"value": "3", "source": "Assets/_Project/Scripts/Core/StarMap/RivalHunt.cs"}}, "core_files_present": ["Balance.cs", "GateRules.cs", "SectorRun.cs", "Store.cs", "DamageControl.cs", "ShipCombat.cs", "Combat.cs", "Health.cs", "Research.cs", "Boons.cs", "Oxygen.cs", "MissileSupply.cs", "Boarding.cs", "ActiveShield.cs", "RivalHunt.cs"], "docs": [{"file": "Astra_Act_Sectors_And_Bosses.md", "title": "Act sectors and bosses \u2014 SUPERSEDED", "status": null}, {"file": "Astra_Conceptual_Game_Design.md", "title": "Aboard the Astra \u2014 Conceptual Game Design Reference", "status": null}, {"file": "Astra_Damage_Control_Design.md", "title": "Aboard the Astra: Damage Control (design draft)", "status": "built and pushed (rules, tests, network layer, scene wiring, Muse art, status icons); play-tested solo on the Bridge only, fight effects and two machines still to test."}, {"file": "Astra_Dialogue_Story_Plan.md", "title": "Aboard the Astra 2 \u2014 Dialogue, Story & Game Plan", "status": null}, {"file": "Astra_Dialogue_System_Spec.md", "title": "Aboard the Astra 2 \u2014 Dialogue System Spec v3 (P2)", "status": null}, {"file": "Astra_Encounter_Outcomes_Review.md", "title": "Encounter outcomes review: what can actually happen, vs FTL and BG3, and what it does to gameplay", "status": null}, {"file": "Astra_Encounter_Outlines_Toward_Last_Gate.md", "title": "Aboard the Astra 2 \u2014 Encounter Outlines Toward the Last Gate", "status": "Draft for Steven's review, Nov 1, 2026."}, {"file": "Astra_Encounter_Quality_Standard.md", "title": "Encounter quality standard (Steven, 2026-11-02)", "status": null}, {"file": "Astra_Faction_Combat.md", "title": "Faction combat: different attributes and styles per faction", "status": null}, {"file": "Astra_Factions.md", "title": "Factions \u2014 SUPERSEDED", "status": null}, {"file": "Astra_Fuel_Removal.md", "title": "Removing fuel from the game \u2014 what was done, what is left", "status": null}, {"file": "Astra_Last_Gate_Encounters_Build.md", "title": "Aboard the Astra 2 \u2014 Last Gate Encounters, Built (2026-11-01)", "status": "Built, not yet playtested in Unity."}, {"file": "Astra_Production_Removal.md", "title": "Production removal \u2014 Last Gate encounters", "status": null}, {"file": "Astra_Roster_Eight_Pick_Four.md", "title": "Roster: 8 characters, pick 4 \u2014 SUPERSEDED", "status": null}, {"file": "Astra_Sectors_Redesign_FTL.md", "title": "Sectors redesign \u2014 FTL comparison (PROPOSAL, not locked)", "status": null}, {"file": "Astra_Ship_Combat_Design.md", "title": "Ship-to-ship combat: design (draft 2, 2026-10-15)", "status": "rules built (307 tests); first playable version built: network layer, Bridge gun console, ammo rack and cannon, enemy ship placeholders, fight panel, retreat jump, ships and boarders together. Gunnery room built (rack and two mounts, limit of one); art and balance are next."}, {"file": "Astra_Ship_Design_V2.md", "title": "Astra: ship design v2 (tile grid, FTL-style, top-down)", "status": "approved; step 1 (tile rules, preset layout, tests) is built; the scene is not changed yet."}, {"file": "Astra_Ship_Design_V3_Building.md", "title": "Ship design v3: building in the world, hulls of any shape", "status": null}, {"file": "Astra_Ship_Hull_Design.md", "title": "Astra: a smaller ship with a hull around it", "status": "SUPERSEDED by `Astra_Ship_Design_V2.md` (tile grid, FTL-style, top-down) on 2026-10-19."}, {"file": "Astra_Space_Combat_Design.md", "title": "Space combat v2: aim and shoot in the world, and softer boarders", "status": null}, {"file": "Astra_Store_Design.md", "title": "Astra: Stores", "status": "built (rules, tests, network layer, Store page, map markers); play-tested solo by script, not on two machines."}, {"file": "Astra_Story_Spine.md", "title": "Aboard the Astra 2 \u2014 Story Spine (locked 2026-11-01)", "status": "LOCKED by Steven, voice call Sun Nov 1, 2026"}, {"file": "Astra_Three_Act_Structure.md", "title": "Three-act structure \u2014 SUPERSEDED", "status": null}, {"file": "Astra_Wardens.md", "title": "The Wardens (now Forgers) \u2014 SUPERSEDED", "status": null}, {"file": "Astra_World_Design.md", "title": "Aboard the Astra 2 \u2014 World Design: Races, Factions, Run, Sectors, Cast", "status": null}], "store_chance_percent": {"value": 12, "source": "Assets/_Project/Scripts/Core/SectorRun.cs"}, "wip": [{"item": "Salvage Stars", "what": "Two per sector map, off the shortest route; a spoils pick with no fight.", "commit": "2840bd66 (merged as e6bac5e5)", "since": "main after e8824e89, 2026-11-05"}, {"item": "Set pieces", "what": "Stations, anomalies and beacons as labelled placeholders; wrecks, other ships and asteroids from the original Astra's art.", "commit": "a9bfb483 (merged as 42decca4)", "since": "main after e8824e89, 2026-11-05"}, {"item": "Sector hazards", "what": "Per-sector hazards (nebula, ion storm, asteroids, solar flares); nebula/ion change shield and dodge, asteroids/flares strike (breach or fire); Hearth Haven has none.", "commit": "6ceb0117 (merged as a9381c67)", "since": "main after e8824e89, 2026-11-05"}, {"item": "Weird encounters", "what": "Five sci-fi encounters (time loop, the other Astra, duplicated crew member, sideways gravity, repair booth); stakes include an Oddity swapped, a Fault erased, max hull, a heart for everyone.", "commit": "99a76021 (merged as cc9e1f57)", "since": "main after e8824e89, 2026-11-05"}, {"item": "Many hands", "what": "Fires, breaches and repairs go 60% faster per helper, up to three helpers in the room.", "commit": "264d469b (merged as 58f90483)", "since": "main after e8824e89, 2026-11-05"}, {"item": "Placeholder numbers: shield 40 / hull 300", "what": "Space-combat v2 shield/hull are placeholders to tune; capital ship is a test ship.", "commit": "Astra_Space_Combat_Design.md (v2)", "since": "at snapshot e8824e89"}, {"item": "Placeholder Oddity icons", "what": "Boons/burdens effects implemented; icons are placeholders.", "commit": "79cb47ae", "since": "at snapshot e8824e89"}, {"item": "Fuel & production removal (in transition)", "what": "Out of Last Gate encounters, not yet out of the code, starting resources, UI or original encounters.", "commit": "Astra_Fuel_Removal.md / Astra_Production_Removal.md (2026-11-02)", "since": "at snapshot e8824e89"}, {"item": "Patrols -> Rival crews (in transition)", "what": "Direction is to replace Forger patrols purely with rival crews; patrol code still exists alongside the Rival.", "commit": "RivalHunt.cs / GateRules.cs", "since": "at snapshot e8824e89"}]};
+window.__MECHANICS__ = {"generator": "Tools/wiki/generate_wiki.py (stdlib only)", "note": "Numbers are parsed from the repo; nothing here is invented. If a value disagrees with a design doc, the code value is listed here and the disagreement belongs on the wiki's Conflicts page.", "balance": {"PlayerSpeed": {"value": "2.8f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "EnemySpeedFactor": {"value": "0.7f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "EnemyAttackSeconds": {"value": "2.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "GlancingPercent": {"value": "50", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "CriticalPercent": {"value": "15", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "MedicalBayQuarterSeconds": {"value": "6f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "OxygenDrainPerSecond": {"value": "0.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "OxygenDoorEqualizePerSecond": {"value": "0.04f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "OxygenRefillPerSecond": {"value": "2.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "SuffocationQuarterSeconds": {"value": "4f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireChancePercent": {"value": "25", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "LeakChancePercent": {"value": "25", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireSpreadSeconds": {"value": "7f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireSpreadChancePercent": {"value": "60", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireSpreadCooldownSeconds": {"value": "5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "HandGunDamagePerModulePoint": {"value": "66f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "HandGunBulletSpeedFactor": {"value": "0.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "HandGunFireRateFactor": {"value": "0.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "HandGunBulletMinSpeed": {"value": "4f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireHullPointsPerSecond": {"value": "0.25f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireAirPerSecond": {"value": "0.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireOutAirLevel": {"value": "15f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "LeakAirPerSecond": {"value": "1.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "PutOutSeconds": {"value": "2.5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "GunChargeSeconds": {"value": "3f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "ShuttleSpeed": {"value": "5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "ShuttleAttachSeconds": {"value": "5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "ShuttleCapacity": {"value": "4", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "ShuttleStaggerSeconds": {"value": "3f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "DashStartSpeedFactor": {"value": "5f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "DashSlowdownRate": {"value": "9f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "DashEndSpeedFactor": {"value": "0.67f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "DashCooldownSeconds": {"value": "2f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "MissileMakeSeconds": {"value": "2f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "MissileCapacity": {"value": "1", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "ShieldUpSeconds": {"value": "3f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "ShieldRechargeSeconds": {"value": "10f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "LowOxygenLevel": {"value": "25f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "FireBurnQuarterSeconds": {"value": "2f", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "BaseDodgePercent": {"value": "33", "source": "Assets/_Project/Scripts/Core/Balance.cs"}, "WeaponHazardChancePercent": {"value": "40", "source": "Assets/_Project/Scripts/Core/Balance.cs"}}, "warden": {"ApproachEncounterId": {"value": "\"lastGateApproach\"", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "ProximityFlag": {"value": "\"wardenProximity\"", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "MaxLevel": {"value": "4", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "PatrolEncounterId": {"value": "\"lastGatePatrol\"", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "CheckpointEncounterId": {"value": "\"lastGateCheckpoint\"", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "StartBehind": {"value": "0.08f", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "AdvancePerJump": {"value": "0.045f", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}, "SectorAdvancePerJump": {"value": "0.095f", "source": "Assets/_Project/Scripts/Core/GateRules.cs"}}, "sectors": [{"name": "The Free Ports", "kind": "Start", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 4, "decks": ["Free Ports"]}, {"name": "The Guild Reaches", "kind": "Core", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "decks": ["Guild", "Free Ports"]}, {"name": "Pirate Space", "kind": "Core", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "decks": ["Pirate"]}, {"name": "Lanternbearer Space", "kind": "Core", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 4, "weight": 1, "decks": ["Cult"]}, {"name": "Forger Space", "kind": "Core", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "proximityFloor": 1, "jumpsPerLevel": 2, "decks": ["Forger"]}, {"name": "The Avian Homeworlds", "kind": "Core", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 4, "decks": ["Avian Homeworlds"]}, {"name": "Hearth Haven", "kind": "Rare", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 5, "decks": ["Hearth Haven"]}, {"name": "The Moth Caravan", "kind": "Rare", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 4, "decks": ["Moth Caravan"]}, {"name": "The Dryad Bloom", "kind": "Rare", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 4, "decks": ["Dryad Bloom"]}, {"name": "The Scientist Station", "kind": "Rare", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "jumpsPerLevel": 4, "decks": ["Scientist Station"]}, {"name": "The Last Gate", "kind": "Gate", "source": "Assets/_Project/Scripts/Core/SectorRun.cs", "proximityFloor": 1, "jumpsPerLevel": 3, "decks": ["Gate"]}], "store": {"ResourceBuy": {"value": "{ 0, 4, 5, 10, 8 }", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "ResourceSell": {"value": "{ 0, 1, 2, 4, 3 }", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "HullPackPoints": {"value": "50", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "HullPackPrice": {"value": "10", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "RoomRepairPrice": {"value": "5", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "GunLevelMultiplier": {"value": "{ 1, 2, 3, 5, 8, 12 }", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "DefaultGunValue": {"value": "10", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "GunSellPercent": {"value": "50", "source": "Assets/_Project/Scripts/Core/Store.cs"}, "GunsInStock": {"value": "3", "source": "Assets/_Project/Scripts/Core/Store.cs"}}, "room_stages": {"MaxHealth": {"value": "50f", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}, "FineAbove": {"value": "75f", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}, "DamagedAbove": {"value": "40f", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}, "DamagePerHullPoint": {"value": "1f", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}, "PreferredPercent": {"value": "60", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}, "FullRepair": {"value": "100f", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}, "PassiveRepairAmount": {"value": "10f", "source": "Assets/_Project/Scripts/Core/DamageControl.cs"}}, "rival": {"MoveChancePercent": {"value": "50", "source": "Assets/_Project/Scripts/Core/StarMap/RivalHunt.cs"}, "StartHopsFromShip": {"value": "3", "source": "Assets/_Project/Scripts/Core/StarMap/RivalHunt.cs"}}, "core_files_present": ["Balance.cs", "GateRules.cs", "SectorRun.cs", "Store.cs", "DamageControl.cs", "ShipCombat.cs", "Combat.cs", "Health.cs", "Research.cs", "Boons.cs", "Oxygen.cs", "MissileSupply.cs", "Boarding.cs", "ActiveShield.cs", "RivalHunt.cs"], "docs": [{"file": "Astra_Act_Sectors_And_Bosses.md", "title": "Act sectors and bosses \u2014 SUPERSEDED", "status": null}, {"file": "Astra_Conceptual_Game_Design.md", "title": "Aboard the Astra \u2014 Conceptual Game Design Reference", "status": null}, {"file": "Astra_Damage_Control_Design.md", "title": "Aboard the Astra: Damage Control (design draft)", "status": "built and pushed (rules, tests, network layer, scene wiring, Muse art, status icons); play-tested solo on the Bridge only, fight effects and two machines still to test."}, {"file": "Astra_Dialogue_Story_Plan.md", "title": "Aboard the Astra 2 \u2014 Dialogue, Story & Game Plan", "status": null}, {"file": "Astra_Dialogue_System_Spec.md", "title": "Aboard the Astra 2 \u2014 Dialogue System Spec v3 (P2)", "status": null}, {"file": "Astra_Encounter_Outcomes_Review.md", "title": "Encounter outcomes review: what can actually happen, vs FTL and BG3, and what it does to gameplay", "status": null}, {"file": "Astra_Encounter_Outlines_Toward_Last_Gate.md", "title": "Aboard the Astra 2 \u2014 Encounter Outlines Toward the Last Gate", "status": "Draft for Steven's review, Nov 1, 2026."}, {"file": "Astra_Encounter_Quality_Standard.md", "title": "Encounter quality standard (Steven, 2026-11-02)", "status": null}, {"file": "Astra_Faction_Combat.md", "title": "Faction combat: different attributes and styles per faction", "status": null}, {"file": "Astra_Factions.md", "title": "Factions \u2014 SUPERSEDED", "status": null}, {"file": "Astra_Fuel_Removal.md", "title": "Removing fuel from the game \u2014 what was done, what is left", "status": null}, {"file": "Astra_Last_Gate_Encounters_Build.md", "title": "Aboard the Astra 2 \u2014 Last Gate Encounters, Built (2026-11-01)", "status": "Built, not yet playtested in Unity."}, {"file": "Astra_Production_Removal.md", "title": "Production removal \u2014 Last Gate encounters", "status": null}, {"file": "Astra_Roster_Eight_Pick_Four.md", "title": "Roster: 8 characters, pick 4 \u2014 SUPERSEDED", "status": null}, {"file": "Astra_Sectors_Redesign_FTL.md", "title": "Sectors redesign \u2014 FTL comparison (PROPOSAL, not locked)", "status": null}, {"file": "Astra_Ship_Combat_Design.md", "title": "Ship-to-ship combat: design (draft 2, 2026-10-15)", "status": "rules built (307 tests); first playable version built: network layer, Bridge gun console, ammo rack and cannon, enemy ship placeholders, fight panel, retreat jump, ships and boarders together. Gunnery room built (rack and two mounts, limit of one); art and balance are next."}, {"file": "Astra_Ship_Design_V2.md", "title": "Astra: ship design v2 (tile grid, FTL-style, top-down)", "status": "approved; step 1 (tile rules, preset layout, tests) is built; the scene is not changed yet."}, {"file": "Astra_Ship_Design_V3_Building.md", "title": "Ship design v3: building in the world, hulls of any shape", "status": null}, {"file": "Astra_Ship_Hull_Design.md", "title": "Astra: a smaller ship with a hull around it", "status": "SUPERSEDED by `Astra_Ship_Design_V2.md` (tile grid, FTL-style, top-down) on 2026-10-19."}, {"file": "Astra_Space_Combat_Design.md", "title": "Space combat v2: aim and shoot in the world, and softer boarders", "status": null}, {"file": "Astra_Store_Design.md", "title": "Astra: Stores", "status": "built (rules, tests, network layer, Store page, map markers); play-tested solo by script, not on two machines."}, {"file": "Astra_Story_Spine.md", "title": "Aboard the Astra 2 \u2014 Story Spine (locked 2026-11-01)", "status": "LOCKED by Steven, voice call Sun Nov 1, 2026"}, {"file": "Astra_Three_Act_Structure.md", "title": "Three-act structure \u2014 SUPERSEDED", "status": null}, {"file": "Astra_Wardens.md", "title": "The Wardens (now Forgers) \u2014 SUPERSEDED", "status": null}, {"file": "Astra_World_Design.md", "title": "Aboard the Astra 2 \u2014 World Design: Races, Factions, Run, Sectors, Cast", "status": null}], "store_chance_percent": {"value": 12, "source": "Assets/_Project/Scripts/Core/SectorRun.cs"}, "wip": [{"item": "Salvage Stars", "what": "Two per sector map, off the shortest route; a spoils pick with no fight.", "commit": "2840bd66 (merged as e6bac5e5)", "since": "main after e8824e89, 2026-11-05"}, {"item": "Set pieces", "what": "Stations, anomalies and beacons as labelled placeholders; wrecks, other ships and asteroids from the original Astra's art.", "commit": "a9bfb483 (merged as 42decca4)", "since": "main after e8824e89, 2026-11-05"}, {"item": "Sector hazards", "what": "Per-sector hazards (nebula, ion storm, asteroids, solar flares); nebula/ion change shield and dodge, asteroids/flares strike (breach or fire); Hearth Haven has none.", "commit": "6ceb0117 (merged as a9381c67)", "since": "main after e8824e89, 2026-11-05"}, {"item": "Weird encounters", "what": "Five sci-fi encounters (time loop, the other Astra, duplicated crew member, sideways gravity, repair booth); stakes include an Oddity swapped, a Fault erased, max hull, a heart for everyone.", "commit": "99a76021 (merged as cc9e1f57)", "since": "main after e8824e89, 2026-11-05"}, {"item": "Many hands", "what": "Fires, breaches and repairs go 60% faster per helper, up to three helpers in the room.", "commit": "264d469b (merged as 58f90483)", "since": "main after e8824e89, 2026-11-05"}, {"item": "Placeholder numbers: shield 40 / hull 300", "what": "Space-combat v2 shield/hull are placeholders to tune; capital ship is a test ship.", "commit": "Astra_Space_Combat_Design.md (v2)", "since": "at snapshot e8824e89"}, {"item": "Placeholder Oddity icons", "what": "Boons/burdens effects implemented; icons are placeholders.", "commit": "79cb47ae", "since": "at snapshot e8824e89"}, {"item": "Fuel & production removal (in transition)", "what": "Out of Last Gate encounters, not yet out of the code, starting resources, UI or original encounters.", "commit": "Astra_Fuel_Removal.md / Astra_Production_Removal.md (2026-11-02)", "since": "at snapshot e8824e89"}, {"item": "Patrols -> Rival crews (in transition)", "what": "Direction is to replace Forger patrols purely with rival crews; patrol code still exists alongside the Rival.", "commit": "RivalHunt.cs / GateRules.cs", "since": "at snapshot e8824e89"}], "encounters": {"source": "Assets/_Project/Content/Encounters/Encounter.csv", "total_rows": 85, "ready": [{"id": "lastGatePatrol", "deck": "standard", "title": "Forger Patrol", "caption": "", "choices": ["Fight the patrol", "Burn scrap and lose them", "Bluff like you have never bluffed before"]}, {"id": "lastGatePlanetStop", "deck": "standard", "title": "A Lively Port Planet", "caption": "", "choices": ["Join the festival and steal the show", "Buy a guild writ from a dock clerk", "Rob the vault. What could go wrong?"]}, {"id": "lastGateBuyer", "deck": "", "title": "The Buyer Comes Back", "caption": "", "choices": ["Pay them to go away", "Outrun the rival", "Offer them a cut of the prize"]}, {"id": "lastGateCheckpoint", "deck": "standard", "title": "Forger Checkpoint", "caption": "", "choices": ["Bribe them and hope", "Slip through the hazard field", "Fight the blockade"]}, {"id": "lastGateApproach", "deck": "", "title": "The Last Gate Approach", "caption": "", "choices": ["Present the map to the Gate", "Buy parts at the last thin store", "Slip away and come back when you are ready"]}, {"id": "lastGateFinal", "deck": "", "title": "The Last Gate", "caption": "", "choices": ["Jump, and fight through the blockade", "Stall, burn scrap, and try again later"]}, {"id": "lastGateWardenWreck", "deck": "standard", "title": "The Warden Wreck", "caption": "", "choices": ["Strip it for bronze plating", "Pry out its clockwork heart, carefully", "Leave it. It is still ticking"]}, {"id": "lastGateWardenDrone", "deck": "standard", "title": "A Warden, Unplugged", "caption": "", "choices": ["Interrogate it about patrol routes", "Feed it scrap and let it follow you", "Switch it off and sell its brass"]}, {"id": "lastGateForgeStation", "deck": "standard", "title": "The Bronze Forge", "caption": "", "choices": ["Have them weld on Warden-grade plating", "Let them tune the engines with Warden gears", "Ask about Warden weaknesses, over tea"]}, {"id": "lastGateClockworkMarket", "deck": "standard", "title": "Clockwork Market", "caption": "negotiation_brass_merchant", "choices": ["Buy a Warden jammer", "Trade coins for brass gears", "Haggle until the merchant gives up"]}, {"id": "lastGateWardenNegotiator", "deck": "standard", "title": "The Negotiator", "caption": "negotiation_warden_negotiator", "choices": ["Pay for the passage and take it", "Stall with a curiosity of your own", "Refuse and run"]}, {"id": "lastGateScrapStorm", "deck": "standard", "title": "The Scrap Storm", "caption": "", "choices": ["Harvest the storm", "Ride the edge, take a little", "Go around and lose time"]}, {"id": "lastGateWardenInspection", "deck": "standard", "title": "The Collector's Appraisal", "caption": "", "choices": ["Hide the map in the pantry", "Bribe the inspector with tea and scrap", "Let them scan everything, loudly and innocently"]}, {"id": "lastGateBuyerReturns", "deck": "", "title": "The Rival Returns", "caption": "", "choices": ["Pay them off for good", "Fight the rival", "Team up to lose the Wardens"]}, {"id": "lastGateWardenNegotiatorReturns", "deck": "", "title": "The Negotiator Returns", "caption": "", "choices": ["Sign the catalogue entry", "Stall again, even longer", "Refuse and run"]}, {"id": "lastGateBrassMerchantReturns", "deck": "", "title": "The Brass Merchant Returns", "caption": "", "choices": ["Buy the special missile rack", "Trade scrap for a safe route", "Haggle and walk away"]}, {"id": "lastGatePirateCaptain", "deck": "standard", "title": "The Pirate Captain", "caption": "negotiation_pirate_captain", "choices": ["Fight the captain", "Pay the captain off", "Talk your way out"]}, {"id": "lastGatePirateCaptainReturns", "deck": "", "title": "The Captain Returns", "caption": "", "choices": ["Fight the captain and the crew", "Pay double", "Set a trap"]}, {"id": "lastGateCultEnvoy", "deck": "standard", "title": "The Masked Envoy", "caption": "negotiation_masked_envoy", "choices": ["Accept the mask", "Refuse politely", "Trade for a ritual token"]}, {"id": "lastGateCultEnvoyReturns", "deck": "", "title": "The Masked Envoy Returns", "caption": "", "choices": ["Attend the ritual", "Refuse the ritual", "Ask about the Gate"]}, {"id": "lastGatePortOfficial", "deck": "standard", "title": "The Port Official", "caption": "", "choices": ["Answer every question, truthfully-ish", "Bribe the official with coins", "Bluff with forged papers"]}, {"id": "lastGateCultOutpost", "deck": "standard", "title": "The Cult Outpost", "caption": "", "choices": ["Perform the rite, then trade", "Haggle, skipping the rite", "Lift a relic and run"]}, {"id": "lastGateGuildConvoyEscort", "deck": "standard", "title": "The Guild Convoy Escort", "caption": "", "choices": ["Escort the convoy through", "Fly ahead as scout", "Decline, and trade spare parts with the quartermaster"]}, {"id": "lastGateGuildWarehouse", "deck": "standard", "title": "The Guild Warehouse", "caption": "", "choices": ["Take the warehouse deal", "Buy a sealed guild crate, blind", "Sell your salvage by the crate"]}, {"id": "lastGateGuildConvoyRaid", "deck": "standard", "title": "The Convoy Raid", "caption": "", "choices": ["Defend the convoy", "Turn the fake distress call back on the Raider", "Slip past while the convoy fights"]}, {"id": "lastGateAvianRiddle", "deck": "standard", "title": "The Great Riddle", "caption": "", "choices": ["Answer: a map", "Ask her a riddle back", "Skip the game, pay the rookery fee"]}, {"id": "lastGateAvianGuestLaw", "deck": "standard", "title": "Guest Law", "caption": "", "choices": ["Honour guest law: leave a gift at the stone", "Blunder on, then apologise loudly", "Refuse guest law and leave"]}, {"id": "lastGateAvianElderMap", "deck": "standard", "title": "The Elder Knows the Map", "caption": "", "choices": ["Trade salvage for the blind lane he marks", "Swap charts with him, annotation for annotation", "Decline his help and keep your charts private"]}, {"id": "lastGateAvianHonourDuel", "deck": "standard", "title": "The Honour Duel", "caption": "", "choices": ["Fly the borrowed-glider duel", "Settle it with a feast-gift", "Out-talk the champion"]}, {"id": "lastGatePirateAuction", "deck": "standard", "title": "The Pirate Auction", "caption": "", "choices": ["Bid on the Collection piece", "Buy a salvage lot instead", "Leave the tag alone"]}, {"id": "lastGatePortwrightContract", "deck": "standard", "title": "The Portwright Contract", "caption": "", "choices": ["Haul the full load", "Sell spare scrap to the guild", "Take the smaller guild errand"]}, {"id": "lastGateEnforcersRespond", "deck": "standard", "title": "The Enforcers Respond", "caption": "", "choices": ["Confess and pay the fine", "Appeal the charge", "Run for it"]}, {"id": "lastGatePortwrightReturns", "deck": "", "title": "The Portwright Contract Returns", "caption": "", "choices": ["Collect the pay owed", "Cover the shortfall", "Argue the count"]}, {"id": "lastGateCultSacrificeMask", "deck": "standard", "title": "The Sacrifice Mask", "caption": "", "choices": ["Give a crew member's heart to the mask", "Fight the masked guardians", "Offer scrap as a substitute sacrifice"]}, {"id": "lastGateCultUnmasked", "deck": "standard", "title": "The Unmasked", "caption": "", "choices": ["Give them passage out of the Hollow", "Hide them in the cargo hold past the Hollow", "Turn them away, leave coins for their road"]}, {"id": "lastGateDirectLine", "deck": "standard", "title": "Direct: The Line", "caption": "", "choices": ["Charge the blockade line head-on", "Lure a patrol out of formation", "Outrun the line to the Gate itself"]}, {"id": "lastGateSilentDarkLane", "deck": "standard", "title": "Silent: The Dark Lane", "caption": "", "choices": ["Cut engines and drift the dark lane", "Thread the debris hazard field", "Send a decoy ping down a side lane"]}, {"id": "lastGateNegotiatedCuratorsOffer", "deck": "standard", "title": "Negotiated: The Curators' Offer", "caption": "negotiation_curators", "choices": ["Offer your strangest keepsake as a curiosity", "Trade coins for safe passage", "Let the curators appraise the whole ship, map excluded"]}, {"id": "lastGateForgerCollection", "deck": "standard", "title": "The Collection", "caption": "", "choices": ["Trade the ship's lucky charm for vault bronze", "Ask what the vault piece is worth", "Sneak a second drawer open while it catalogues"]}, {"id": "lastGateRareHearth", "deck": "standard", "title": "The Hearth", "caption": "", "choices": ["Agree on one story, and tell it well", "Let everyone tell their own version", "Sit quietly, and listen instead"]}, {"id": "lastGateRareGuestsHearth", "deck": "standard", "title": "Guests at the Hearth", "caption": "", "choices": ["Sit down and eat with your pursuers", "Offer the patrol a curiosity", "Say nothing, and eat very quietly"]}, {"id": "lastGateRareStrayHauler", "deck": "standard", "title": "The Stray Hauler", "caption": "", "choices": ["Tow the hauler and its wing home", "Send supplies across, and let their tug come", "Drop a supply parcel, and keep flying"]}, {"id": "lastGateRareNightMarket", "deck": "standard", "title": "The Night Market", "caption": "", "choices": ["Buy the handmade star-chart case", "Haggle for the maker's best piece", "Just walk the market, and taste everything"]}, {"id": "lastGateRarePerformance", "deck": "standard", "title": "The Performance", "caption": "", "choices": ["Put on a whole-crew show", "Busk quietly at the market's edge", "Sit in the crowd, and just listen"]}, {"id": "lastGateRareSharedTable", "deck": "standard", "title": "The Shared Table", "caption": "", "choices": ["Cook together, and eat together", "Lay on a full feast", "Eat light, and save your stores"]}, {"id": "lastGateRareGrove", "deck": "standard", "title": "The Grove", "caption": "", "choices": ["Take nothing, and pass quietly", "Take a cutting for the ship", "Take only what has already fallen"]}, {"id": "lastGateRareSeedCarrier", "deck": "standard", "title": "The Seed-Carrier", "caption": "", "choices": ["Buy living seeds for the ship", "Trade scrap for a hardy cutting", "Ask the way, and take nothing"]}, {"id": "lastGateRareBloomRemembers", "deck": "standard", "title": "The Bloom Remembers", "caption": "", "choices": ["Fight the bloomship", "Return what was taken, and apologise", "Slip away quietly, before the vines reach"]}, {"id": "lastGateRareFiveTheories", "deck": "standard", "title": "Five Theories", "caption": "", "choices": ["Take notes on all five theories", "Argue that they cannot all be true", "Leave them to their theories"]}, {"id": "lastGateRareDecryptionLab", "deck": "standard", "title": "The Decryption Lab", "caption": "", "choices": ["Let the lab read a fragment", "Trade a copy of the fragment for survey data", "Decline the lab, take a sensor reading only"]}, {"id": "lastGateRareAnomaly", "deck": "standard", "title": "The Anomaly", "caption": "", "choices": ["Scan the anomaly properly", "Fly around it, wide and careful", "Poke it, just a little"]}, {"id": "rivalHunt1", "deck": "", "title": "The Rival", "caption": "", "choices": ["Fight them", "Pay them to hunt somewhere else", "Outrun them"]}, {"id": "rivalHunt2", "deck": "", "title": "The Rival, Again", "caption": "", "choices": ["Fight them", "Sell them a forged copy of the map", "Pay them off"]}, {"id": "rivalHunt3", "deck": "", "title": "The Rival's Last Stand", "caption": "", "choices": ["Fight it out", "Offer them a share at the Gate", "Give them everything in the coffers"]}, {"id": "weirdTimeLoop", "deck": "standard", "title": "The Same Five Minutes", "caption": "", "choices": ["Do exactly what the log says", "Touch the blinking thing", "Write a warning of your own, further back"]}, {"id": "weirdMirrorAstra", "deck": "standard", "title": "The Other Astra", "caption": "", "choices": ["Swap an Oddity with your other selves", "Ask how it went for them", "Board them and take their hold"]}, {"id": "weirdTwoOfThem", "deck": "standard", "title": "Two of Them", "caption": "", "choices": ["Keep both", "Ask questions only the real one would know", "Give the copy a life on the station"]}, {"id": "weirdSideways", "deck": "standard", "title": "Sideways", "caption": "", "choices": ["Ride it out on the walls", "Fly into the eye of it", "Back away and pay a tug to pull you out"]}, {"id": "weirdTeleporterQuestion", "deck": "standard", "title": "The Repair Booth", "caption": "", "choices": ["Put the crew through it", "Put only the ship through it", "Refuse, on principle"]}], "not_ready": [{"id": "lastGateTheft", "deck": "", "title": "The Theft Aftermath", "caption": "", "choices": ["Toss the Warden tracker out the airlock", "Sell a fake copy at the first port", "Run silent, no ports, no chatter"]}, {"id": "lastGateDecrypt", "deck": "standard", "title": "Decrypt the Map", "caption": "", "choices": ["Brute-force the decryption", "Trade coins for a decryption key", "Let the ship computer guess"]}, {"id": "lastGateSteamAmbush", "deck": "standard", "title": "Steam and Brass Ambush", "caption": "", "choices": ["Fight through the steam", "Vent your own steam and hide", "Charge straight through, full burn"]}, {"id": "lastGateWardenBroadcast", "deck": "standard", "title": "The Polite Broadcast", "caption": "", "choices": ["Answer back with insults", "Fake a surrender to buy time", "Ignore it. Turn the radio off"]}, {"id": "lastGateWardenBeacon", "deck": "standard", "title": "The Forger Beacon", "caption": "", "choices": ["Answer it, very politely", "Salvage its brass dishes", "Jam its signal and slip past"]}, {"id": "lastGateWardenArchive", "deck": "standard", "title": "The Warden Archive", "caption": "", "choices": ["Read the patrol schedules, quietly", "Trade coins for the good logbooks", "Reorganize the archive, then run"]}, {"id": "lastGateWardenParade", "deck": "standard", "title": "The Forger Parade", "caption": "", "choices": ["Fall in and march along", "Wave a catalogue banner and salute", "Slip away while the band plays"]}, {"id": "lastGateWardenMess", "deck": "standard", "title": "The Warden Mess", "caption": "", "choices": ["Attend dinner, elbows off the table", "Trade rations for boiler parts", "Raid the pantry mid-service"]}, {"id": "lastGateWardenFog", "deck": "standard", "title": "The Steam Fog", "caption": "", "choices": ["Follow the drone lights", "Cut engines and drift through", "Burn scrap and punch straight through"]}, {"id": "lastGateWardenDrydock", "deck": "standard", "title": "The Warden Drydock", "caption": "", "choices": ["Accept the complimentary inspection", "Book a fake refit appointment", "Sneak through the scaffolding"]}, {"id": "lastGateWardenChoir", "deck": "standard", "title": "The Warden Choir", "caption": "", "choices": ["Sing along in harmony", "Request an encore and slip past during the applause", "Tune them out and fly straight through the chorus"]}, {"id": "lastGateWardenLostAndFound", "deck": "standard", "title": "The Warden Lost Property Office", "caption": "", "choices": ["File the reclaim form properly", "Claim the crate as definitely, entirely ours", "Leave the crate and walk away whistling"]}, {"id": "lastGateBirdGuildDock", "deck": "standard", "title": "The Bird Guild Dock", "caption": "", "choices": ["Take the freight job", "Haggle the rate", "Refuse, and trade on the open dock"]}, {"id": "lastGateGuildFestivalStall", "deck": "standard", "title": "The Guild Festival Stall", "caption": "", "choices": ["Play the ring-toss straight", "Buy the lucky charm outright", "Work the stall for the afternoon"]}, {"id": "lastGateCultProcession", "deck": "standard", "title": "The Masked Procession", "caption": "", "choices": ["Make the offering", "March with the procession", "Refuse, and slip past quietly"]}, {"id": "lastGateHollowTrader", "deck": "standard", "title": "The Trader Who Won't Go In", "caption": "", "choices": ["Sell your news of the Hollow", "Take the edge-delivery job", "Decline, and buy supplies instead"]}, {"id": "lastGateAvianCrow", "deck": "standard", "title": "The Great Crow", "caption": "", "choices": ["Trade him shiny scrap, straight", "Sell him his own feather back", "Call the bargain a scam to his beak"]}, {"id": "lastGateAvianNestingCliffs", "deck": "standard", "title": "The Nesting Cliffs", "caption": "", "choices": ["Return the fledgling to its nest", "Thread the spires on the thermal shortcut", "Trade spare parts with the cliff-watchers"]}, {"id": "lastGateAvianFeatherMarket", "deck": "standard", "title": "Feather Market", "caption": "", "choices": ["Buy moult-feather hull insulation", "Trade scrap for market provisions", "Enter the moult-fashion parade"]}, {"id": "lastGateAvianFleetHomecoming", "deck": "standard", "title": "Fleet Homecoming", "caption": "", "choices": ["Pay into the feast fund and eat", "Fly the display formation", "Carry the homecoming lantern"]}, {"id": "lastGatePirateGrabRun", "deck": "standard", "title": "Grab and Run", "caption": "", "choices": ["Chase the skiff down", "Seal up and let them go", "Slam the tube doors on the stragglers"]}, {"id": "lastGatePirateBrutesToll", "deck": "standard", "title": "The Brute's Toll", "caption": "", "choices": ["Pay the toll in coins", "Pay the toll in scrap", "Run the guns"]}, {"id": "lastGateSkeinBroker", "deck": "standard", "title": "The Skein Broker", "caption": "", "choices": ["Pay coins for the intel", "Answer the broker's riddle", "Buy the stale chart for scrap"]}, {"id": "lastGateCultLanternWake", "deck": "standard", "title": "The Lantern Wake", "caption": "", "choices": ["Leave an offering with the Offering mask", "Keep the Blessing vigil in full silence", "Refuse the blessing and walk out"]}, {"id": "lastGateForgerAppraisal", "deck": "standard", "title": "The Appraisal", "caption": "", "choices": ["Offer a song nobody has ever sung", "Let it catalogue the whole ship, hold by hold", "Decline to be catalogued and run quiet"]}, {"id": "lastGateRareRaisingDay", "deck": "standard", "title": "Raising Day", "caption": "", "choices": ["Haul, lift, and hold the ridge beam", "Politely decline, and watch the raising", "Fetch, carry, and keep the tools coming"]}], "ready_choices": 176, "total_choices": 254, "ready_in_standard_deck": 47}};
 </script>
 <script>
 /* Aboard the Astra — Mechanics Wiki.
-   Plain static JS: client-side search across the wiki sections, and a
-   renderer for the generated numbers (docs/wiki/mechanics.json).
+   Plain static JS: cross-page search, theme toggle, hash routing for
+   the standalone single-file build, and renderers for the generated
+   numbers (mechanics.json) and the encounters list.
    No build step, no dependencies. If mechanics.json fails to load
    (e.g. opened as a bare file), the hand-written pages still stand. */
 (function () {
-  var input = document.getElementById('search');
-  var count = document.getElementById('search-count');
-  var sections = Array.prototype.slice.call(document.querySelectorAll('section.page'));
+  /* ---- Page catalogue: one entry per wiki page ---- */
+  var PAGES = [
+    { id: 'home', file: 'index.html', title: 'Main page', text: 'status key snapshot intro aboard the astra mechanics' },
+    { id: 'story', file: 'story.html', title: 'Story spine', text: 'story spine forgery forgers wardens last gate theft map prize cut locked' },
+    { id: 'run', file: 'run.html', title: 'The run & star map', text: 'run star map sectors beacons jumps free ports guild pirate lanternbearer forger avian hearth haven moth dryad scientist last gate store' },
+    { id: 'chase', file: 'chase.html', title: 'The chase', text: 'chase forger pressure fleet patrol checkpoint gate approach warden' },
+    { id: 'rival', file: 'rival.html', title: 'The Rival', text: 'rival hunter treasure hunter buyer meetings hunt jump gate patrols' },
+    { id: 'ship-combat', file: 'ship-combat.html', title: 'Ship combat', text: 'ship combat missiles gun cannon shield hull evasion boarders capital raider weapons' },
+    { id: 'ground-combat', file: 'ground-combat.html', title: 'Ground combat', text: 'ground combat crew hearts boarder dash handgun medical bay oxygen fire leak' },
+    { id: 'damage-control', file: 'damage-control.html', title: 'Damage control', text: 'damage control room health repair kit locker passive repair stages fine damaged critical offline' },
+    { id: 'systems', file: 'systems.html', title: 'Ship systems & rooms', text: 'ship systems rooms bridge gunnery generator medical bay lab research missile making oxygen' },
+    { id: 'crew', file: 'crew.html', title: 'Crew', text: 'crew roster characters idol edgy chonky cop fixer pick four hearts' },
+    { id: 'economy', file: 'economy.html', title: 'Economy & stores', text: 'economy stores coins food scrap fuel production prices hull repair weapons' },
+    { id: 'encounters', file: 'encounters.html', title: 'Encounters & dialogue', text: 'encounters dialogue ink choices votes decks standard last gate weird rival derelict pirate distress trader asteroid caller' },
+    { id: 'boons', file: 'boons.html', title: 'Boons & burdens', text: 'boons burdens oddities faults catalogue run modifiers' },
+    { id: 'spoils', file: 'spoils.html', title: 'Spoils', text: 'spoils won ship fight vote oddity gun supplies hull scrap' },
+    { id: 'wip', file: 'wip.html', title: 'Work in progress', text: 'wip work in progress placeholders salvage stars set pieces sector hazards weird encounters many hands' },
+    { id: 'conflicts', file: 'conflicts.html', title: 'Conflicts & open questions', text: 'conflicts retreat evasion room health store chance fuel production wendigo rename patrols bosses' },
+    { id: 'numbers', file: 'numbers.html', title: 'Generated numbers', text: 'generated numbers balance constants sectors store prices rival warden docs mechanics' },
+    { id: 'sources', file: 'sources.html', title: 'Sources', text: 'sources design docs core files balance shipcombat damagecontrol store dialogue' }
+  ];
+  function pageById(id) {
+    for (var i = 0; i < PAGES.length; i++) if (PAGES[i].id === id) return PAGES[i];
+    return PAGES[0];
+  }
 
+  /* Standalone single-file build: every page is a .page-view in one
+     document. Multi-page site: exactly one .page-view per document. */
+  var views = Array.prototype.slice.call(document.querySelectorAll('.page-view'));
+  var STANDALONE = views.length > 1;
+
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
   function escapeRegExp(s) {
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
+
+  /* ---- Hash routing (standalone only) ---- */
+  function currentPageId() {
+    var h = (window.location.hash || '').replace(/^#\/?/, '');
+    return pageById(h).id;
+  }
+  function showPage(id) {
+    if (!STANDALONE) return;
+    id = pageById(id).id;
+    views.forEach(function (v) {
+      v.classList.toggle('hidden', v.getAttribute('data-page') !== id);
+    });
+    document.querySelectorAll('.sidebar a').forEach(function (a) {
+      var href = a.getAttribute('href') || '';
+      a.classList.toggle('active', href === '#/' + id);
+    });
+    document.title = pageById(id).title + ' — Aboard the Astra Wiki';
+    window.scrollTo(0, 0);
+  }
+  if (STANDALONE) {
+    window.addEventListener('hashchange', function () { showPage(currentPageId()); });
+    showPage(currentPageId());
+  } else if (views.length === 1) {
+    views[0].classList.remove('hidden');
+  }
+
+  /* ---- Search: cross-page index + in-page highlight ---- */
+  var input = document.getElementById('search');
+  var count = document.getElementById('search-count');
+  var resultsBox = document.getElementById('search-results');
 
   function clearMarks(root) {
     root.querySelectorAll('mark').forEach(function (m) {
       m.replaceWith(document.createTextNode(m.textContent));
     });
   }
-
   function markMatches(root, q) {
     var re = new RegExp('(' + escapeRegExp(q) + ')', 'gi');
     var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
@@ -992,21 +1137,50 @@ window.__MECHANICS__ = {"generator": "tools/wiki/generate_wiki.py (stdlib only)"
       node.replaceWith(frag);
     });
   }
-
-  function runSearch() {
-    var q = input.value.trim().toLowerCase();
-    var shown = 0;
-    sections.forEach(function (sec) {
-      clearMarks(sec);
-      if (!q) { sec.classList.remove('hidden'); shown++; return; }
-      var hit = sec.textContent.toLowerCase().indexOf(q) !== -1;
-      sec.classList.toggle('hidden', !hit);
-      if (hit) { shown++; markMatches(sec, input.value.trim()); }
-    });
-    count.textContent = q ? (shown + ' of ' + sections.length + ' pages match') : '';
+  function visibleView() {
+    if (!STANDALONE) return views[0] || document.querySelector('.article');
+    var cur = views.filter(function (v) { return !v.classList.contains('hidden'); })[0];
+    return cur || views[0];
   }
-
-  input.addEventListener('input', runSearch);
+  function runSearch() {
+    var q = input.value.trim();
+    var ql = q.toLowerCase();
+    var view = visibleView();
+    if (view) clearMarks(view);
+    if (!q) {
+      if (resultsBox) { resultsBox.hidden = true; resultsBox.innerHTML = ''; }
+      if (count) count.textContent = '';
+      return;
+    }
+    var hits = PAGES.filter(function (p) {
+      return (p.title + ' ' + p.text).toLowerCase().indexOf(ql) !== -1;
+    });
+    if (count) count.textContent = hits.length + ' of ' + PAGES.length + ' pages match';
+    if (resultsBox) {
+      if (!hits.length) {
+        resultsBox.innerHTML = '<p>No pages match.</p>';
+      } else {
+        resultsBox.innerHTML = hits.map(function (p) {
+          var href = STANDALONE ? '#/' + p.id : p.file;
+          return '<a href="' + href + '">' + escapeHtml(p.title) + '</a>';
+        }).join('');
+      }
+      resultsBox.hidden = false;
+    }
+    if (view) markMatches(view, q);
+  }
+  if (input) {
+    input.addEventListener('input', runSearch);
+    input.addEventListener('focus', runSearch);
+    document.addEventListener('click', function (e) {
+      if (resultsBox && !resultsBox.contains(e.target) && e.target !== input) {
+        resultsBox.hidden = true;
+      }
+    });
+    var params = new URLSearchParams(window.location.search);
+    var preset = params.get('q');
+    if (preset) { input.value = preset; runSearch(); }
+  }
 
   /* ---- Theme: dark is the default, toggle switches to light ---- */
   var themeBtn = document.getElementById('theme-toggle');
@@ -1027,8 +1201,10 @@ window.__MECHANICS__ = {"generator": "tools/wiki/generate_wiki.py (stdlib only)"
     });
   }
 
+  /* ---- Generated numbers + encounters: render mechanics.json ---- */
+  var LOGIN_URL = 'https://theruvial.github.io/astra-wiki/';
+  function fetchMechanics() { return Promise.resolve(window.__MECHANICS__); }
 
-  /* ---- Generated numbers: render mechanics.json into #generated-tables ---- */
   function table(title, rows) {
     var html = '<h3>' + title + '</h3><table><thead><tr><th>Name</th><th>Value</th><th>Source</th></tr></thead><tbody>';
     rows.forEach(function (r) {
@@ -1037,77 +1213,117 @@ window.__MECHANICS__ = {"generator": "tools/wiki/generate_wiki.py (stdlib only)"
     return html + '</tbody></table>';
   }
 
-  /* Live numbers from the backend (session cookie, same origin when
-     served from /wiki/). A 401 means the session expired — back to login. */
-  var LOGIN_URL = 'https://theruvial.github.io/astra-wiki/';
-  Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ mechanics: window.__MECHANICS__ }); } })
-    .then(function (resp) {
-      if (resp.status === 401) { window.location.href = LOGIN_URL; throw new Error('login required'); }
-      if (!resp.ok) throw new Error(resp.status);
-      return resp.json();
-    })
-    .then(function (env) { return env.mechanics || env; })
-    .then(function (data) {
-      var el = document.getElementById('generated-tables');
-      var html = '';
-      if (data.balance) {
-        html += table('Balance constants', Object.keys(data.balance).sort().map(function (k) {
-          return [k, data.balance[k].value, data.balance[k].source];
-        }));
+  function renderNumbers(data, el) {
+    var html = '';
+    if (data.balance) {
+      html += table('Balance constants', Object.keys(data.balance).sort().map(function (k) {
+        return [k, data.balance[k].value, data.balance[k].source];
+      }));
+    }
+    if (data.warden) {
+      html += table('Warden / Forger pressure', Object.keys(data.warden).sort().map(function (k) {
+        return [k, data.warden[k].value, data.warden[k].source];
+      }));
+    }
+    if (data.rival && Object.keys(data.rival).length) {
+      html += table('Rival hunt', Object.keys(data.rival).sort().map(function (k) {
+        return [k, data.rival[k].value, data.rival[k].source];
+      }));
+    }
+    if (data.store && Object.keys(data.store).length) {
+      html += table('Store prices (defaults)', Object.keys(data.store).sort().map(function (k) {
+        return [k, data.store[k].value, data.store[k].source];
+      }));
+    }
+    if (data.sectors && data.sectors.length) {
+      html += '<h3>Sectors</h3><table><thead><tr><th>Sector</th><th>Kind</th><th>Details</th></tr></thead><tbody>';
+      data.sectors.forEach(function (s) {
+        var bits = [];
+        if (s.proximityFloor !== undefined) bits.push('pressure floor ' + s.proximityFloor);
+        if (s.jumpsPerLevel !== undefined) bits.push(s.jumpsPerLevel + ' jumps/level');
+        if (s.weight !== undefined) bits.push('weight ' + s.weight);
+        if (s.decks) bits.push('decks: ' + s.decks.join(', '));
+        html += '<tr><td>' + s.name + '</td><td>' + s.kind + '</td><td>' + bits.join(' · ') + '</td></tr>';
+      });
+      html += '</tbody></table>';
+      if (data.store_chance_percent) {
+        html += '<p>Store chance per star: <strong>' + data.store_chance_percent.value +
+          '%</strong> (<code>' + data.store_chance_percent.source + '</code>).</p>';
       }
-      if (data.warden) {
-        html += table('Warden / Forger pressure', Object.keys(data.warden).sort().map(function (k) {
-          return [k, data.warden[k].value, data.warden[k].source];
-        }));
-      }
-      if (data.rival && Object.keys(data.rival).length) {
-        html += table('Rival hunt', Object.keys(data.rival).sort().map(function (k) {
-          return [k, data.rival[k].value, data.rival[k].source];
-        }));
-      }
-      if (data.store && Object.keys(data.store).length) {
-        html += table('Store prices (defaults)', Object.keys(data.store).sort().map(function (k) {
-          return [k, data.store[k].value, data.store[k].source];
-        }));
-      }
-      if (data.sectors && data.sectors.length) {
-        html += '<h3>Sectors</h3><table><thead><tr><th>Sector</th><th>Kind</th><th>Details</th></tr></thead><tbody>';
-        data.sectors.forEach(function (s) {
-          var bits = [];
-          if (s.proximityFloor !== undefined) bits.push('pressure floor ' + s.proximityFloor);
-          if (s.jumpsPerLevel !== undefined) bits.push(s.jumpsPerLevel + ' jumps/level');
-          if (s.weight !== undefined) bits.push('weight ' + s.weight);
-          if (s.decks) bits.push('decks: ' + s.decks.join(', '));
-          html += '<tr><td>' + s.name + '</td><td>' + s.kind + '</td><td>' + bits.join(' · ') + '</td></tr>';
-        });
-        html += '</tbody></table>';
-        if (data.store_chance_percent) {
-          html += '<p>Store chance per star: <strong>' + data.store_chance_percent.value +
-            '%</strong> (<code>' + data.store_chance_percent.source + '</code>).</p>';
-        }
-      }
-      if (data.wip && data.wip.length) {
-        html += '<h3>Work in progress / placeholders</h3><table><thead><tr><th>Item</th><th>What</th><th>Commit / source</th></tr></thead><tbody>';
-        data.wip.forEach(function (w) {
-          html += '<tr><td>' + w.item + '</td><td>' + w.what + '</td><td><code>' + w.commit + '</code></td></tr>';
-        });
-        html += '</tbody></table><p>Full prose version: the <a href="#wip">WIP page</a> above.</p>';
-      }
-      if (data.docs && data.docs.length) {
-        html += '<h3>Design docs found at repo root</h3><ul>';
-        data.docs.forEach(function (d) {
-          html += '<li><code>' + d.file + '</code> — ' + d.title +
-            (d.status ? ' <em>(' + d.status + ')</em>' : '') + '</li>';
-        });
-        html += '</ul>';
-      }
-      el.innerHTML = html;
-    })
-    .catch(function () {
-      document.getElementById('generated-tables').innerHTML =
-        '<p>Could not load numbers from the backend. ' +
-        'The hand-written pages above are unaffected.</p>';
+    }
+    if (data.wip && data.wip.length) {
+      html += '<h3>Work in progress / placeholders</h3><table><thead><tr><th>Item</th><th>What</th><th>Commit / source</th></tr></thead><tbody>';
+      data.wip.forEach(function (w) {
+        html += '<tr><td>' + w.item + '</td><td>' + w.what + '</td><td><code>' + w.commit + '</code></td></tr>';
+      });
+      html += '</tbody></table><p>Full prose version: the <a href="' + (STANDALONE ? '#/wip' : 'wip.html') + '">WIP page</a>.</p>';
+    }
+    if (data.docs && data.docs.length) {
+      html += '<h3>Design docs found at repo root</h3><ul>';
+      data.docs.forEach(function (d) {
+        html += '<li><code>' + d.file + '</code> — ' + d.title +
+          (d.status ? ' <em>(' + d.status + ')</em>' : '') + '</li>';
+      });
+      html += '</ul>';
+    }
+    el.innerHTML = html;
+  }
+
+  function renderEncounters(data, el) {
+    var enc = data.encounters;
+    if (!enc || !enc.ready) {
+      el.innerHTML = '<p>Encounters are not in this <code>mechanics.json</code> yet — regenerate it with <code>Tools/wiki/generate_wiki.py</code>.</p>';
+      return;
+    }
+    var html = '<p><strong>' + enc.ready.length + ' ready</strong> (loaded by the game) out of ' +
+      enc.total_rows + ' rows in <code>Encounter.csv</code>, with <strong>' + enc.ready_choices +
+      ' choices</strong> on them (' + enc.total_choices + ' choices in the file altogether). ' +
+      enc.ready_in_standard_deck + ' of the ready ones are in the <code>standard</code> deck; the other ' +
+      (enc.ready.length - enc.ready_in_standard_deck) + ' name no deck and only happen when something chains to them.</p>';
+    html += '<h3>Ready — loaded by the game</h3><table><thead><tr><th>Encounter</th><th>ID</th><th>Deck</th><th>Choices</th></tr></thead><tbody>';
+    enc.ready.forEach(function (e) {
+      var choices = e.choices.map(function (c) { return '<li>' + escapeHtml(c) + '</li>'; }).join('');
+      html += '<tr><td><strong>' + escapeHtml(e.title) + '</strong>' +
+        (e.caption ? '<br><em>' + escapeHtml(e.caption) + '</em>' : '') + '</td>' +
+        '<td><code>' + escapeHtml(e.id) + '</code></td>' +
+        '<td>' + (e.deck ? '<code>' + escapeHtml(e.deck) + '</code>' : '<em>chained only</em>') + '</td>' +
+        '<td><ol>' + choices + '</ol></td></tr>';
     });
+    html += '</tbody></table>';
+    if (enc.not_ready && enc.not_ready.length) {
+      html += '<h3>Not ready — in the file, switched off</h3><p>Written, with choices, but the first column is ' +
+        '<code>FALSE</code> so the loader skips them. The theft opener and the decrypt-the-map encounter are ' +
+        'off on purpose (see above); the rest are not switched on yet.</p>' +
+        '<table><thead><tr><th>Encounter</th><th>ID</th><th>Deck</th><th>Choices</th></tr></thead><tbody>';
+      enc.not_ready.forEach(function (e) {
+        html += '<tr><td>' + escapeHtml(e.title) + '</td><td><code>' + escapeHtml(e.id) + '</code></td>' +
+          '<td>' + (e.deck ? '<code>' + escapeHtml(e.deck) + '</code>' : '—') + '</td>' +
+          '<td>' + e.choices.length + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+    html += '<p class="src">Source: <code>Assets/_Project/Content/Encounters/Encounter.csv</code> + ' +
+      '<code>Encounter_Choice.csv</code> on <code>main</code>, as parsed by ' +
+      '<code>Tools/wiki/generate_wiki.py</code>. Counts: ' + enc.ready.length + ' ready / ' +
+      enc.not_ready.length + ' not ready / ' + enc.total_rows + ' rows.</p>';
+    el.innerHTML = html;
+  }
+
+  var numbersEl = document.getElementById('generated-tables');
+  var encountersEl = document.getElementById('encounter-list');
+  if (numbersEl || encountersEl) {
+    fetchMechanics()
+      .then(function (data) {
+        if (numbersEl) renderNumbers(data, numbersEl);
+        if (encountersEl) renderEncounters(data, encountersEl);
+      })
+      .catch(function () {
+        var msg = '<p>Could not load numbers — the hand-written pages are unaffected. ' +
+          'Serve the <code>docs/wiki/</code> folder over HTTP, or open the standalone wiki file.</p>';
+        if (numbersEl) numbersEl.innerHTML = msg;
+        if (encountersEl) encountersEl.innerHTML = msg;
+      });
+  }
 })();
 
 </script>

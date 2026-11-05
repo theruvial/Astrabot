@@ -1,0 +1,23 @@
+{
+    "prefix": ".",
+    "token": "",
+    "description": "",
+    "roles": 0,
+    "botShop": 0,
+    "crewmate": 0,
+    "welcomeChannel": 0,
+    "workChannel": 0,
+    "savedClipsChannel": 0,
+    "cookiesFile": "cookies.txt",
+    "db": "thi.db",
+    "updates": 0,
+    "rolesMessageID": 0,
+    "updatesEmojiID": 0,
+    "audiobooks": {
+        "request_channel_id": 0,
+        "web_host": "0.0.0.0",
+        "web_port": 13380,
+        "db_path": "audiobooks.db",
+        "admin_user_ids": []
+    }
+}

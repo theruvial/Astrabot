@@ -126,6 +126,20 @@ class WikiSupervisorTests(unittest.TestCase):
             self.assertIn("lookalike", (root / "logs" / "wiki.log").read_text(encoding="utf-8"))
 
 
+class AbsLoginSupervisorTests(unittest.TestCase):
+    def test_runs_app_py_from_the_abslogin_folder(self):
+        service = astra_console.abslogin_supervisor(lambda stream, line: None)
+        self.assertEqual(service.cwd, astra_console.ABSLOGIN_DIR)
+        self.assertEqual(service.command[-1], "app.py")
+        self.assertEqual(service.name, "absLogin")
+
+    def test_restart_is_refused_if_it_never_started(self):
+        lines = []
+        service = astra_console.abslogin_supervisor(lambda stream, line: lines.append(line))
+        service.restart()
+        self.assertTrue(any("not found" in line for line in lines))
+
+
 class PullTests(unittest.TestCase):
     def pull(self, returncode):
         result = types.SimpleNamespace(returncode=returncode, stdout="ok", stderr="")

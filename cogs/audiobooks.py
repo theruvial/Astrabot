@@ -55,6 +55,11 @@ from .audiobooks_web import AudiobooksWeb
 
 log = logging.getLogger("audiobooks")
 
+# Audiobook slash commands exist only in one guild: audiobooks.guild_id
+# in config.json, or this one if the config does not set it. Falling
+# back here, not to global, so a config gap can never publish them.
+DEFAULT_GUILD_ID = 454792201633792001
+
 STATUS_COLORS = {
     "Requested": discord.Color.blurple(),
     "In Progress": discord.Color.green(),
@@ -841,4 +846,16 @@ class Audiobooks(commands.Cog):
 
 
 async def setup(bot):
-    await bot.add_cog(Audiobooks(bot))
+    cog = Audiobooks(bot)
+    guild_id = int(cog.config.get("guild_id") or DEFAULT_GUILD_ID)
+    # Set on each command rather than add_cog(guild=...): reloads remove
+    # a cog without naming a guild, which would leave its commands behind.
+    for command in cog.get_app_commands():
+        app_commands.guilds(guild_id)(command)
+    await bot.add_cog(cog)
+    # Here rather than cog_load, which runs before commands are added.
+    # setup() also runs on every reload, so reloads stay in sync.
+    try:
+        await bot.tree.sync(guild=discord.Object(id=guild_id))
+    except Exception as exc:  # noqa: BLE001 -- a failed sync must not stop the site
+        log.warning("Could not sync audiobook commands: %s", exc)

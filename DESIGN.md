@@ -27,7 +27,7 @@ The bot runs on Thea's **Windows host at 192.168.4.80**. Local checkout: `G:\My 
 
 ## 2. Host & deployment
 
-- **Status of this section:** the console, launcher fixes and command-scope changes below were built 2026-11-05 on branch `claude/astrabot-startbot-crash-logs-4b6db3`. Until that branch is merged to `master` and pulled, the host still runs the old launcher.
+- **Status of this section:** the console, launcher fixes and command-scope changes below were merged to `master` 2026-11-05. They take effect once the old bot is closed and a launcher is started again.
 - **Launchers (repo root; use one, never both, each starts its own bot):**
   - `startConsole.bat` pulls Astrabot and absLogin, starts absLogin in its own window, then opens the **Astrabot Console** (`astra_console.py`, tkinter, dark theme).
   - `startBot.bat` is the plain console launcher: pulls, starts absLogin, runs the bot.
@@ -241,7 +241,7 @@ Nginx host: Ubuntu, `thea-ubuntu-server`, all sites in `/etc/nginx/sites-availab
 5. **DM AI agent cog — awaiting scope + API key; do not build.**
 6. **absLogin follow-through unconfirmed** (§7).
 7. Token rotation (bot token in git history; ABS API key exposed in debugging) — unconfirmed in chat.
-8. **Console branch not live:** merge `claude/astrabot-startbot-crash-logs-4b6db3`, pull on the host, close the old bot and any hand-started wiki `server.py`, then run `startConsole.bat`. Not yet tested against the real bot, real site or real wiki backend (§12).
+8. **Console not live yet:** close the old bot and any hand-started wiki `server.py`, then run `startConsole.bat`. Not yet tested against the real bot, real site or real wiki backend (§12).
 9. **Wiki env vars for the console:** `WIKI_API_KEY` and `GITHUB_TOKEN` must be persistent (`setx`), or the console's wiki backend fails closed with 503. Host state unconfirmed.
 
 ---

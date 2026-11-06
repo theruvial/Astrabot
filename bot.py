@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 import asyncio
+import logging
 import os
 import sqlite3
 import certifi
@@ -21,25 +22,6 @@ startup_extensions = [
     "cogs.wiki",
     "cogs.selfupdate",
 ]
-
-# Guilds where only the audiobooks commands (currently just
-# /email_user) should be available — every other slash command is
-# hidden there. Everywhere else the bot gets all its commands.
-AUDIOBOOKS_ONLY_GUILD_IDS = frozenset({454792201633792001})
-
-
-def commands_for_guild(bot, guild_id):
-    """Slash commands that should be synced to one guild.
-
-    Global commands show up in every guild, so commands are synced
-    per-guild instead of globally: an audiobooks-only guild gets
-    only the Audiobooks cog's commands, everyone else gets them all.
-    """
-    if guild_id in AUDIOBOOKS_ONLY_GUILD_IDS:
-        cog = bot.get_cog("Audiobooks")
-        return list(cog.get_app_commands()) if cog is not None else []
-    return list(bot.tree.get_commands())
-
 
 class Astrabot(commands.Bot):
     def __init__(self):
@@ -145,33 +127,28 @@ class Astrabot(commands.Bot):
             except Exception as e:
                 print(f"Failed to load extension {extension}\n{type(e).__name__}: {e}")
 
-        # No global sync on purpose: global commands appear in every
-        # guild, which would defeat the per-guild filtering in
-        # commands_for_guild. Commands are synced per-guild in
-        # on_ready / on_guild_join instead.
+    async def _sync_commands(self):
+        """Publish commands with the scope each cog gave them.
 
-    async def _sync_guild(self, guild):
-        """Sync this guild's commands (filtered for some guilds)."""
-        self.tree.clear_commands(guild=guild)
-        for command in commands_for_guild(self, guild.id):
-            self.tree.add_command(command, guild=guild)
-        synced = await self.tree.sync(guild=guild)
-        names = ", ".join(c.name for c in synced)
-        print(f"Synced {len(synced)} commands to '{getattr(guild, 'name', guild.id)}' ({guild.id}): {names}")
-
-    async def on_guild_join(self, guild):
+        Commands are global unless a cog limits them with
+        @app_commands.guilds. Syncing each guild as well clears the
+        per-guild copies older versions of the bot registered, which
+        would otherwise show up alongside the global ones.
+        """
         try:
-            await self._sync_guild(guild)
+            synced = await self.tree.sync()
+            print(f"Synced {len(synced)} global commands")
         except Exception as e:
-            print(f"Failed to sync commands to guild {guild.id}: {e}")
+            print(f"Failed to sync global commands: {e}")
+        for guild in self.guilds:
+            try:
+                await self.tree.sync(guild=guild)
+            except Exception as e:
+                print(f"Failed to sync commands to guild {guild.id}: {e}")
 
     async def on_ready(self):
         if not self._synced_on_ready:
-            for guild in self.guilds:
-                try:
-                    await self._sync_guild(guild)
-                except Exception as e:
-                    print(f"Failed to sync commands to guild {guild.id}: {e}")
+            await self._sync_commands()
             self._synced_on_ready = True
 
         await self.change_presence(
@@ -196,6 +173,9 @@ async def main():
 
 
 if __name__ == "__main__":
+    # bot.start() (unlike bot.run()) sets up no logging, which would
+    # silently drop every INFO line, including the web server's.
+    discord.utils.setup_logging(level=logging.INFO)
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

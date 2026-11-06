@@ -14,6 +14,7 @@
     "rolesMessageID": 0,
     "updatesEmojiID": 0,
     "audiobooks": {
+        "guild_id": 454792201633792001,
         "request_channel_id": 0,
         "web_host": "0.0.0.0",
         "web_port": 13380,

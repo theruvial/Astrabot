@@ -1,108 +1,81 @@
-"""Tests for per-guild command syncing (audiobooks-only guilds).
+"""Tests for command scope: /email_user lives in one guild only.
 
 Run from the repo root:  python -m unittest discover -s tests -v
 No network, Discord token, or bot login is used: sync() is stubbed
 out and only the local command tree is inspected.
 """
 
-import asyncio
 import os
 import sys
+import tempfile
 import unittest
+from unittest import mock
 from unittest.mock import AsyncMock
 
 import discord
-from discord import app_commands
+from discord.ext import commands
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from bot import AUDIOBOOKS_ONLY_GUILD_IDS, Astrabot, commands_for_guild
+from cogs import audiobooks
 
-AUDIOBOOKS_GUILD_ID = 454792201633792001
-OTHER_GUILD_ID = 123456789012345678
-
-
-def _cmd(name):
-    async def _callback(interaction):
-        pass
-
-    return app_commands.Command(name=name, description=name, callback=_callback)
+PRIVATE_GUILD = discord.Object(id=454792201633792001)
+OTHER_GUILD = discord.Object(id=123456789012345678)
 
 
-class FakeCog:
-    def __init__(self, commands):
-        self._commands = commands
+class CommandScopeTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(self.tmp.cleanup)
+        self.bot = commands.Bot(command_prefix=".", intents=discord.Intents.none())
+        self.bot.tree.sync = AsyncMock(return_value=[])
+        self.config = config = {"db_path": os.path.join(self.tmp.name, "a.db")}
+        for patcher in (mock.patch.object(audiobooks, "_audiobooks_config", return_value=config),
+                        mock.patch.object(audiobooks.Audiobooks, "cog_load", AsyncMock())):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
-    def get_app_commands(self):
-        return list(self._commands)
+    def names(self, guild=None):
+        return [c.name for c in self.bot.tree.get_commands(guild=guild)]
 
+    async def test_email_user_is_only_in_the_private_guild(self):
+        await audiobooks.setup(self.bot)
+        self.assertEqual(self.names(PRIVATE_GUILD), ["email_user"])
+        self.assertEqual(self.names(OTHER_GUILD), [])
+        self.assertEqual(self.names(), [])
 
-class FakeBot:
-    def __init__(self, cog_commands, all_commands):
-        self._cog = FakeCog(cog_commands)
-        self._all = all_commands
+    async def test_config_guild_id_overrides_the_default(self):
+        self.config["guild_id"] = OTHER_GUILD.id
+        await audiobooks.setup(self.bot)
+        self.assertEqual(self.names(OTHER_GUILD), ["email_user"])
+        self.assertEqual(self.names(PRIVATE_GUILD), [])
+        self.assertEqual(self.names(), [])
 
-    def get_cog(self, name):
-        return self._cog if name == "Audiobooks" else None
+    async def test_setup_syncs_the_private_guild_after_adding_commands(self):
+        seen = []
 
-    @property
-    def tree(self):
-        return self
+        async def sync(guild=None):
+            seen.append((guild.id, self.names(PRIVATE_GUILD)))
+            return []
 
-    def get_commands(self):
-        return list(self._all)
+        self.bot.tree.sync = sync
+        await audiobooks.setup(self.bot)
+        self.assertEqual(seen, [(PRIVATE_GUILD.id, ["email_user"])])
 
+    async def test_reload_binds_the_command_to_the_new_cog(self):
+        await audiobooks.setup(self.bot)
+        first = self.bot.get_cog("Audiobooks")
+        await self.bot.remove_cog("Audiobooks")
+        self.assertEqual(self.names(PRIVATE_GUILD), [])
+        await audiobooks.setup(self.bot)
+        command = self.bot.tree.get_command("email_user", guild=PRIVATE_GUILD)
+        self.assertIsNot(command.binding, first)
+        self.assertIs(command.binding, self.bot.get_cog("Audiobooks"))
 
-class CommandsForGuildTests(unittest.TestCase):
-    def test_audiobooks_guild_gets_only_audiobooks_commands(self):
-        email_user = _cmd("email_user")
-        bot = FakeBot([email_user], [_cmd("kick"), email_user, _cmd("wiki")])
-        self.assertEqual(
-            [c.name for c in commands_for_guild(bot, AUDIOBOOKS_GUILD_ID)],
-            ["email_user"],
-        )
-
-    def test_other_guild_gets_all_commands(self):
-        bot = FakeBot([_cmd("email_user")],
-                      [_cmd("kick"), _cmd("email_user"), _cmd("wiki")])
-        self.assertEqual(
-            [c.name for c in commands_for_guild(bot, OTHER_GUILD_ID)],
-            ["kick", "email_user", "wiki"],
-        )
-
-    def test_audiobooks_guild_is_the_configured_one(self):
-        self.assertIn(AUDIOBOOKS_GUILD_ID, AUDIOBOOKS_ONLY_GUILD_IDS)
-
-
-def run(coro):
-    return asyncio.get_event_loop_policy().new_event_loop().run_until_complete(coro)
-
-
-class SyncGuildTests(unittest.TestCase):
-    def test_sync_guild_filters_commands_in_the_tree(self):
-        bot = Astrabot()
-        kick, email_user, wiki = _cmd("kick"), _cmd("email_user"), _cmd("wiki")
-        for command in (kick, email_user, wiki):
-            bot.tree.add_command(command)
-        bot._audiobooks_cog = FakeCog([email_user])
-        bot.get_cog = lambda name: bot._audiobooks_cog if name == "Audiobooks" else None
-        # Stub the network call: sync() just reports the guild tree.
-        async def _fake_sync(guild):
-            return list(bot.tree.get_commands(guild=guild))
-
-        bot.tree.sync = AsyncMock(side_effect=_fake_sync)
-        audiobooks_guild = discord.Object(id=AUDIOBOOKS_GUILD_ID)
-        other_guild = discord.Object(id=OTHER_GUILD_ID)
-        run(bot._sync_guild(audiobooks_guild))
-        run(bot._sync_guild(other_guild))
-        self.assertEqual(
-            [c.name for c in bot.tree.get_commands(guild=audiobooks_guild)],
-            ["email_user"],
-        )
-        self.assertEqual(
-            sorted(c.name for c in bot.tree.get_commands(guild=other_guild)),
-            ["email_user", "kick", "wiki"],
-        )
+    async def test_failed_sync_does_not_stop_the_cog(self):
+        self.bot.tree.sync = AsyncMock(side_effect=RuntimeError("offline"))
+        await audiobooks.setup(self.bot)
+        self.assertIsNotNone(self.bot.get_cog("Audiobooks"))
 
 
 if __name__ == "__main__":

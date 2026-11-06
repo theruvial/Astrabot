@@ -5,7 +5,15 @@ from discord.utils import get
 from discord_webhook import DiscordWebhook, DiscordEmbed
 import asyncio
 import random
+from pathlib import Path
 from config import config
+
+# astra_console.py writes a cog name here to reload it in the running
+# bot. A file rather than an HTTP route: the audiobook site binds
+# 0.0.0.0, so a control route could be reached from outside the host.
+# The watcher lives in this cog because a watcher inside the cog being
+# reloaded would cancel itself partway through.
+RELOAD_FLAG = Path(__file__).resolve().parent.parent / "logs" / "reload_cog.flag"
 
 
 class Moderation(commands.Cog):
@@ -63,6 +71,28 @@ class Moderation(commands.Cog):
                 "You do not have permission to use this command!", ephemeral=True
             )
 
+    async def cog_load(self):
+        self._reload_watcher = asyncio.create_task(self._watch_reload_flag())
+
+    async def cog_unload(self):
+        self._reload_watcher.cancel()
+
+    async def _watch_reload_flag(self):
+        while True:
+            await asyncio.sleep(2)
+            try:
+                await self._check_reload_flag()
+            except Exception as e:
+                print(f"Console reload failed: {type(e).__name__}: {e}")
+
+    async def _check_reload_flag(self):
+        if not RELOAD_FLAG.exists():
+            return
+        cog_name = RELOAD_FLAG.read_text(encoding="utf-8").strip()
+        RELOAD_FLAG.unlink()
+        await self.bot.reload_extension(f"cogs.{cog_name}")
+        print(f"{cog_name} reloaded from the console")
+
     @app_commands.command(name="reloadcog", description="Reload a cog extension")
     async def reloadCog(self, interaction: discord.Interaction, cog_name: str):
         role = discord.utils.get(interaction.guild.roles, name="Admin")
@@ -70,9 +100,6 @@ class Moderation(commands.Cog):
             try:
                 await self.bot.unload_extension(f"cogs.{cog_name}")
                 await self.bot.load_extension(f"cogs.{cog_name}")
-                if interaction.guild:
-                    self.bot.tree.copy_global_to(guild=interaction.guild)
-                    await self.bot.tree.sync(guild=interaction.guild)
                 await self.bot.tree.sync()
                 print(f"{cog_name} successfully reloaded!")
                 await interaction.response.send_message(f"{cog_name} successfully reloaded!")

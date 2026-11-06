@@ -31,10 +31,11 @@ review in a thread in #astra-feedback instead of being auto-posted.
    "Not a task" deletes the parent message and the thread.
 4. `auto_drop` pieces are dropped. Silence is not a label.
 
-Review rulings are admin-only (config admin IDs, guild owner, or
-bot owner, same check as the audiobooks cog). Thea is the label
-authority and the reviewer list is still open, so the narrow
-default is deliberate. Claim / In Progress / Done are team-wide.
+Everything in #astra-feedback is team-wide: anyone who can see
+the channel can rule on a review item, use Claim / Unclaim,
+In Progress and Done, and use every slash command. A ruling still
+records who made it, and every ruling lands in the labels file
+for the batch retrain, never straight into the training data.
 
 ## Labels and retraining
 
@@ -55,8 +56,8 @@ keyed by feedback message id, plus the task id in the embed.
 
 ## Slash commands
 
-- `/task_add` (admin), `/task_edit` (admin), `/task_delete` (admin)
-- `/task_done`, `/task_start`, `/task_list`, `/task_stats` (team-wide)
+- `/task_add`, `/task_edit`, `/task_delete`, `/task_done`,
+  `/task_start`, `/task_list`, `/task_stats` (all team-wide)
 
 Task ids accept `1`, `task-1`, or `task-0001`.
 
@@ -70,7 +71,6 @@ Task ids accept `1`, `task-1`, or `task-0001`.
 | `TASKS_LABELS_PATH` | Labels JSONL file | `data/task_labels.jsonl` |
 | `TASKS_OVERRIDES_PATH` | Overrides JSON file | `data/task_overrides.json` |
 | `TASKS_STATE_PATH` | Button state JSON file | `data/tasks_state.json` |
-| `TASKS_ADMIN_IDS` | Comma-separated admin Discord user IDs | (config, guild owner, bot owner) |
 
 The bot also needs Manage Threads permission in #astra-feedback
 so it can create and delete review threads. If the classifier

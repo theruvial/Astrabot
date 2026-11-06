@@ -373,17 +373,22 @@ class ReviewButtonTests(unittest.TestCase):
             labels = open(cog.labels_path, encoding="utf-8").read().strip().splitlines()
             self.assertEqual(json.loads(labels[0])["label"], 0)
 
-    def test_review_non_admin_is_refused(self):
+    def test_review_non_admin_can_rule(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cog, bot = make_cog(tmpdir)
             message = self._review_message(cog)
+            thread = FakeThread(999)
+            bot.fetch_channel = AsyncMock(return_value=thread)
             other = FakeUser(user_id=999999, name="NotAdmin")
             interaction = FakeInteraction(user=other, message=message)
             with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}):
                 run(cog.handle_review_button(interaction, "not_task"))
-            self.assertEqual(len(interaction.response.sent), 1)
-            self.assertTrue(interaction.response.sent[0]["ephemeral"])
-            self.assertFalse(message.deleted)
+            self.assertTrue(message.deleted)
+            self.assertTrue(thread.deleted)
+            labels = open(cog.labels_path, encoding="utf-8").read().strip().splitlines()
+            label = json.loads(labels[0])
+            self.assertEqual(label["label"], 0)
+            self.assertEqual(label["reviewer_id"], 999999)
 
 
 class TaskButtonTests(unittest.TestCase):
@@ -577,14 +582,19 @@ class SlashCommandTests(unittest.TestCase):
                     cog, interaction, title="Write the Rival page"))
             self.assertIn("task-0003", interaction.response.sent[0]["content"])
 
-    def test_task_add_non_admin_refused(self):
+    def test_task_add_non_admin_allowed(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cog, bot = make_cog(tmpdir)
             other = FakeUser(user_id=999999, name="NotAdmin")
             interaction = FakeInteraction(user=other)
-            with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}):
+
+            async def fake_wiki(method, path, **kwargs):
+                return {"ok": True, "task": {"id": "task-0003", "title": "x"}}
+
+            with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}), \
+                    patch.object(cog, "_wiki_api", side_effect=fake_wiki):
                 run(cog.task_add.callback(cog, interaction, title="x"))
-            self.assertTrue(interaction.response.sent[0]["ephemeral"])
+            self.assertIn("task-0003", interaction.response.sent[0]["content"])
 
     def test_task_delete_unknown_id_surfaces_404(self):
         with tempfile.TemporaryDirectory() as tmpdir:

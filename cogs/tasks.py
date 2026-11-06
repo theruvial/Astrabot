@@ -62,22 +62,20 @@ Labels and retraining:
   since the last retrain (marker file
   ``data/task_labels_last_retrain.json``).
 
-Permissions:
-- Review rulings ("Is a task" / "Not a task") are admin-only:
-  config admin IDs, guild owner, or bot owner, the same check as
-  the audiobooks cog. Thea is the label authority and the reviewer
-  list is still open, so the narrow default is deliberate.
-- Claim / Unclaim, In Progress and Done are team-wide. Claim is a
-  toggle: it adds the clicker to the task's assignees, and a second
-  click by the same person removes them again. Slash commands:
-  /task_add, /task_edit and /task_delete are admin-only;
-  /task_done, /task_start, /task_list and /task_stats are team-wide.
+Permissions: everything in #astra-feedback is team-wide. Anyone
+who can see the channel can rule on a review item ("Is a task" /
+"Not a task"), use Claim / Unclaim, In Progress and Done, and use
+the slash commands /task_add, /task_edit, /task_delete,
+/task_done, /task_start, /task_list and /task_stats. The buttons
+enforce that by themselves: only people with access to the channel
+can see and click them. A ruling still records who made it
+(reviewer_id), and every ruling lands in the labels file for the
+batch retrain, never straight into the training data.
 
 Configuration (no secrets in code or in a committed file):
 - Env vars override / fill in the same keys: WIKI_API_URL,
   WIKI_API_KEY, TASKS_CLASSIFIER_URL, TASKS_LABELS_PATH,
-  TASKS_OVERRIDES_PATH, TASKS_STATE_PATH, TASKS_ADMIN_IDS
-  (comma-separated Discord user IDs). Config may also come from
+  TASKS_OVERRIDES_PATH, TASKS_STATE_PATH. Config may also come from
   the bot config ``tasks`` object, like the audiobooks cog.
 - With no WIKI_API_KEY set, slash commands reply ephemerally that
   the tasks backend is not configured, and watched messages are
@@ -176,13 +174,6 @@ def _tasks_config(bot) -> dict:
                 cfg.update(module_config.get("tasks") or {})
         except Exception:
             pass
-    if os.environ.get("TASKS_ADMIN_IDS"):
-        ids = []
-        for part in os.environ["TASKS_ADMIN_IDS"].split(","):
-            part = part.strip()
-            if part.isdigit():
-                ids.append(int(part))
-        cfg["admin_user_ids"] = ids
     return cfg
 
 
@@ -384,35 +375,6 @@ class Tasks(commands.Cog):
         self.state: dict = _load_json_file(self.state_path, {})
         if not isinstance(self.state, dict):
             self.state = {}
-
-    # -- config helpers -------------------------------------------------
-
-    async def is_admin(self, interaction) -> bool:
-        """Who may rule on a review item or add/edit/delete tasks.
-
-        Same check as the audiobooks cog: a user ID in
-        ``admin_user_ids`` from config, the guild owner, or the bot
-        application's owner via ``Bot.is_owner()``. The last of these
-        is used instead of reading ``bot.owner_id`` directly, which
-        Astrabot never sets. Review rulings are admin-only on purpose:
-        a ruling is a training label, and Thea is the label authority.
-        """
-        user_id = int(interaction.user.id)
-        admins = self.config.get("admin_user_ids") or []
-        if user_id in [int(x) for x in admins]:
-            return True
-        guild = getattr(interaction, "guild", None)
-        guild_owner_id = getattr(guild, "owner_id", None) if guild else None
-        if guild_owner_id is not None and int(guild_owner_id) == user_id:
-            return True
-        is_owner = getattr(self.bot, "is_owner", None)
-        if is_owner is not None:
-            try:
-                if await is_owner(interaction.user):
-                    return True
-            except Exception:
-                pass
-        return False
 
     # -- HTTP helpers ---------------------------------------------------
 
@@ -803,11 +765,6 @@ class Tasks(commands.Cog):
         trigger = record.get("trigger") or "score_band"
         source_id = record.get("source_message_id") or _embed_source_id(embed)
         thread_id = record.get("thread_id")
-        if not await self.is_admin(interaction):
-            await interaction.response.send_message(
-                "Only admins can rule on a review item.", ephemeral=True,
-            )
-            return
         await interaction.response.defer()
         if action == "is_task":
             try:
@@ -886,9 +843,6 @@ class Tasks(commands.Cog):
                        description: str | None = None,
                        priority: str | None = None,
                        assignee: str | None = None):
-        if not await self.is_admin(interaction):
-            await interaction.response.send_message("Only admins can add tasks.", ephemeral=True)
-            return
         if not title or not title.strip():
             await interaction.response.send_message("A title is required.", ephemeral=True)
             return
@@ -999,9 +953,6 @@ class Tasks(commands.Cog):
     async def task_edit(self, interaction: discord.Interaction, task_id: str,
                         title: str | None = None, description: str | None = None,
                         priority: str | None = None, assignee: str | None = None):
-        if not await self.is_admin(interaction):
-            await interaction.response.send_message("Only admins can edit tasks.", ephemeral=True)
-            return
         body: dict = {}
         if title:
             body["title"] = title.strip()[:200]
@@ -1029,9 +980,6 @@ class Tasks(commands.Cog):
     @app_commands.command(name="task_delete", description="Delete a wiki task (permanent)")
     @app_commands.describe(task_id="Task id, e.g. task-0001 or 1")
     async def task_delete(self, interaction: discord.Interaction, task_id: str):
-        if not await self.is_admin(interaction):
-            await interaction.response.send_message("Only admins can delete tasks.", ephemeral=True)
-            return
         try:
             await self._wiki_api("DELETE", f"/api/tasks/{normalize_task_id(task_id)}")
         except WikiApiError as exc:

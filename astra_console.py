@@ -1,9 +1,11 @@
-"""Astrabot console: run the bot, site, wiki and absLogin, watch output.
+"""Astrabot console: run the bot, site, wiki, absLogin and classifier, watch output.
 
-Run with startConsole.bat. This window owns the bot, wiki backend and
-absLogin processes, so it replaces startBot.bat and any hand-started
-server.py or app.py: never run those alongside it. absLogin needs
-ABS_API_KEY set (e.g. via setx) before this runs.
+Run with startConsole.bat. This window owns the bot, wiki backend,
+absLogin and classifier processes, so it replaces startBot.bat and any
+hand-started server.py, app.py or classifier_service.py: never run those
+alongside it. absLogin needs ABS_API_KEY set (e.g. via setx) before this
+runs. The classifier runs from the AstraThought checkout with that
+repo's venv, so it can load the SetFit model the bot itself cannot.
 
 The audiobook site is hosted by the audiobooks cog, so it only runs
 while the bot does: "Restart Bot" restarts it too. "Restart Site"
@@ -15,19 +17,21 @@ The right-hand Decisions panel lists the classifier service's final
 decisions (most recent first, up to 50), with a search box and an
 approve button and a disagree button on each row. It polls the
 classifier service on loopback (TASKS_CLASSIFIER_URL, default
-http://127.0.0.1:13383); the service itself is started separately
-for now, and the panel says so while it is not running. A ruling is
-saved by the service as a training label and takes effect at once
-through the overrides file.
+http://127.0.0.1:13383), and the panel says so while the service is
+not running. A ruling is saved by the service as a training label and
+takes effect at once through the overrides file.
 
 "Pull + Restart" fast-forwards every repo, then restarts the bot,
-wiki backend and absLogin. If any pull fails nothing is restarted.
+wiki backend and absLogin. It does not pull AstraThought, so it does
+not restart the classifier; use "Restart Classifier" for that. If any
+pull fails nothing is restarted.
 
 Crash handling matches startBot.bat: restart after 10 seconds, give up
 after 5 crashes in a row, stay stopped after a clean exit. Output goes
-to logs/bot.log, logs/wiki.log or logs/absLogin.log, and start/stop
-lines of all three go to logs/crashes.log. The wiki backend and
-absLogin get the same crash handling as the bot.
+to logs/bot.log, logs/wiki.log, logs/absLogin.log or
+logs/classifier.log, and start/stop lines of all four go to
+logs/crashes.log. The wiki backend, absLogin and classifier get the
+same crash handling as the bot.
 """
 
 import json
@@ -46,6 +50,9 @@ ROOT = Path(__file__).resolve().parent
 ABSLOGIN_DIR = Path(r"G:\My Drive\codingShit\absLogin")
 WIKI_DIR = Path(r"C:\codingShit\Aboard-the-Astra-Wiki")
 WIKI_BACKEND = WIKI_DIR / "Tools" / "wiki" / "backend"
+CLASSIFIER_DIR = Path(r"C:\codingShit\AstraThought")
+CLASSIFIER_SERVICE = CLASSIFIER_DIR / "classifier_service.py"
+CLASSIFIER_PYTHON = CLASSIFIER_DIR / ".venv" / "Scripts" / "python.exe"
 
 MAX_CRASHES = 5
 RESTART_DELAY = 10
@@ -353,6 +360,15 @@ def abslogin_supervisor(emit):
                       ROOT / "logs")
 
 
+def classifier_supervisor(emit):
+    """The classifier runs from the AstraThought checkout, with that
+    repo's venv (torch lives there, not in the bot's Python), and from
+    that directory so ./tasks-AstraThought-v2 resolves."""
+    return Supervisor(emit, "classifier", CLASSIFIER_DIR,
+                      [str(CLASSIFIER_PYTHON), "-u", "classifier_service.py"],
+                      ROOT / "logs")
+
+
 def main():
     import tkinter as tk
     from tkinter import messagebox
@@ -379,6 +395,7 @@ def main():
     supervisor = BotSupervisor(emit)
     wiki = wiki_supervisor(emit)
     abs_login = abslogin_supervisor(emit)
+    classifier = classifier_supervisor(emit)
     extras = [(wiki, WIKI_BACKEND / "server.py"), (abs_login, ABSLOGIN_DIR / "app.py")]
     services = [supervisor] + [service for service, path in extras if path.is_file()]
 
@@ -411,6 +428,7 @@ def main():
     button("Restart Site", supervisor.reload_site)
     button("Restart absLogin", lambda: in_background(abs_login.restart))
     button("Restart Wiki", lambda: in_background(wiki.restart))
+    button("Restart Classifier", lambda: in_background(classifier.restart))
     pull_button = button("Pull + Restart", pull)
     status = tk.Label(bar, bg=topbar, fg=text_colour, font=("Segoe UI", 10))
     status.pack(side="right", padx=10, pady=10)
@@ -420,12 +438,14 @@ def main():
     grid = tk.Frame(body, bg=bg)
     grid.pack(side="left", fill="both", expand=True, padx=6, pady=(0, 6))
     for index in (0, 1):
-        grid.rowconfigure(index, weight=1, uniform="pane")
+        grid.rowconfigure(index, weight=3, uniform="pane")
         grid.columnconfigure(index, weight=1, uniform="pane")
+    grid.rowconfigure(2, weight=2)
 
-    def pane(title, row, column):
+    def pane(title, row, column, columnspan=1):
         frame = tk.Frame(grid, bg=bg)
-        frame.grid(row=row, column=column, sticky="nsew", padx=4, pady=4)
+        frame.grid(row=row, column=column, columnspan=columnspan,
+                   sticky="nsew", padx=4, pady=4)
         tk.Label(frame, text=title, bg=bg, fg=accent, anchor="w",
                  font=("Segoe UI", 10, "bold")).pack(fill="x")
         scroll = tk.Scrollbar(frame)
@@ -437,9 +457,12 @@ def main():
         scroll.configure(command=box.yview)
         return box
 
-    # Bot first, then the servers in port order.
+    # Bot first, then the servers in port order. The classifier gets a
+    # shorter row of its own at the bottom: its log is the thought
+    # process, worth watching, but quieter than the bot.
     boxes = {"bot": pane("Bot", 0, 0), "site": pane("Site (13380)", 0, 1),
-             "absLogin": pane("absLogin (13381)", 1, 0), "wiki": pane("Wiki (13382)", 1, 1)}
+             "absLogin": pane("absLogin (13381)", 1, 0), "wiki": pane("Wiki (13382)", 1, 1),
+             "classifier": pane("Classifier (13383)", 2, 0, columnspan=2)}
 
     # -- decisions panel (right-hand sidebar) --------------------------
     # Most recent first, up to 50, with a search box. Each row is a
@@ -652,13 +675,15 @@ def main():
             if pinned:
                 box.see("end")
         status.configure(text="   ".join(f"{s.title}: {s.status()}"
-                                         for s in (supervisor, abs_login, wiki)))
+                                         for s in (supervisor, abs_login, wiki,
+                                                   classifier)))
         root.after(100, drain)
 
     def on_close():
         if messagebox.askokcancel("Astrabot Console",
-                                  "Closing this window stops the bot, site, wiki and absLogin. Close?"):
-            for service in (supervisor, wiki, abs_login):
+                                  "Closing this window stops the bot, site, wiki, "
+                                  "absLogin and classifier. Close?"):
+            for service in (supervisor, wiki, abs_login, classifier):
                 service.shutdown()
             root.destroy()
 
@@ -669,6 +694,12 @@ def main():
             service.start()
         else:
             emit(service.name, f"Not found, so not started: {path}")
+    classifier_files = [CLASSIFIER_SERVICE, CLASSIFIER_PYTHON]
+    if all(path.is_file() for path in classifier_files):
+        classifier.start()
+    else:
+        missing = next(path for path in classifier_files if not path.is_file())
+        emit("classifier", f"Not found, so not started: {missing}")
     render_decisions()
     threading.Thread(target=poll_decisions, daemon=True).start()
     drain()

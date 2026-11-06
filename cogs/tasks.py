@@ -1,510 +1,1020 @@
+"""Astrabot cog: tasks from Discord, classified by the local model.
+
+Load it by adding ``"cogs.tasks"`` to ``startup_extensions`` in
+``bot.py`` on the host only. Do not push a ``bot.py`` change with it:
+the host ``bot.py`` has a local change (the ``cogs.clip`` line is
+commented out) and the self-update watcher never reloads ``bot.py``.
+
+How it works:
+- The cog watches one channel, mcdungeons #general
+  (``WATCH_CHANNEL_ID``). Every message there is sent to the
+  AstraThought classifier service on loopback
+  (``TASKS_CLASSIFIER_URL``, default ``http://127.0.0.1:13383``),
+  which splits it into pieces and classifies each piece. The bot
+  never loads the model itself: the bot Python has no PyTorch, and
+  the model lives in the AstraThought venv as tasks-AstraThought-v2.
+- The service returns one decision per piece: ``auto_task``,
+  ``auto_drop`` or ``review``, with a score and a trigger. The cog
+  trusts that decision and only routes it. It does not re-decide.
+- ``auto_task`` pieces become wiki tasks (POST /api/tasks on the
+  wiki backend, ``WIKI_API_URL`` default ``http://127.0.0.1:13382``,
+  header ``X-Astra-Wiki-Key``) and are posted as embeds in
+  #astra-feedback with Claim / In Progress / Done / Not a Task.
+- ``review`` pieces are posted as amber "Needs review" embeds in
+  #astra-feedback, with a public thread created on the message for
+  discussion. They do NOT become wiki tasks until a human rules.
+  "Is a task" creates the wiki task, edits the parent message in
+  place into the confirmed task embed, and deletes the thread.
+  "Not a task" deletes the parent message and the thread.
+- ``auto_drop`` pieces are dropped. Silence is not a label.
+
+Buttons and restarts:
+- Views are persistent (``timeout=None``, fixed ``custom_id``) and
+  are registered in ``cog_load``, like the audiobooks cog. State is
+  NOT kept on the view: after a restart the button handler recovers
+  it from the embed (task id in a field, source message id in the
+  footer) and from a small local JSON store
+  (``TASKS_STATE_PATH``, default ``data/tasks_state.json``) keyed by
+  feedback message id. That store also maps review message ids to
+  thread ids, so a ruling after a restart can still delete the
+  thread.
+- The store, the labels file and the overrides file are local files
+  on the bot host. The cog only talks HTTP to the wiki backend and
+  to the classifier service. It never reads or writes the wiki
+  backend ``tasks.json`` directly.
+
+Labels and retraining:
+- Every button ruling (review Is/Not, confirmed-task Not a Task)
+  appends one JSON line to ``TASKS_LABELS_PATH`` (default
+  ``data/task_labels.jsonl``) with text, label, source message id,
+  model score, trigger, reviewer id and timestamp, and updates the
+  overrides file (``TASK_OVERRIDES_PATH`` in the classifier service,
+  default ``data/task_overrides.json`` here) mapping normalized text
+  to label, so the next identical piece is decided by the human
+  ruling immediately. Labels are NEVER appended to ``train.jsonl``
+  automatically. Thea merges them in a batch.
+- Retraining happens only when 50 new labels have been collected,
+  no matter how long that takes. No time-based retrain, no
+  per-ruling micro-training. ``/task_stats`` reports the count
+  since the last retrain (marker file
+  ``data/task_labels_last_retrain.json``).
+
+Permissions:
+- Review rulings ("Is a task" / "Not a task") are admin-only:
+  config admin IDs, guild owner, or bot owner, the same check as
+  the audiobooks cog. Thea is the label authority and the reviewer
+  list is still open, so the narrow default is deliberate.
+- Claim / In Progress / Done are team-wide. Slash commands:
+  /task_add, /task_edit and /task_delete are admin-only;
+  /task_done, /task_start, /task_list and /task_stats are team-wide.
+
+Configuration (no secrets in code or in a committed file):
+- Env vars override / fill in the same keys: WIKI_API_URL,
+  WIKI_API_KEY, TASKS_CLASSIFIER_URL, TASKS_LABELS_PATH,
+  TASKS_OVERRIDES_PATH, TASKS_STATE_PATH, TASKS_ADMIN_IDS
+  (comma-separated Discord user IDs). Config may also come from
+  the bot config ``tasks`` object, like the audiobooks cog.
+- With no WIKI_API_KEY set, slash commands reply ephemerally that
+  the tasks backend is not configured, and watched messages are
+  logged and skipped (no orphan embed without a wiki task).
+- If the classifier service is down, watched messages are logged
+  and skipped. The cog never crashes the bot and never retries in
+  a loop.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+
+import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
-from discord.utils import get
-import asyncio
-import sqlite3
-from sqlite3 import Error
-import time
-import random
-from taskConfig import config
+
+log = logging.getLogger("tasks")
+
+WATCH_CHANNEL_ID = 1407601803536760905
+FEEDBACK_CHANNEL_ID = 1568142915631325355
+
+DEFAULT_WIKI_API_URL = "http://127.0.0.1:13382"
+DEFAULT_CLASSIFIER_URL = "http://127.0.0.1:13383"
+
+RETRAIN_LABEL_COUNT = 50
+SEEN_CAP = 1000
+
+STATUS_COLORS = {
+    "open": discord.Color.green(),
+    "in_progress": discord.Color.blue(),
+    "done": discord.Color.light_grey(),
+}
+REVIEW_COLOR = discord.Color.orange()
+
+
+class WikiApiError(Exception):
+    """A non-2xx response from the wiki backend, with its error text."""
+
+    def __init__(self, status: int, error: str):
+        super().__init__(f"wiki API {status}: {error}")
+        self.status = status
+        self.error = error
+
+
+def normalize_text(text: str) -> str:
+    """Collapse whitespace and lowercase, for dedupe and overrides."""
+    return re.sub(r"\s+", " ", text or "").strip().lower()
+
+
+def normalize_task_id(raw: str) -> str:
+    """Accept "1", "task-1" or "task-0001" and return "task-0001"."""
+    value = (raw or "").strip().lower()
+    match = re.fullmatch(r"(?:task-)?0*(\d+)", value)
+    if not match:
+        return value
+    return f"task-{int(match.group(1)):04d}"
+
+
+def wiki_api_config() -> tuple[str, str | None]:
+    """(wiki backend base URL, shared-secret API key or None)."""
+    return (
+        os.environ.get("WIKI_API_URL", DEFAULT_WIKI_API_URL).rstrip("/"),
+        os.environ.get("WIKI_API_KEY") or None,
+    )
+
+
+def classifier_config() -> str:
+    """Classifier service base URL."""
+    return os.environ.get(
+        "TASKS_CLASSIFIER_URL", DEFAULT_CLASSIFIER_URL
+    ).rstrip("/")
+
+
+def _tasks_config(bot) -> dict:
+    """Config for this cog, from bot config, module config, or env."""
+    cfg: dict = {}
+    try:
+        raw = getattr(bot, "config", None)
+        if isinstance(raw, dict):
+            cfg.update(raw.get("tasks") or {})
+    except Exception:
+        pass
+    if not cfg:
+        try:
+            from config import config as module_config  # type: ignore
+
+            if isinstance(module_config, dict):
+                cfg.update(module_config.get("tasks") or {})
+        except Exception:
+            pass
+    if os.environ.get("TASKS_ADMIN_IDS"):
+        ids = []
+        for part in os.environ["TASKS_ADMIN_IDS"].split(","):
+            part = part.strip()
+            if part.isdigit():
+                ids.append(int(part))
+        cfg["admin_user_ids"] = ids
+    return cfg
+
+
+def _default_paths() -> dict:
+    root = Path(__file__).resolve().parent.parent
+    return {
+        "labels": Path(os.environ.get("TASKS_LABELS_PATH") or root / "data" / "task_labels.jsonl"),
+        "overrides": Path(os.environ.get("TASKS_OVERRIDES_PATH") or root / "data" / "task_overrides.json"),
+        "state": Path(os.environ.get("TASKS_STATE_PATH") or root / "data" / "tasks_state.json"),
+        "retrain_marker": Path(
+            os.environ.get("TASKS_RETRAIN_MARKER_PATH")
+            or root / "data" / "task_labels_last_retrain.json"
+        ),
+    }
+
+
+def _load_json_file(path: Path, default):
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return default
+    return data if isinstance(data, type(default)) else default
+
+
+def _write_json_file(path: Path, data) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def build_task_embed(
+    piece: str,
+    status: str = "open",
+    wiki_task_id: str | None = None,
+    source_message: object | None = None,
+    assignee: str | None = None,
+    score: float | None = None,
+) -> discord.Embed:
+    """Embed for a confirmed task in #astra-feedback."""
+    embed = discord.Embed(
+        title=piece[:256],
+        color=STATUS_COLORS.get(status, discord.Color.green()),
+    )
+    embed.add_field(name="Status", value=status, inline=True)
+    if wiki_task_id:
+        embed.add_field(name="Task ID", value=wiki_task_id, inline=True)
+    if assignee:
+        embed.add_field(name="Assignee", value=assignee, inline=True)
+    if score is not None:
+        embed.add_field(name="Model score", value=f"{score:.0%}", inline=True)
+    if source_message is not None:
+        jump = getattr(source_message, "jump_url", None)
+        author = getattr(source_message, "author", None)
+        author_name = getattr(author, "display_name", None) or str(author or "unknown")
+        if jump:
+            embed.add_field(name="Source", value=f"[Original message]({jump}) by {author_name}", inline=False)
+        else:
+            embed.add_field(name="Source", value=f"by {author_name}", inline=False)
+    footer_parts = []
+    if wiki_task_id:
+        footer_parts.append(wiki_task_id)
+    source_id = getattr(source_message, "id", None)
+    if source_id:
+        footer_parts.append(f"source:{source_id}")
+    if footer_parts:
+        embed.set_footer(text=" | ".join(footer_parts))
+    return embed
+
+
+def build_review_embed(
+    piece: str,
+    score: float | None,
+    trigger: str,
+    source_message: object | None = None,
+) -> discord.Embed:
+    """Amber "Needs review" embed. No Claim button until reviewed."""
+    embed = discord.Embed(
+        title="Needs review",
+        description=piece[:2000],
+        color=REVIEW_COLOR,
+    )
+    if score is not None:
+        embed.add_field(name="Model score", value=f"{score:.0%}", inline=True)
+    embed.add_field(name="Trigger", value=trigger or "score_band", inline=True)
+    if source_message is not None:
+        jump = getattr(source_message, "jump_url", None)
+        author = getattr(source_message, "author", None)
+        author_name = getattr(author, "display_name", None) or str(author or "unknown")
+        text = getattr(source_message, "content", "") or ""
+        if jump:
+            embed.add_field(
+                name="Source",
+                value=f"[Original message]({jump}) by {author_name}",
+                inline=False,
+            )
+        if text and text.strip() != piece.strip():
+            embed.add_field(name="Full message", value=text[:1000], inline=False)
+    source_id = getattr(source_message, "id", None)
+    if source_id:
+        embed.set_footer(text=f"source:{source_id}")
+    return embed
+
+
+def _embed_field(embed, name: str) -> str | None:
+    for field in getattr(embed, "fields", []) or []:
+        if field.name == name:
+            return field.value
+    return None
+
+
+def _embed_source_id(embed) -> int | None:
+    footer = getattr(embed, "footer", None)
+    text = getattr(footer, "text", "") or ""
+    match = re.search(r"source:(\d+)", text)
+    return int(match.group(1)) if match else None
+
+
+class _TaskView(discord.ui.View):
+    """Buttons on a confirmed task. Persistent: timeout=None."""
+
+    def __init__(self, cog):
+        super().__init__(timeout=None)
+        self.cog = cog
+
+    @discord.ui.button(label="Claim", style=discord.ButtonStyle.primary,
+                       custom_id="tasks:claim")
+    async def claim(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.handle_task_button(interaction, "claim")
+
+    @discord.ui.button(label="In Progress", style=discord.ButtonStyle.secondary,
+                       custom_id="tasks:in_progress")
+    async def in_progress(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.handle_task_button(interaction, "in_progress")
+
+    @discord.ui.button(label="Done", style=discord.ButtonStyle.success,
+                       custom_id="tasks:done")
+    async def done(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.handle_task_button(interaction, "done")
+
+    @discord.ui.button(label="Not a Task", style=discord.ButtonStyle.danger,
+                       custom_id="tasks:not_task")
+    async def not_task(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.handle_task_button(interaction, "not_task")
+
+
+class _ReviewView(discord.ui.View):
+    """Buttons on a review embed. Persistent: timeout=None."""
+
+    def __init__(self, cog):
+        super().__init__(timeout=None)
+        self.cog = cog
+
+    @discord.ui.button(label="Is a task", style=discord.ButtonStyle.success,
+                       custom_id="tasks:review_task")
+    async def is_task(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.handle_review_button(interaction, "is_task")
+
+    @discord.ui.button(label="Not a task", style=discord.ButtonStyle.danger,
+                       custom_id="tasks:review_not_task")
+    async def not_task(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.handle_review_button(interaction, "not_task")
 
 
 class Tasks(commands.Cog):
-    def __init__(self, bot):
+    """Watch #general, classify with the local model, post tasks."""
+
+    def __init__(self, bot, *, config_override=None, labels_path=None,
+                 overrides_path=None, state_path=None, retrain_marker_path=None):
         self.bot = bot
-        self.openColor = discord.Colour(3665255)
-        self.closedColor = discord.Colour(4804175)
+        self.config = config_override if config_override is not None else _tasks_config(bot)
+        paths = _default_paths()
+        self.labels_path = Path(labels_path) if labels_path else paths["labels"]
+        self.overrides_path = Path(overrides_path) if overrides_path else paths["overrides"]
+        self.state_path = Path(state_path) if state_path else paths["state"]
+        self.retrain_marker_path = Path(retrain_marker_path) if retrain_marker_path else paths["retrain_marker"]
+        self._http_session: aiohttp.ClientSession | None = None
+        self._seen: set[str] = set()
+        self.state: dict = _load_json_file(self.state_path, {})
+        if not isinstance(self.state, dict):
+            self.state = {}
+
+    # -- config helpers -------------------------------------------------
+
+    async def is_admin(self, interaction) -> bool:
+        """Who may rule on a review item or add/edit/delete tasks.
+
+        Same check as the audiobooks cog: a user ID in
+        ``admin_user_ids`` from config, the guild owner, or the bot
+        application's owner via ``Bot.is_owner()``. The last of these
+        is used instead of reading ``bot.owner_id`` directly, which
+        Astrabot never sets. Review rulings are admin-only on purpose:
+        a ruling is a training label, and Thea is the label authority.
+        """
+        user_id = int(interaction.user.id)
+        admins = self.config.get("admin_user_ids") or []
+        if user_id in [int(x) for x in admins]:
+            return True
+        guild = getattr(interaction, "guild", None)
+        guild_owner_id = getattr(guild, "owner_id", None) if guild else None
+        if guild_owner_id is not None and int(guild_owner_id) == user_id:
+            return True
+        is_owner = getattr(self.bot, "is_owner", None)
+        if is_owner is not None:
+            try:
+                if await is_owner(interaction.user):
+                    return True
+            except Exception:
+                pass
+        return False
+
+    # -- HTTP helpers ---------------------------------------------------
+
+    async def _session(self) -> aiohttp.ClientSession:
+        if self._http_session is None or self._http_session.closed:
+            timeout = aiohttp.ClientTimeout(total=15)
+            self._http_session = aiohttp.ClientSession(timeout=timeout)
+        return self._http_session
+
+    async def cog_unload(self) -> None:
+        if self._http_session is not None and not self._http_session.closed:
+            await self._http_session.close()
+
+    async def _wiki_api(self, method: str, path: str, **kwargs):
+        """Call the wiki backend. Raises WikiApiError on non-2xx."""
+        api_url, api_key = wiki_api_config()
+        if not api_key:
+            raise WikiApiError(0, "tasks backend is not configured (no WIKI_API_KEY)")
+        session = await self._session()
+        try:
+            async with session.request(
+                method,
+                f"{api_url}{path}",
+                headers={"X-Astra-Wiki-Key": api_key},
+                **kwargs,
+            ) as response:
+                try:
+                    payload = await response.json()
+                except Exception:
+                    payload = {}
+                if response.status >= 400:
+                    raise WikiApiError(
+                        response.status,
+                        str(payload.get("error") or f"HTTP {response.status}"),
+                    )
+                return payload
+        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+            raise WikiApiError(0, f"wiki backend unreachable: {exc}") from exc
+
+    async def _classify(self, text: str) -> dict | None:
+        """Ask the classifier service. None if it is down or bad."""
+        session = await self._session()
+        try:
+            async with session.post(
+                f"{classifier_config()}/classify",
+                json={"text": text},
+            ) as response:
+                if response.status != 200:
+                    log.warning("Classifier service returned %s", response.status)
+                    return None
+                payload = await response.json()
+        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+            log.warning("Classifier service unreachable: %s", exc)
+            return None
+        except Exception as exc:  # noqa: BLE001 - one bad reply must not kill the cog
+            log.warning("Classifier reply unreadable: %s", exc)
+            return None
+        if not isinstance(payload, dict) or not payload.get("ok"):
+            log.warning("Classifier reply not ok: %s", payload)
+            return None
+        return payload
+
+    async def _classifier_health(self) -> dict | None:
+        session = await self._session()
+        try:
+            async with session.get(f"{classifier_config()}/health") as response:
+                if response.status != 200:
+                    return None
+                return await response.json()
+        except (aiohttp.ClientError, asyncio.TimeoutError, Exception):
+            return None
+
+    # -- state, labels, overrides ---------------------------------------
+
+    def _save_state(self) -> None:
+        try:
+            _write_json_file(self.state_path, self.state)
+        except OSError as exc:
+            log.warning("Could not save tasks state: %s", exc)
+
+    def _remember_seen(self, piece: str) -> None:
+        if len(self._seen) >= SEEN_CAP:
+            self._seen.clear()
+        self._seen.add(normalize_text(piece))
+
+    def _append_label(self, *, text: str, label: int, source_message_id: int | None,
+                      score: float | None, trigger: str, reviewer_id: int) -> None:
+        """Save one human ruling as a training label and an override.
+
+        Labels go to a JSONL file, never straight into train.jsonl.
+        The override makes the ruling take effect immediately for an
+        identical piece, without retraining.
+        """
+        record = {
+            "text": text,
+            "label": int(label),
+            "source_message_id": source_message_id,
+            "model_score": score,
+            "trigger": trigger,
+            "reviewer_id": int(reviewer_id),
+            "timestamp": _now_iso(),
+        }
+        try:
+            self.labels_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.labels_path, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except OSError as exc:
+            log.warning("Could not save task label: %s", exc)
+            return
+        try:
+            overrides = _load_json_file(self.overrides_path, {})
+            if not isinstance(overrides, dict):
+                overrides = {}
+            overrides[normalize_text(text)] = int(label)
+            _write_json_file(self.overrides_path, overrides)
+        except OSError as exc:
+            log.warning("Could not save task override: %s", exc)
+
+    def labels_since_retrain(self) -> tuple[int, int]:
+        """(labels collected since the last retrain, total labels)."""
+        try:
+            with open(self.labels_path, encoding="utf-8") as handle:
+                total = sum(1 for _ in handle)
+        except OSError:
+            total = 0
+        marker = _load_json_file(self.retrain_marker_path, {})
+        base = int(marker.get("count", 0)) if isinstance(marker, dict) else 0
+        return max(0, total - base), total
+
+    # -- wiki task helpers ----------------------------------------------
+
+    async def _open_task_titles(self) -> set[str]:
+        """Normalized titles of open wiki tasks, for dedupe."""
+        try:
+            payload = await self._wiki_api("GET", "/api/tasks?status=open")
+        except WikiApiError as exc:
+            log.warning("Could not list open tasks for dedupe: %s", exc)
+            return set()
+        items = (payload.get("tasks") or {}).get("items") or []
+        return {normalize_text(item.get("title") or "") for item in items}
+
+    async def _create_wiki_task(self, *, title: str, description: str,
+                                created_by: int | None) -> dict:
+        payload = await self._wiki_api("POST", "/api/tasks", json={
+            "title": title[:200],
+            "description": description[:2000],
+            "source": "astrabot",
+            "created_by": str(created_by) if created_by else "",
+        })
+        return payload.get("task") or {}
+
+    def _feedback_channel(self):
+        if self.bot is None:
+            return None
+        return self.bot.get_channel(FEEDBACK_CHANNEL_ID)
+
+    async def _post_task_embed(self, *, piece: str, task: dict,
+                               source_message, score: float | None):
+        channel = self._feedback_channel()
+        if channel is None:
+            log.warning("Feedback channel %s not found", FEEDBACK_CHANNEL_ID)
+            return None
+        embed = build_task_embed(
+            piece,
+            status=task.get("status") or "open",
+            wiki_task_id=task.get("id"),
+            source_message=source_message,
+            assignee=task.get("assignee"),
+            score=score,
+        )
+        message = await channel.send(embed=embed, view=_TaskView(self))
+        self.state[str(message.id)] = {
+            "kind": "task",
+            "wiki_task_id": task.get("id"),
+            "source_message_id": getattr(source_message, "id", None),
+            "piece": piece,
+            "score": score,
+            "trigger": "none",
+            "thread_id": None,
+            "status": task.get("status") or "open",
+        }
+        self._save_state()
+        return message
+
+    async def _post_review_embed(self, *, piece: str, score: float | None,
+                                 trigger: str, source_message):
+        channel = self._feedback_channel()
+        if channel is None:
+            log.warning("Feedback channel %s not found", FEEDBACK_CHANNEL_ID)
+            return None
+        embed = build_review_embed(piece, score, trigger, source_message)
+        message = await channel.send(embed=embed, view=_ReviewView(self))
+        thread = None
+        try:
+            thread = await message.create_thread(
+                name=f"Review: {piece[:80]}",
+                auto_archive_duration=1440,
+                type=discord.ChannelType.public_thread,
+            )
+        except Exception as exc:  # noqa: BLE001 - a missing thread must not lose the review
+            log.warning("Could not create review thread: %s", exc)
+        self.state[str(message.id)] = {
+            "kind": "review",
+            "wiki_task_id": None,
+            "source_message_id": getattr(source_message, "id", None),
+            "piece": piece,
+            "score": score,
+            "trigger": trigger,
+            "thread_id": getattr(thread, "id", None),
+            "status": "review",
+        }
+        self._save_state()
+        return message
+
+    async def _delete_thread(self, thread_id: int | None) -> None:
+        if not thread_id or self.bot is None:
+            return
+        thread = None
+        try:
+            get_thread = getattr(self.bot, "get_channel", None)
+            thread = get_thread(thread_id) if get_thread else None
+            if thread is None:
+                thread = await self.bot.fetch_channel(thread_id)
+            await thread.delete()
+        except Exception as exc:  # noqa: BLE001 - ruling stands even if thread delete fails
+            log.warning("Could not delete review thread %s: %s", thread_id, exc)
+
+    # -- watcher ----------------------------------------------------------
 
     @commands.Cog.listener()
-    async def on_ready(self):
-        sql = '''CREATE TABLE IF NOT EXISTS tasks(
-                        isActive BOOLEAN NOT NULL,
-                        discordID BIGINT NOT NULL,
-                        ds BIGINT NOT NULL,
-                        taskName TEXT NOT NULL,
-                        description TEXT NOT NULL,
-                        assignedBy BIGINT
-        )
-        '''
-        cursor = self.bot.db.cursor()
-        cursor.execute(sql)
-        self.bot.db.commit()
-        print("Task Cog Ready!")
-
-    @app_commands.command(name="gettasks", description="Get active tasks for a user")
-    @app_commands.checks.has_role("Team Member")
-    async def getTasks(
-        self, interaction: discord.Interaction, user: discord.Member = None
-    ):
-        if user is None:
-            user = interaction.user
-        color = discord.Colour(14885911)
-        query = '''
-        WITH user_tasks AS (
-            SELECT taskName, isActive, ds,
-                   ROW_NUMBER() OVER (PARTITION BY taskName ORDER BY ds DESC) AS rnk
-            FROM tasks
-            WHERE discordID = ?
-        )
-        SELECT taskName
-        FROM user_tasks
-        WHERE rnk = 1
-        AND isActive = 1
-        '''
-
-        cursor = self.bot.db.cursor()
-        cursor.execute(query, (user.id,))
-        queryResult = cursor.fetchall()
-
-        if not queryResult:
-            await interaction.response.send_message("No active tasks.")
-        else:
-            embeds = [
-                discord.Embed(title=result[0], color=color)
-                for result in queryResult
-            ]
-            await interaction.response.send_message(embeds=embeds)
-
-    @app_commands.command(name="assigntask", description="Assign a task to a team member")
-    @app_commands.checks.has_role("Team Member")
-    async def assignTask(
-        self,
-        interaction: discord.Interaction,
-        user: discord.Member,
-        task_name: str,
-        task_description: str,
-    ):
-        color = self.openColor
-        if not task_name:
-            embed = discord.Embed(title="Please enter a task name!", color=color)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+    async def on_message(self, message: discord.Message):
+        if message.channel.id != WATCH_CHANNEL_ID:
             return
-        elif not task_description:
-            embed = discord.Embed(title="Please enter a description!", color=color)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+        if getattr(message.author, "bot", False):
             return
-
-        isActive = True
-        discordID = int(user.id)
-        ds = int(time.time())
-        query = '''
-            INSERT INTO tasks (isActive, discordID, ds, taskName, description, assignedBy)
-            VALUES (?, ?, ?, ?, ?, ?)
-        '''
-
-        cursor = self.bot.db.cursor()
-        cursor.execute(
-            query,
-            (
-                isActive,
-                discordID,
-                ds,
-                task_name,
-                task_description,
-                interaction.user.id,
-            ),
-        )
-        self.bot.db.commit()
-        await interaction.response.send_message(
-            f"{task_name} assigned to {user.mention}"
-        )
-
-        currentStatus = "Open"
-        embed = discord.Embed(
-            title=task_name, description=task_description, color=color
-        )
-        embed.set_author(name=config[str(discordID)]["name"])
-        embed.add_field(
-            name="Time Assigned",
-            value=time.asctime(time.localtime(ds)),
-            inline=False,
-        )
-        embed.add_field(name="Status", value=currentStatus, inline=False)
-        embed.add_field(
-            name="Assigned By",
-            value=config[str(interaction.user.id)]["name"],
-            inline=False,
-        )
-        channel = self.bot.get_channel(config[str(discordID)]["channel_id"])
-        msg = await channel.send(embed=embed)
-        await msg.add_reaction("\u2705")
-
-    @app_commands.command(name="open", description="Open a new task for yourself")
-    @app_commands.checks.has_role("Team Member")
-    async def open(
-        self,
-        interaction: discord.Interaction,
-        task_name: str,
-        task_description: str,
-    ):
-        color = self.openColor
-        if not task_name:
-            embed = discord.Embed(title="Please enter a task name!", color=color)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+        text = (message.content or "").strip()
+        if not text:
             return
-        elif not task_description:
-            embed = discord.Embed(title="Please enter a description!", color=color)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+        result = await self._classify(text)
+        if result is None:
             return
-
-        isActive = True
-        discordID = int(interaction.user.id)
-        ds = int(time.time())
-        query = '''
-            INSERT INTO tasks (isActive, discordID, ds, taskName, description, assignedBy)
-            VALUES (?, ?, ?, ?, ?, ?)
-        '''
-
-        cursor = self.bot.db.cursor()
-        cursor.execute(
-            query,
-            (
-                isActive,
-                discordID,
-                ds,
-                task_name,
-                task_description,
-                interaction.user.id,
-            ),
-        )
-        self.bot.db.commit()
-        await interaction.response.send_message(
-            f"{task_name} assigned to {interaction.user.mention}"
-        )
-
-        currentStatus = "Open"
-        embed = discord.Embed(
-            title=task_name, description=task_description, color=color
-        )
-        embed.set_author(name=config[str(discordID)]["name"])
-        embed.add_field(
-            name="Time Assigned",
-            value=time.asctime(time.localtime(ds)),
-            inline=False,
-        )
-        embed.add_field(name="Status", value=currentStatus, inline=False)
-        embed.add_field(
-            name="Assigned By",
-            value=config[str(discordID)]["name"],
-            inline=False,
-        )
-        channel = self.bot.get_channel(config[str(discordID)]["channel_id"])
-        msg = await channel.send(embed=embed)
-        await msg.add_reaction("\u2705")
-
-    @app_commands.command(name="complete", description="Mark a task as completed")
-    @app_commands.checks.has_role("Team Member")
-    async def complete(self, interaction: discord.Interaction, task_name: str):
-        color = self.closedColor
-        if not task_name:
-            embed = discord.Embed(title="Please enter a task name!", color=color)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+        pieces = result.get("pieces") or []
+        if not pieces:
             return
+        _, api_key = wiki_api_config()
+        if not api_key:
+            log.warning("Wiki backend not configured, skipping watched message %s", message.id)
+            return
+        open_titles = await self._open_task_titles()
+        for piece in pieces:
+            piece_text = (piece or {}).get("text") or ""
+            if not piece_text:
+                continue
+            normalized = normalize_text(piece_text)
+            if normalized in self._seen or normalized in open_titles:
+                continue
+            decision = (piece or {}).get("decision")
+            score = (piece or {}).get("score")
+            trigger = (piece or {}).get("trigger") or "none"
+            if decision == "auto_task":
+                try:
+                    task = await self._create_wiki_task(
+                        title=piece_text,
+                        description=f"From {message.author.display_name} in #{message.channel.name}: {message.jump_url}",
+                        created_by=message.author.id,
+                    )
+                except WikiApiError as exc:
+                    log.warning("Could not create wiki task: %s", exc)
+                    continue
+                self._remember_seen(piece_text)
+                await self._post_task_embed(
+                    piece=piece_text, task=task, source_message=message, score=score,
+                )
+            elif decision == "review":
+                self._remember_seen(piece_text)
+                await self._post_review_embed(
+                    piece=piece_text, score=score, trigger=trigger, source_message=message,
+                )
+            # auto_drop: nothing is posted. Silence is not a label.
 
-        query = '''
-        WITH user_tasks AS (
-            SELECT taskName, discordID, ds, description,
-                   ROW_NUMBER() OVER (PARTITION BY taskName ORDER BY ds DESC) AS rnk
-            FROM tasks
-            WHERE taskName = ?
-        )
-        SELECT taskName, discordID, ds, description
-        FROM user_tasks
-        WHERE rnk = 1
-        '''
-        cursor = self.bot.db.cursor()
-        cursor.execute(query, (task_name,))
-        queryResult = cursor.fetchall()
+    # -- button handlers ---------------------------------------------------
 
-        if not queryResult:
-            await interaction.response.send_message(
-                f"No task found with name **{task_name}**.", ephemeral=True
+    async def handle_task_button(self, interaction: discord.Interaction, action: str):
+        message = interaction.message
+        embed = (message.embeds or [None])[0]
+        record = self.state.get(str(message.id), {})
+        wiki_task_id = record.get("wiki_task_id") or _embed_field(embed, "Task ID")
+        piece = record.get("piece") or (embed.title if embed else "") or ""
+        score = record.get("score")
+        trigger = record.get("trigger") or "none"
+        source_id = record.get("source_message_id") or _embed_source_id(embed)
+        await interaction.response.defer()
+        if action == "not_task":
+            if wiki_task_id:
+                try:
+                    await self._wiki_api("DELETE", f"/api/tasks/{wiki_task_id}")
+                except WikiApiError as exc:
+                    log.warning("Could not delete wiki task %s: %s", wiki_task_id, exc)
+            self._append_label(
+                text=piece, label=0, source_message_id=source_id,
+                score=score, trigger=trigger, reviewer_id=interaction.user.id,
             )
+            self.state.pop(str(message.id), None)
+            self._save_state()
+            done_embed = build_task_embed(piece, status="done", wiki_task_id=wiki_task_id)
+            done_embed.title = f"Not a task: {piece[:200]}"
+            done_embed.color = discord.Color.light_grey()
+            view = _TaskView(self)
+            for item in view.children:
+                item.disabled = True
+            await message.edit(embed=done_embed, view=view)
+            await interaction.followup.send("Marked as not a task.", ephemeral=True)
             return
-
-        for result in queryResult:
-            selectedTaskName = result[0]
-            discordID = result[1]
-            localTime = result[2]
-            isActive = False
-            taskDescription = result[3]
-            insert_query = '''
-                INSERT INTO tasks (isActive, discordID, ds, taskName, description, assignedBy)
-                VALUES (?, ?, ?, ?, ?, ?)
-            '''
-            cursor.execute(
-                insert_query,
-                (
-                    isActive,
-                    discordID,
-                    localTime,
-                    selectedTaskName,
-                    taskDescription,
-                    interaction.user.id,
+        if action == "claim":
+            if not wiki_task_id:
+                await interaction.followup.send("No wiki task linked to this message.", ephemeral=True)
+                return
+            try:
+                task = await self._wiki_api(
+                    "PATCH", f"/api/tasks/{wiki_task_id}",
+                    json={"assignee": interaction.user.display_name},
+                )
+                task = task.get("task") or {}
+            except WikiApiError as exc:
+                await interaction.followup.send(f"Wiki backend error: {exc.error}", ephemeral=True)
+                return
+            record["status"] = task.get("status") or record.get("status") or "open"
+            self.state[str(message.id)] = record
+            self._save_state()
+            await message.edit(
+                embed=build_task_embed(
+                    piece, status=record["status"], wiki_task_id=wiki_task_id,
+                    assignee=task.get("assignee") or interaction.user.display_name,
+                    score=score,
                 ),
+                view=_TaskView(self),
             )
-        self.bot.db.commit()
+            await interaction.followup.send("Claimed.", ephemeral=True)
+            return
+        status = "in_progress" if action == "in_progress" else "done"
+        if not wiki_task_id:
+            await interaction.followup.send("No wiki task linked to this message.", ephemeral=True)
+            return
+        try:
+            task = await self._wiki_api(
+                "PATCH", f"/api/tasks/{wiki_task_id}", json={"status": status},
+            )
+            task = task.get("task") or {}
+        except WikiApiError as exc:
+            await interaction.followup.send(f"Wiki backend error: {exc.error}", ephemeral=True)
+            return
+        record["status"] = status
+        self.state[str(message.id)] = record
+        self._save_state()
+        await message.edit(
+            embed=build_task_embed(
+                piece, status=status, wiki_task_id=wiki_task_id,
+                assignee=task.get("assignee"), score=score,
+            ),
+            view=_TaskView(self),
+        )
+        await interaction.followup.send(f"Marked {status.replace('_', ' ')}.", ephemeral=True)
 
-        completeMessages = [
-            f"https://imgur.com/dRehYPL \n **{task_name}** completed, Good job!"
+    async def handle_review_button(self, interaction: discord.Interaction, action: str):
+        message = interaction.message
+        embed = (message.embeds or [None])[0]
+        record = self.state.get(str(message.id), {})
+        piece = record.get("piece") or (embed.description if embed else "") or ""
+        score = record.get("score")
+        trigger = record.get("trigger") or "score_band"
+        source_id = record.get("source_message_id") or _embed_source_id(embed)
+        thread_id = record.get("thread_id")
+        if not await self.is_admin(interaction):
+            await interaction.response.send_message(
+                "Only admins can rule on a review item.", ephemeral=True,
+            )
+            return
+        await interaction.response.defer()
+        if action == "is_task":
+            try:
+                task = await self._create_wiki_task(
+                    title=piece,
+                    description=f"Reviewed in #astra-feedback, source message {source_id}",
+                    created_by=interaction.user.id,
+                )
+            except WikiApiError as exc:
+                await interaction.followup.send(f"Wiki backend error: {exc.error}", ephemeral=True)
+                return
+            self._append_label(
+                text=piece, label=1, source_message_id=source_id,
+                score=score, trigger=trigger, reviewer_id=interaction.user.id,
+            )
+            await self._delete_thread(thread_id)
+            self.state[str(message.id)] = {
+                "kind": "task",
+                "wiki_task_id": task.get("id"),
+                "source_message_id": source_id,
+                "piece": piece,
+                "score": score,
+                "trigger": trigger,
+                "thread_id": None,
+                "status": task.get("status") or "open",
+            }
+            self._save_state()
+            await message.edit(
+                embed=build_task_embed(
+                    piece, status=task.get("status") or "open",
+                    wiki_task_id=task.get("id"),
+                    assignee=task.get("assignee"), score=score,
+                ),
+                view=_TaskView(self),
+            )
+            await interaction.followup.send("Created as a task.", ephemeral=True)
+            return
+        self._append_label(
+            text=piece, label=0, source_message_id=source_id,
+            score=score, trigger=trigger, reviewer_id=interaction.user.id,
+        )
+        await self._delete_thread(thread_id)
+        self.state.pop(str(message.id), None)
+        self._save_state()
+        try:
+            await message.delete()
+        except Exception as exc:  # noqa: BLE001 - label is saved either way
+            log.warning("Could not delete review message: %s", exc)
+        await interaction.followup.send("Marked as not a task.", ephemeral=True)
+
+    async def cog_load(self) -> None:
+        # Persistent views: register before any interaction is dispatched.
+        if self.bot is None:
+            return
+        try:
+            self.bot.add_view(_TaskView(self))
+            self.bot.add_view(_ReviewView(self))
+        except Exception as exc:  # noqa: BLE001 - view registration must not kill the cog
+            log.warning("Could not register persistent task views: %s", exc)
+
+    # -- slash commands -----------------------------------------------------
+
+    @app_commands.command(name="task_add", description="Add a task to the wiki to-do list")
+    @app_commands.describe(
+        title="Task title (1-200 chars)",
+        description="Optional detail",
+        priority="Priority",
+        assignee="Who should do it",
+    )
+    @app_commands.choices(priority=[
+        app_commands.Choice(name="low", value="low"),
+        app_commands.Choice(name="medium", value="medium"),
+        app_commands.Choice(name="high", value="high"),
+    ])
+    async def task_add(self, interaction: discord.Interaction, title: str,
+                       description: str | None = None,
+                       priority: str | None = None,
+                       assignee: str | None = None):
+        if not await self.is_admin(interaction):
+            await interaction.response.send_message("Only admins can add tasks.", ephemeral=True)
+            return
+        if not title or not title.strip():
+            await interaction.response.send_message("A title is required.", ephemeral=True)
+            return
+        body: dict = {"title": title.strip()[:200], "source": "astrabot",
+                      "created_by": str(interaction.user.id)}
+        if description:
+            body["description"] = description[:2000]
+        if priority:
+            body["priority"] = priority
+        if assignee:
+            body["assignee"] = assignee[:100]
+        try:
+            payload = await self._wiki_api("POST", "/api/tasks", json=body)
+        except WikiApiError as exc:
+            await interaction.response.send_message(
+                f"Wiki backend error: {exc.error}", ephemeral=True)
+            return
+        task = payload.get("task") or {}
+        await interaction.response.send_message(
+            f"Task created: {task.get('id')} - {task.get('title')}", ephemeral=True)
+
+    @app_commands.command(name="task_list", description="List wiki to-do tasks")
+    @app_commands.describe(status="Filter by status", priority="Filter by priority")
+    @app_commands.choices(
+        status=[
+            app_commands.Choice(name="open", value="open"),
+            app_commands.Choice(name="in_progress", value="in_progress"),
+            app_commands.Choice(name="done", value="done"),
+        ],
+        priority=[
+            app_commands.Choice(name="low", value="low"),
+            app_commands.Choice(name="medium", value="medium"),
+            app_commands.Choice(name="high", value="high"),
+        ],
+    )
+    async def task_list(self, interaction: discord.Interaction,
+                        status: str | None = None, priority: str | None = None):
+        query = []
+        if status:
+            query.append(f"status={status}")
+        if priority:
+            query.append(f"priority={priority}")
+        path = "/api/tasks" + ("?" + "&".join(query) if query else "")
+        try:
+            payload = await self._wiki_api("GET", path)
+        except WikiApiError as exc:
+            await interaction.response.send_message(
+                f"Wiki backend error: {exc.error}", ephemeral=True)
+            return
+        tasks = (payload.get("tasks") or {}).get("items") or []
+        counts = (payload.get("tasks") or {}).get("counts") or {}
+        embed = discord.Embed(title="To-do tasks", color=discord.Color.green())
+        if counts:
+            embed.add_field(
+                name="Counts",
+                value=f"open {counts.get('open', 0)}, in progress {counts.get('in_progress', 0)}, "
+                      f"done {counts.get('done', 0)}, total {counts.get('total', 0)}",
+                inline=False,
+            )
+        for task in tasks[:25]:
+            assignee = task.get("assignee") or "-"
+            embed.add_field(
+                name=f"{task.get('id')} - {task.get('title')}",
+                value=f"{task.get('status')} | {task.get('priority')} | {assignee}",
+                inline=False,
+            )
+        if not tasks:
+            embed.description = "No tasks match."
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="task_done", description="Mark a wiki task done")
+    @app_commands.describe(task_id="Task id, e.g. task-0001 or 1")
+    async def task_done(self, interaction: discord.Interaction, task_id: str):
+        await self._set_status(interaction, task_id, "done")
+
+    @app_commands.command(name="task_start", description="Mark a wiki task in progress")
+    @app_commands.describe(task_id="Task id, e.g. task-0001 or 1")
+    async def task_start(self, interaction: discord.Interaction, task_id: str):
+        await self._set_status(interaction, task_id, "in_progress")
+
+    async def _set_status(self, interaction: discord.Interaction, task_id: str, status: str):
+        task_id = normalize_task_id(task_id)
+        try:
+            payload = await self._wiki_api(
+                "PATCH", f"/api/tasks/{task_id}", json={"status": status},
+            )
+        except WikiApiError as exc:
+            await interaction.response.send_message(
+                f"Wiki backend error: {exc.error}", ephemeral=True)
+            return
+        task = payload.get("task") or {}
+        await interaction.response.send_message(
+            f"{task.get('id')} is now {task.get('status')}.", ephemeral=True)
+
+    @app_commands.command(name="task_edit", description="Edit a wiki task")
+    @app_commands.describe(
+        task_id="Task id, e.g. task-0001 or 1",
+        title="New title",
+        description="New description",
+        priority="New priority",
+        assignee="New assignee",
+    )
+    @app_commands.choices(priority=[
+        app_commands.Choice(name="low", value="low"),
+        app_commands.Choice(name="medium", value="medium"),
+        app_commands.Choice(name="high", value="high"),
+    ])
+    async def task_edit(self, interaction: discord.Interaction, task_id: str,
+                        title: str | None = None, description: str | None = None,
+                        priority: str | None = None, assignee: str | None = None):
+        if not await self.is_admin(interaction):
+            await interaction.response.send_message("Only admins can edit tasks.", ephemeral=True)
+            return
+        body: dict = {}
+        if title:
+            body["title"] = title.strip()[:200]
+        if description is not None:
+            body["description"] = description[:2000]
+        if priority:
+            body["priority"] = priority
+        if assignee is not None:
+            body["assignee"] = assignee[:100]
+        if not body:
+            await interaction.response.send_message("Nothing to change.", ephemeral=True)
+            return
+        try:
+            payload = await self._wiki_api(
+                "PATCH", f"/api/tasks/{normalize_task_id(task_id)}", json=body,
+            )
+        except WikiApiError as exc:
+            await interaction.response.send_message(
+                f"Wiki backend error: {exc.error}", ephemeral=True)
+            return
+        task = payload.get("task") or {}
+        await interaction.response.send_message(
+            f"{task.get('id')} updated.", ephemeral=True)
+
+    @app_commands.command(name="task_delete", description="Delete a wiki task (permanent)")
+    @app_commands.describe(task_id="Task id, e.g. task-0001 or 1")
+    async def task_delete(self, interaction: discord.Interaction, task_id: str):
+        if not await self.is_admin(interaction):
+            await interaction.response.send_message("Only admins can delete tasks.", ephemeral=True)
+            return
+        try:
+            await self._wiki_api("DELETE", f"/api/tasks/{normalize_task_id(task_id)}")
+        except WikiApiError as exc:
+            await interaction.response.send_message(
+                f"Wiki backend error: {exc.error}", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            f"{normalize_task_id(task_id)} deleted.", ephemeral=True)
+
+    @app_commands.command(name="task_stats", description="Show task classifier and label counts")
+    async def task_stats(self, interaction: discord.Interaction):
+        since, total = self.labels_since_retrain()
+        health = await self._classifier_health()
+        _, api_key = wiki_api_config()
+        lines = [
+            f"Labels collected: {total}",
+            f"Labels since last retrain: {since} (retrain at {RETRAIN_LABEL_COUNT})",
+            f"Retrain ready: {'yes' if since >= RETRAIN_LABEL_COUNT else 'no'}",
+            f"Classifier service: {'up, model loaded' if health and health.get('model_loaded') else 'down or model not loaded'}",
+            f"Wiki backend key configured: {'yes' if api_key else 'no'}",
         ]
-        await interaction.response.send_message(random.choice(completeMessages))
-
-        for result in queryResult:
-            discordID = result[1]
-            localTime = result[2]
-            taskDescription = result[3]
-            embed = discord.Embed(
-                title=task_name, description=taskDescription, color=color
-            )
-            embed.set_author(name=config[str(discordID)]["name"])
-            embed.add_field(
-                name="Time Completed",
-                value=time.asctime(time.localtime(localTime)),
-                inline=False,
-            )
-            embed.add_field(name="Status", value="Closed", inline=False)
-            embed.add_field(
-                name="Closed By",
-                value=config[str(interaction.user.id)]["name"],
-            )
-
-            channel = self.bot.get_channel(config["completed"]["channel_id"])
-            await channel.send(embed=embed)
-
-        await asyncio.sleep(10)
-        await interaction.delete_original_response()
-
-    # Shows task embed when you ask for it in whatever channel you are in
-    @app_commands.command(name="task", description="Show information for a specific task")
-    @app_commands.checks.has_role("Team Member")
-    async def task(self, interaction: discord.Interaction, task_name: str):
-        if not task_name:
-            color = self.closedColor
-            embed = discord.Embed(title="Please enter a task name!", color=color)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
-
-        query = '''
-        WITH user_tasks AS (
-            SELECT taskName, discordID, isActive, ds, description, assignedBy,
-                   ROW_NUMBER() OVER (PARTITION BY taskName ORDER BY ds DESC) AS rnk
-            FROM tasks
-            WHERE taskName = ?
-        )
-        SELECT taskName, discordID, ds, isActive, description, assignedBy
-        FROM user_tasks
-        WHERE rnk = 1
-        '''
-
-        cursor = self.bot.db.cursor()
-        cursor.execute(query, (task_name,))
-        queryResult = cursor.fetchall()
-        if not queryResult:
-            await interaction.response.send_message(
-                f"No task found with name **{task_name}**.", ephemeral=True
-            )
-            return
-
-        embeds = []
-        for result in queryResult:
-            selectedTaskName = result[0]
-            discordID = result[1]
-            localTime = result[2]
-            if result[3] == 1:
-                isActive = "Open"
-                color = self.openColor
-            else:
-                isActive = "Closed"
-                color = self.closedColor
-            taskDescription = result[4]
-
-            embed = discord.Embed(
-                title=selectedTaskName,
-                description=taskDescription,
-                color=color,
-            )
-            embed.set_author(name=config[str(discordID)]["name"])
-            embed.add_field(
-                name="Time Assigned",
-                value=time.asctime(time.localtime(localTime)),
-                inline=False,
-            )
-            embed.add_field(name="Status", value=isActive, inline=False)
-            embed.add_field(
-                name="Assigned By",
-                value=config[str(result[5])]["name"],
-                inline=False,
-            )
-            embeds.append(embed)
-
-        await interaction.response.send_message(embeds=embeds)
-
-    @app_commands.command(name="update", description="Update an active task's description")
-    @app_commands.checks.has_role("Team Member")
-    async def update(
-        self,
-        interaction: discord.Interaction,
-        task_name: str,
-        updated_task_description: str,
-    ):
-        # Pulls relevant information out of tasks.db
-        query = '''
-        WITH user_tasks AS (
-            SELECT taskName, discordID, isActive,
-                   ROW_NUMBER() OVER (PARTITION BY taskName ORDER BY ds DESC) AS rnk
-            FROM tasks
-            WHERE taskName = ?
-        )
-        SELECT taskName, discordID, isActive
-        FROM user_tasks
-        WHERE rnk = 1
-        AND isActive = 1
-        '''
-        cursor = self.bot.db.cursor()
-        cursor.execute(query, (task_name,))
-        queryResult = cursor.fetchall()
-
-        if not queryResult:
-            await interaction.response.send_message(
-                f"No active task found with name **{task_name}**.", ephemeral=True
-            )
-            return
-
-        # Uses information from previous query and command arguments to update task in database
-        for result in queryResult:
-            selectedTaskName = result[0]
-            assignedTo = result[1]
-            isActive = True
-            ds = int(time.time())
-            updatedBy = interaction.user.id
-            insert_query = '''
-                INSERT INTO tasks (isActive, discordID, ds, taskName, description, assignedBy)
-                VALUES (?, ?, ?, ?, ?, ?)
-            '''
-            cursor.execute(
-                insert_query,
-                (
-                    isActive,
-                    assignedTo,
-                    ds,
-                    selectedTaskName,
-                    updated_task_description,
-                    updatedBy,
-                ),
-            )
-            self.bot.db.commit()
-
-            # Sends updated task to assigned user
-            embed = discord.Embed(
-                title=task_name,
-                description=updated_task_description,
-                color=self.openColor,
-            )
-            embed.set_author(name=config[str(assignedTo)]["name"])
-            embed.add_field(
-                name="Update Time",
-                value=time.asctime(time.localtime(ds)),
-                inline=False,
-            )
-            embed.add_field(name="Status", value="Open", inline=False)
-            embed.add_field(
-                name="Updated by",
-                value=config[str(interaction.user.id)]["name"],
-            )
-
-            channel = self.bot.get_channel(config[str(assignedTo)]["channel_id"])
-
-            # Sends message and reacts with a checkmark so Team Member can complete it at a later date
-            msg = await channel.send(embed=embed)
-            await msg.add_reaction("\u2705")
-
-        await interaction.response.send_message(
-            f"Updated task **{task_name}**.", ephemeral=True
-        )
-
-    # Listens for reactions on tasks even after the bot has been restarted
-    @commands.Cog.listener()
-    async def on_raw_reaction_add(self, reaction: discord.RawReactionActionEvent):
-        user = self.bot.get_user(reaction.user_id)
-        channel = self.bot.get_channel(reaction.channel_id)
-        if not channel:
-            return
-        message = await channel.fetch_message(reaction.message_id)
-        if (
-            user != self.bot.user
-            and message.author == self.bot.user
-            and len(message.embeds) > 0
-        ):
-            taskName = message.embeds[0].title
-            query = '''
-            WITH user_tasks AS (
-                SELECT taskName, discordID, ds, description,
-                       ROW_NUMBER() OVER (PARTITION BY taskName ORDER BY ds DESC) AS rnk
-                FROM tasks
-                WHERE taskName = ?
-            )
-            SELECT taskName, discordID, ds, description
-            FROM user_tasks
-            WHERE rnk = 1
-            '''
-            cursor = self.bot.db.cursor()
-            cursor.execute(query, (taskName,))
-            queryResult = cursor.fetchall()
-
-            for result in queryResult:
-                selectedTaskName = result[0]
-                discordID = result[1]
-                localTime = result[2]
-                isActive = False
-                taskDescription = result[3]
-                insert_query = '''
-                    INSERT INTO tasks (isActive, discordID, ds, taskName, description, assignedBy)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                '''
-                cursor.execute(
-                    insert_query,
-                    (
-                        isActive,
-                        discordID,
-                        localTime,
-                        selectedTaskName,
-                        taskDescription,
-                        user.id,
-                    ),
-                )
-                self.bot.db.commit()
-
-                completeMessages = [
-                    f"https://imgur.com/dRehYPL \n **{taskName}** completed, Good job!"
-                ]
-                msg = await channel.send(random.choice(completeMessages))
-
-                embed = discord.Embed(
-                    title=taskName,
-                    description=taskDescription,
-                    color=self.openColor,
-                )
-                embed.set_author(name=config[str(discordID)]["name"])
-                embed.add_field(
-                    name="Time Completed",
-                    value=time.asctime(time.localtime(localTime)),
-                    inline=False,
-                )
-                embed.add_field(name="Status", value="Closed", inline=False)
-                embed.add_field(
-                    name="Closed By",
-                    value=config[str(user.id)]["name"],
-                )
-
-                completed_channel = self.bot.get_channel(
-                    config["completed"]["channel_id"]
-                )
-                await completed_channel.send(embed=embed)
-                await message.delete()
-                await asyncio.sleep(10)
-                await msg.delete()
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 
 async def setup(bot):

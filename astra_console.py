@@ -287,7 +287,7 @@ def main():
 
     root = tk.Tk()
     root.title("Astrabot Console")
-    root.geometry("1800x800")
+    root.geometry("1400x900")
     root.configure(bg=bg)
 
     def emit(stream, line):
@@ -326,31 +326,35 @@ def main():
 
     button("Restart Bot", lambda: in_background(supervisor.restart))
     button("Restart Site", supervisor.reload_site)
-    button("Restart Wiki", lambda: in_background(wiki.restart))
     button("Restart absLogin", lambda: in_background(abs_login.restart))
+    button("Restart Wiki", lambda: in_background(wiki.restart))
     pull_button = button("Pull + Restart", pull)
     status = tk.Label(bar, bg=bg, fg=text_colour, font=("Segoe UI", 10))
     status.pack(side="right")
 
-    panes = tk.PanedWindow(root, orient="horizontal", bg=bg, sashwidth=6, bd=0)
-    panes.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+    grid = tk.Frame(root, bg=bg)
+    grid.pack(fill="both", expand=True, padx=6, pady=(0, 6))
+    for index in (0, 1):
+        grid.rowconfigure(index, weight=1, uniform="pane")
+        grid.columnconfigure(index, weight=1, uniform="pane")
 
-    def pane(title):
-        frame = tk.Frame(panes, bg=bg)
+    def pane(title, row, column):
+        frame = tk.Frame(grid, bg=bg)
+        frame.grid(row=row, column=column, sticky="nsew", padx=4, pady=4)
         tk.Label(frame, text=title, bg=bg, fg=accent, anchor="w",
                  font=("Segoe UI", 10, "bold")).pack(fill="x")
         scroll = tk.Scrollbar(frame)
         scroll.pack(side="right", fill="y")
         box = tk.Text(frame, bg=card, fg=text_colour, insertbackground=text_colour,
-                      relief="flat", wrap="word", state="disabled",
+                      relief="flat", wrap="word", state="disabled", width=1, height=1,
                       font=("Consolas", 10), yscrollcommand=scroll.set)
         box.pack(side="left", fill="both", expand=True)
         scroll.configure(command=box.yview)
-        panes.add(frame, stretch="always")
         return box
 
-    boxes = {"bot": pane("Bot"), "site": pane("Site"), "wiki": pane("Wiki"),
-             "absLogin": pane("absLogin")}
+    # Bot first, then the servers in port order.
+    boxes = {"bot": pane("Bot", 0, 0), "site": pane("Site (13380)", 0, 1),
+             "absLogin": pane("absLogin (13381)", 1, 0), "wiki": pane("Wiki (13382)", 1, 1)}
 
     def drain():
         while True:
@@ -369,7 +373,7 @@ def main():
             if pinned:
                 box.see("end")
         status.configure(text="   ".join(f"{s.title}: {s.status()}"
-                                         for s in (supervisor, wiki, abs_login)))
+                                         for s in (supervisor, abs_login, wiki)))
         root.after(100, drain)
 
     def on_close():

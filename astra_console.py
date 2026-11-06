@@ -15,11 +15,12 @@ requests channel.
 
 The right-hand Decisions panel lists the classifier service's final
 decisions (most recent first, up to 50), with a search box and an
-approve button and a disagree button on each row. It polls the
-classifier service on loopback (TASKS_CLASSIFIER_URL, default
-http://127.0.0.1:13383), and the panel says so while the service is
-not running. A ruling is saved by the service as a training label and
-takes effect at once through the overrides file.
+approve button and a disagree button on each row. It does not poll:
+the console watches the classifier's own output, and when the
+service logs a new numbered decision the panel fetches the list
+once. It also fetches when the classifier starts, and shows "not
+running" when it stops. A ruling is saved by the service as a
+training label and takes effect at once through the overrides file.
 
 "Pull + Restart" fast-forwards every repo, then restarts the bot,
 wiki backend and absLogin. It does not pull AstraThought, so it does
@@ -291,7 +292,6 @@ def pull_and_restart(bot, services):
 CLASSIFIER_URL = os.environ.get(
     "TASKS_CLASSIFIER_URL", "http://127.0.0.1:13383").rstrip("/")
 DECISIONS_LIMIT = 50
-DECISIONS_POLL_SECONDS = 2
 
 
 def fetch_decisions(base_url=CLASSIFIER_URL, timeout=2):
@@ -646,10 +646,37 @@ def main():
         if search_entry.cget("fg") == outline else None,
         search_entry.configure(fg=text_colour)))
 
-    def poll_decisions():
-        while True:
-            lines.put(("__decisions__", fetch_decisions()))
-            time.sleep(DECISIONS_POLL_SECONDS)
+    # The console does not poll for decisions. The classifier logs
+    # each numbered decision to its own output, which flows through
+    # here, so a decision line is the trigger to fetch once. A fetch
+    # is also triggered when the classifier starts (its registry is
+    # empty until then) and skipped while one is already running or
+    # one ran less than a second ago, so one message with several
+    # pieces causes a single fetch. Retries cover the service still
+    # binding after a start; a fetch that never succeeds leaves the
+    # last snapshot alone.
+    DECISION_LINE = re.compile(r"^\s*#\d+ \[")
+    fetch_state = {"pending": False, "last": 0.0}
+
+    def trigger_decisions_fetch():
+        now = time.monotonic()
+        if fetch_state["pending"] or now - fetch_state["last"] < 1:
+            return
+        fetch_state["pending"] = True
+
+        def work():
+            snapshot = None
+            for _ in range(5):
+                snapshot = fetch_decisions()
+                if snapshot is not None:
+                    break
+                time.sleep(1)
+            fetch_state["pending"] = False
+            fetch_state["last"] = time.monotonic()
+            if snapshot is not None:
+                lines.put(("__decisions__", snapshot))
+
+        in_background(work)
 
     def drain():
         while True:
@@ -664,6 +691,12 @@ def main():
             if stream == "__decision_note__":
                 note.configure(text=line)
                 continue
+            if stream == "classifier":
+                if DECISION_LINE.match(line) or "Starting classifier" in line:
+                    trigger_decisions_fetch()
+                elif "stopped, exit code" in line or "not restarting" in line:
+                    decisions_state["snapshot"] = None
+                    render_decisions()
             box = boxes[stream]
             pinned = box.yview()[1] >= 0.999  # do not yank a scrolled-up view
             box.configure(state="normal")
@@ -701,7 +734,6 @@ def main():
         missing = next(path for path in classifier_files if not path.is_file())
         emit("classifier", f"Not found, so not started: {missing}")
     render_decisions()
-    threading.Thread(target=poll_decisions, daemon=True).start()
     drain()
     root.mainloop()
 

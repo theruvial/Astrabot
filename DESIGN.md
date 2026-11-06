@@ -39,6 +39,7 @@ The bot runs on Thea's **Windows host at 192.168.4.80**. Local checkout: `G:\My 
 - **Logging:** `bot.py` calls `discord.utils.setup_logging(level=logging.INFO)`, because `bot.start()` (unlike `bot.run()`) configures none and INFO lines were dropped. The console sends `audiobooks*` and `aiohttp*` loggers to the Site pane; `aiohttp.access` lines are request logs.
 - **No process killing on startup (2026-11-05):** the kill step was removed at Thea's request. Running a launcher while a bot is up gives two bots, so stop the old one first. `git pull -q` keeps startup quiet but still shows errors.
 - **Logs are untracked:** `logs/` and `crash.log` are in `.gitignore` — never commit them.
+- **Databases are untracked (2026-11-05):** `audiobooks.db` and `thi.db` are in `.gitignore`. While tracked, a stash and checkout at 18:20 on 2026-11-05 swapped the live `audiobooks.db` for the empty committed copy. The data was restored from stash `7c01756`; do not drop that stash until the restore is confirmed live. Stopping tracking through a branch merge deletes the working file, so do that kind of change in the host checkout.
 - **Host bot.py divergence (important):** the host's `bot.py` has a local change — the `cogs.clip` line is commented out. Pulling `master` may conflict on `bot.py`; re-comment clip in the new file if git complains. **Never push the staging/host bot.py.**
 - **Restart to go live:** every code change pushed to `master` needs a `git pull` + bot restart on the host to take effect. The self-update watcher (see §6) hot-reloads *cog* changes only — never `bot.py` or `config.json`.
 - **Host pull quirk (seen 2026-11-05):** the host's local branch still tracks `audiobook-requests`, so a plain `git pull` fails with "Your configuration specifies to merge with the ref 'refs/heads/audiobook-requests' … but no such ref was fetched." Fix: `git checkout master` first, then `git pull`.
@@ -258,4 +259,5 @@ Newest first. One dated entry per working day, by the agent that did the work.
 - **Added** INFO logging in `bot.py` and the reload-flag watcher in `cogs/moderation.py`.
 - **Replaced** the per-guild command filter with cog-declared scope; `/email_user` is private-guild only (§3). `/reloadcog` no longer copies global commands into the guild.
 - **Added this document to the repo** as `DESIGN.md`, with `CLAUDE.md` pointing agents to it.
+- **Restored `audiobooks.db`** (3 users, 3 sessions, 4 requests) from stash `7c01756` and stopped tracking both databases (§2).
 - **Tested:** unit tests; the launcher and the real console window against fake bot and wiki processes. **Not tested:** live Discord sync, a real cog reload on the host, or the real wiki backend.

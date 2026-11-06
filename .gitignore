@@ -7,3 +7,5 @@ cogs/__pycache__
 config.json
 logs/
 crash.log
+audiobooks.db
+thi.db

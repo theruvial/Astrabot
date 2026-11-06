@@ -6,7 +6,7 @@ the host ``bot.py`` has a local change (the ``cogs.clip`` line is
 commented out) and the self-update watcher never reloads ``bot.py``.
 
 How it works:
-- The cog watches one channel, mcdungeons #general
+- The cog watches one channel, mcdungeons #astra-feedback
   (``WATCH_CHANNEL_ID``). Every message there is sent to the
   AstraThought classifier service on loopback
   (``TASKS_CLASSIFIER_URL``, default ``http://127.0.0.1:13383``),
@@ -19,16 +19,18 @@ How it works:
 - ``auto_task`` pieces become wiki tasks (POST /api/tasks on the
   wiki backend, ``WIKI_API_URL`` default ``http://127.0.0.1:13382``,
   header ``X-Astra-Wiki-Key``) and are posted as embeds in
-  #astra-feedback with Claim / Unclaim (toggle), In Progress, Done,
+  #todo (``TODO_CHANNEL_ID``) with Claim / Unclaim (toggle), In Progress, Done,
   Not a Task. Several people can claim the same task; the Claim
   button adds you to the assignees, and clicking it again removes
   you (unclaims you).
 - ``review`` pieces are posted as amber "Needs review" embeds in
-  #astra-feedback, with a public thread created on the message for
-  discussion. They do NOT become wiki tasks until a human rules.
-  "Is a task" creates the wiki task, edits the parent message in
-  place into the confirmed task embed, and deletes the thread.
-  "Not a task" deletes the parent message and the thread.
+  #human-intervention (``REVIEW_CHANNEL_ID``), with a public thread
+  created on the message for discussion. They do NOT become wiki
+  tasks until a human rules. "Is a task" creates the wiki task,
+  posts the confirmed task embed in #todo, and deletes the review
+  message and its thread. If #todo cannot be reached, the review
+  message is edited in place instead, so the task is never lost.
+  "Not a task" deletes the review message and the thread.
 - ``auto_drop`` pieces are dropped. Silence is not a label.
 
 Buttons and restarts:
@@ -62,8 +64,8 @@ Labels and retraining:
   since the last retrain (marker file
   ``data/task_labels_last_retrain.json``).
 
-Permissions: everything in #astra-feedback is team-wide. Anyone
-who can see the channel can rule on a review item ("Is a task" /
+Permissions: #todo and #human-intervention are team-wide. Anyone
+who can see a channel can rule on a review item ("Is a task" /
 "Not a task"), use Claim / Unclaim, In Progress and Done, and use
 the slash commands /task_add, /task_edit, /task_delete,
 /task_done, /task_start, /task_list and /task_stats. The buttons
@@ -94,6 +96,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import aiohttp
 import discord
@@ -102,8 +105,9 @@ from discord.ext import commands
 
 log = logging.getLogger("tasks")
 
-WATCH_CHANNEL_ID = 1407601803536760905
-FEEDBACK_CHANNEL_ID = 1568142915631325355
+WATCH_CHANNEL_ID = 1568142915631325355  # #astra-feedback
+TODO_CHANNEL_ID = 1568332728573759621  # #todo
+REVIEW_CHANNEL_ID = 1568329972928610546  # #human-intervention
 
 DEFAULT_WIKI_API_URL = "http://127.0.0.1:13382"
 DEFAULT_CLASSIFIER_URL = "http://127.0.0.1:13383"
@@ -217,7 +221,7 @@ def build_task_embed(
     assignees: list[str] | None = None,
     score: float | None = None,
 ) -> discord.Embed:
-    """Embed for a confirmed task in #astra-feedback."""
+    """Embed for a confirmed task in #todo."""
     embed = discord.Embed(
         title=piece[:256],
         color=STATUS_COLORS.get(status, discord.Color.green()),
@@ -235,7 +239,7 @@ def build_task_embed(
         author_name = getattr(author, "display_name", None) or str(author or "unknown")
         if jump:
             embed.add_field(name="Source", value=f"[Original message]({jump}) by {author_name}", inline=False)
-        else:
+        elif author is not None:
             embed.add_field(name="Source", value=f"by {author_name}", inline=False)
     footer_parts = []
     if wiki_task_id:
@@ -359,7 +363,7 @@ class _ReviewView(discord.ui.View):
 
 
 class Tasks(commands.Cog):
-    """Watch #general, classify with the local model, post tasks."""
+    """Watch #astra-feedback, classify with the local model, post tasks."""
 
     def __init__(self, bot, *, config_override=None, labels_path=None,
                  overrides_path=None, state_path=None, retrain_marker_path=None):
@@ -526,16 +530,17 @@ class Tasks(commands.Cog):
         })
         return payload.get("task") or {}
 
-    def _feedback_channel(self):
+    def _channel(self, channel_id: int):
         if self.bot is None:
             return None
-        return self.bot.get_channel(FEEDBACK_CHANNEL_ID)
+        return self.bot.get_channel(channel_id)
 
     async def _post_task_embed(self, *, piece: str, task: dict,
-                               source_message, score: float | None):
-        channel = self._feedback_channel()
+                               source_message, score: float | None,
+                               trigger: str = "none"):
+        channel = self._channel(TODO_CHANNEL_ID)
         if channel is None:
-            log.warning("Feedback channel %s not found", FEEDBACK_CHANNEL_ID)
+            log.warning("Todo channel %s not found", TODO_CHANNEL_ID)
             return None
         embed = build_task_embed(
             piece,
@@ -552,7 +557,7 @@ class Tasks(commands.Cog):
             "source_message_id": getattr(source_message, "id", None),
             "piece": piece,
             "score": score,
-            "trigger": "none",
+            "trigger": trigger,
             "thread_id": None,
             "status": task.get("status") or "open",
         }
@@ -561,9 +566,9 @@ class Tasks(commands.Cog):
 
     async def _post_review_embed(self, *, piece: str, score: float | None,
                                  trigger: str, source_message):
-        channel = self._feedback_channel()
+        channel = self._channel(REVIEW_CHANNEL_ID)
         if channel is None:
-            log.warning("Feedback channel %s not found", FEEDBACK_CHANNEL_ID)
+            log.warning("Review channel %s not found", REVIEW_CHANNEL_ID)
             return None
         embed = build_review_embed(piece, score, trigger, source_message)
         message = await channel.send(embed=embed, view=_ReviewView(self))
@@ -580,6 +585,8 @@ class Tasks(commands.Cog):
             "kind": "review",
             "wiki_task_id": None,
             "source_message_id": getattr(source_message, "id", None),
+            "source_url": getattr(source_message, "jump_url", None),
+            "source_author": getattr(getattr(source_message, "author", None), "display_name", None),
             "piece": piece,
             "score": score,
             "trigger": trigger,
@@ -770,7 +777,7 @@ class Tasks(commands.Cog):
             try:
                 task = await self._create_wiki_task(
                     title=piece,
-                    description=f"Reviewed in #astra-feedback, source message {source_id}",
+                    description=f"Reviewed in #human-intervention, source message {source_id}",
                     created_by=interaction.user.id,
                 )
             except WikiApiError as exc:
@@ -780,7 +787,30 @@ class Tasks(commands.Cog):
                 text=piece, label=1, source_message_id=source_id,
                 score=score, trigger=trigger, reviewer_id=interaction.user.id,
             )
+            source = SimpleNamespace(
+                id=source_id,
+                jump_url=record.get("source_url"),
+                author=(SimpleNamespace(display_name=record["source_author"])
+                        if record.get("source_author") else None),
+            )
+            posted = None
+            try:
+                posted = await self._post_task_embed(
+                    piece=piece, task=task, source_message=source,
+                    score=score, trigger=trigger,
+                )
+            except Exception as exc:  # noqa: BLE001 - fall back below so the task is not lost
+                log.warning("Could not post confirmed task to #todo: %s", exc)
             await self._delete_thread(thread_id)
+            if posted is not None:
+                self.state.pop(str(message.id), None)
+                self._save_state()
+                try:
+                    await message.delete()
+                except Exception as exc:  # noqa: BLE001 - the task is safe in #todo
+                    log.warning("Could not delete review message: %s", exc)
+                await interaction.followup.send("Created as a task in #todo.", ephemeral=True)
+                return
             self.state[str(message.id)] = {
                 "kind": "task",
                 "wiki_task_id": task.get("id"),
@@ -800,7 +830,10 @@ class Tasks(commands.Cog):
                 ),
                 view=_TaskView(self),
             )
-            await interaction.followup.send("Created as a task.", ephemeral=True)
+            await interaction.followup.send(
+                "Created as a task, but #todo could not be reached, so it stayed here.",
+                ephemeral=True,
+            )
             return
         self._append_label(
             text=piece, label=0, source_message_id=source_id,

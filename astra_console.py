@@ -1,8 +1,9 @@
-"""Astrabot console: run the bot, site and wiki backend, watch output.
+"""Astrabot console: run the bot, site, wiki and absLogin, watch output.
 
-Run with startConsole.bat. This window owns the bot and wiki backend
-processes, so it replaces startBot.bat and any hand-started server.py:
-never run those alongside it.
+Run with startConsole.bat. This window owns the bot, wiki backend and
+absLogin processes, so it replaces startBot.bat and any hand-started
+server.py or app.py: never run those alongside it. absLogin needs
+ABS_API_KEY set (e.g. via setx) before this runs.
 
 The audiobook site is hosted by the audiobooks cog, so it only runs
 while the bot does: "Restart Bot" restarts it too. "Restart Site"
@@ -10,14 +11,14 @@ reloads that cog in the running bot (through logs/reload_cog.flag, see
 cogs/moderation.py) and, like any load of that cog, rebuilds the
 requests channel.
 
-"Pull + Restart" fast-forwards every repo, then restarts the bot and
-wiki backend. If any pull fails nothing is restarted. absLogin is
-pulled too, but it runs in its own window and is not restarted here.
+"Pull + Restart" fast-forwards every repo, then restarts the bot,
+wiki backend and absLogin. If any pull fails nothing is restarted.
 
 Crash handling matches startBot.bat: restart after 10 seconds, give up
 after 5 crashes in a row, stay stopped after a clean exit. Output goes
-to logs/bot.log or logs/wiki.log, and start/stop lines of both go to
-logs/crashes.log. The wiki backend gets the same crash handling.
+to logs/bot.log, logs/wiki.log or logs/absLogin.log, and start/stop
+lines of all three go to logs/crashes.log. The wiki backend and
+absLogin get the same crash handling as the bot.
 """
 
 import os
@@ -42,6 +43,9 @@ STABLE_SECONDS = 60
 MAX_PANE_LINES = 5000
 
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+# Every service appends to the same crashes.log.
+CRASH_LOG_LOCK = threading.Lock()
 
 LOG_LINE = re.compile(r"^\[[^\]]*\] \[[A-Z]+\s*\] ")
 SITE_LINE = re.compile(r"^\[[^\]]*\] \[[A-Z]+\s*\] (aiohttp|audiobooks)\b")
@@ -86,11 +90,18 @@ class Supervisor:
         self._waiting = False
         self._thread = threading.Thread(target=self._run, daemon=True)
 
+    @property
+    def title(self):
+        return self.name[0].upper() + self.name[1:]
+
     # -- controls ------------------------------------------------------
     def start(self):
         self._thread.start()
 
     def restart(self):
+        if self.name != "bot" and not self._thread.is_alive():
+            self._say(self.name, f"{self.title} was not found at startup, so it cannot restart.")
+            return
         self._say(self.name, f"Restarting {self.name}.")
         with self._lock:
             self._want_running = True
@@ -120,7 +131,7 @@ class Supervisor:
         self.emit(stream, f"[{datetime.now():%H:%M:%S}] {text}")
 
     def _record(self, text):
-        with open(self.log_dir / "crashes.log", "a", encoding="utf-8") as handle:
+        with CRASH_LOG_LOCK, open(self.log_dir / "crashes.log", "a", encoding="utf-8") as handle:
             handle.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {text}\n")
 
     @staticmethod
@@ -161,7 +172,7 @@ class Supervisor:
         code = proc.wait()
         with self._lock:
             self._proc = None
-        message = f"{self.name.capitalize()} stopped, exit code {code}"
+        message = f"{self.title} stopped, exit code {code}"
         self._record(message)
         self._say(self.name, message + ".")
         return code
@@ -192,7 +203,7 @@ class Supervisor:
             if crashes >= MAX_CRASHES:
                 self._want_running = False
                 crashes = 0
-                message = (f"{self.name.capitalize()} crashed {MAX_CRASHES} "
+                message = (f"{self.title} crashed {MAX_CRASHES} "
                            "times in a row - not restarting.")
                 self._record(message)
                 self._say(self.name, message + " Press Restart when it is fixed.")
@@ -262,6 +273,11 @@ def wiki_supervisor(emit):
                       ROOT / "logs")
 
 
+def abslogin_supervisor(emit):
+    return Supervisor(emit, "absLogin", ABSLOGIN_DIR, [python_exe(), "-u", "app.py"],
+                      ROOT / "logs")
+
+
 def main():
     import tkinter as tk
     from tkinter import messagebox
@@ -271,7 +287,7 @@ def main():
 
     root = tk.Tk()
     root.title("Astrabot Console")
-    root.geometry("1500x750")
+    root.geometry("1800x800")
     root.configure(bg=bg)
 
     def emit(stream, line):
@@ -279,14 +295,15 @@ def main():
 
     supervisor = BotSupervisor(emit)
     wiki = wiki_supervisor(emit)
-    wiki_found = (WIKI_BACKEND / "server.py").is_file()
+    abs_login = abslogin_supervisor(emit)
+    extras = [(wiki, WIKI_BACKEND / "server.py"), (abs_login, ABSLOGIN_DIR / "app.py")]
+    services = [supervisor] + [service for service, path in extras if path.is_file()]
 
     def in_background(work):
         threading.Thread(target=work, daemon=True).start()
 
     def pull():
         pull_button.configure(state="disabled")
-        services = [supervisor, wiki] if wiki_found else [supervisor]
 
         def work():
             try:
@@ -309,7 +326,8 @@ def main():
 
     button("Restart Bot", lambda: in_background(supervisor.restart))
     button("Restart Site", supervisor.reload_site)
-    wiki_button = button("Restart Wiki", lambda: in_background(wiki.restart))
+    button("Restart Wiki", lambda: in_background(wiki.restart))
+    button("Restart absLogin", lambda: in_background(abs_login.restart))
     pull_button = button("Pull + Restart", pull)
     status = tk.Label(bar, bg=bg, fg=text_colour, font=("Segoe UI", 10))
     status.pack(side="right")
@@ -331,7 +349,8 @@ def main():
         panes.add(frame, stretch="always")
         return box
 
-    boxes = {"bot": pane("Bot"), "site": pane("Site"), "wiki": pane("Wiki")}
+    boxes = {"bot": pane("Bot"), "site": pane("Site"), "wiki": pane("Wiki"),
+             "absLogin": pane("absLogin")}
 
     def drain():
         while True:
@@ -349,23 +368,24 @@ def main():
             box.configure(state="disabled")
             if pinned:
                 box.see("end")
-        status.configure(text=f"Bot: {supervisor.status()}   Wiki: {wiki.status()}")
+        status.configure(text="   ".join(f"{s.title}: {s.status()}"
+                                         for s in (supervisor, wiki, abs_login)))
         root.after(100, drain)
 
     def on_close():
         if messagebox.askokcancel("Astrabot Console",
-                                  "Closing this window stops the bot, site and wiki. Close?"):
-            supervisor.shutdown()
-            wiki.shutdown()
+                                  "Closing this window stops the bot, site, wiki and absLogin. Close?"):
+            for service in (supervisor, wiki, abs_login):
+                service.shutdown()
             root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)
     supervisor.start()
-    if wiki_found:
-        wiki.start()
-    else:
-        wiki_button.configure(state="disabled")
-        emit("wiki", f"Wiki backend not found at {WIKI_BACKEND}")
+    for service, path in extras:
+        if path.is_file():
+            service.start()
+        else:
+            emit(service.name, f"Not found, so not started: {path}")
     drain()
     root.mainloop()
 

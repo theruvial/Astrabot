@@ -1,9 +1,11 @@
-"""Astrabot console: run the bot, site, wiki and absLogin, watch output.
+"""Astrabot console: run the bot, site, wiki, absLogin and classifier, watch output.
 
-Run with startConsole.bat. This window owns the bot, wiki backend and
-absLogin processes, so it replaces startBot.bat and any hand-started
-server.py or app.py: never run those alongside it. absLogin needs
-ABS_API_KEY set (e.g. via setx) before this runs.
+Run with startConsole.bat. This window owns the bot, wiki backend,
+absLogin and classifier processes, so it replaces startBot.bat and any
+hand-started server.py, app.py or classifier_service.py: never run those
+alongside it. absLogin needs ABS_API_KEY set (e.g. via setx) before this
+runs. The classifier runs from the AstraThought checkout with that
+repo's venv, so it can load the SetFit model the bot itself cannot.
 
 The audiobook site is hosted by the audiobooks cog, so it only runs
 while the bot does: "Restart Bot" restarts it too. "Restart Site"
@@ -11,16 +13,28 @@ reloads that cog in the running bot (through logs/reload_cog.flag, see
 cogs/moderation.py) and, like any load of that cog, rebuilds the
 requests channel.
 
+The right-hand Decisions panel lists the classifier service's final
+decisions (most recent first, up to 50), with a search box and an
+approve button and a disagree button on each row. It polls the
+classifier service on loopback (TASKS_CLASSIFIER_URL, default
+http://127.0.0.1:13383), and the panel says so while the service is
+not running. A ruling is saved by the service as a training label and
+takes effect at once through the overrides file.
+
 "Pull + Restart" fast-forwards every repo, then restarts the bot,
-wiki backend and absLogin. If any pull fails nothing is restarted.
+wiki backend and absLogin. It does not pull AstraThought, so it does
+not restart the classifier; use "Restart Classifier" for that. If any
+pull fails nothing is restarted.
 
 Crash handling matches startBot.bat: restart after 10 seconds, give up
 after 5 crashes in a row, stay stopped after a clean exit. Output goes
-to logs/bot.log, logs/wiki.log or logs/absLogin.log, and start/stop
-lines of all three go to logs/crashes.log. The wiki backend and
-absLogin get the same crash handling as the bot.
+to logs/bot.log, logs/wiki.log, logs/absLogin.log or
+logs/classifier.log, and start/stop lines of all four go to
+logs/crashes.log. The wiki backend, absLogin and classifier get the
+same crash handling as the bot.
 """
 
+import json
 import os
 import queue
 import re
@@ -28,6 +42,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -35,6 +50,9 @@ ROOT = Path(__file__).resolve().parent
 ABSLOGIN_DIR = Path(r"G:\My Drive\codingShit\absLogin")
 WIKI_DIR = Path(r"C:\codingShit\Aboard-the-Astra-Wiki")
 WIKI_BACKEND = WIKI_DIR / "Tools" / "wiki" / "backend"
+CLASSIFIER_DIR = Path(r"C:\codingShit\AstraThought")
+CLASSIFIER_SERVICE = CLASSIFIER_DIR / "classifier_service.py"
+CLASSIFIER_PYTHON = CLASSIFIER_DIR / ".venv" / "Scripts" / "python.exe"
 
 MAX_CRASHES = 5
 RESTART_DELAY = 10
@@ -268,6 +286,70 @@ def pull_and_restart(bot, services):
     return True
 
 
+# -- classifier decisions (the right-hand panel) -----------------------
+# Same env var as the tasks cog, so one setting covers both.
+CLASSIFIER_URL = os.environ.get(
+    "TASKS_CLASSIFIER_URL", "http://127.0.0.1:13383").rstrip("/")
+DECISIONS_LIMIT = 50
+DECISIONS_POLL_SECONDS = 2
+
+
+def fetch_decisions(base_url=CLASSIFIER_URL, timeout=2):
+    """GET /decisions from the classifier service.
+
+    Returns the decisions list (most recent first, up to 50), an
+    empty list when the service is up with nothing yet, or None when
+    the service cannot be reached. Never raises.
+    """
+    try:
+        with urllib.request.urlopen(base_url + "/decisions",
+                                    timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        return None
+    decisions = payload.get("decisions")
+    return decisions if isinstance(decisions, list) else None
+
+
+def rule_decision(base_url, entry_id, agree, timeout=5):
+    """POST a ruling for one decision. Returns (ok, message). Never raises."""
+    try:
+        request = urllib.request.Request(
+            f"{base_url}/decisions/{entry_id}/rule",
+            data=json.dumps({"agree": bool(agree)}).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        return False, f"Could not reach the classifier service: {exc}"
+    if isinstance(payload, dict) and payload.get("ok"):
+        return True, str(payload.get("message") or "Recorded.")
+    error = payload.get("error") if isinstance(payload, dict) else None
+    return False, str(error or "Classifier service refused the ruling.")
+
+
+def filter_decisions(decisions, query):
+    """Decisions whose text matches the search, case-insensitive."""
+    query = (query or "").strip().lower()
+    if not query:
+        return list(decisions)
+    return [d for d in decisions if query in str(d.get("text", "")).lower()]
+
+
+def decision_summary(decision):
+    """One short line for a decision: id, verdict, score, trigger, lean."""
+    label = decision.get("label")
+    if decision.get("decision") == "review":
+        verdict = "leans task" if label == 1 else "leans not a task"
+    else:
+        verdict = "says task" if label == 1 else "says not a task"
+    return (f"#{decision.get('id')} - {decision.get('decision')} - "
+            f"{float(decision.get('score') or 0):.0%} - "
+            f"{decision.get('trigger')} - {verdict}")
+
+
 def wiki_supervisor(emit):
     return Supervisor(emit, "wiki", WIKI_BACKEND, [python_exe(), "-u", "server.py"],
                       ROOT / "logs")
@@ -278,11 +360,28 @@ def abslogin_supervisor(emit):
                       ROOT / "logs")
 
 
+def classifier_supervisor(emit):
+    """The classifier runs from the AstraThought checkout, with that
+    repo's venv (torch lives there, not in the bot's Python), and from
+    that directory so ./tasks-AstraThought-v2 resolves."""
+    return Supervisor(emit, "classifier", CLASSIFIER_DIR,
+                      [str(CLASSIFIER_PYTHON), "-u", "classifier_service.py"],
+                      ROOT / "logs")
+
+
 def main():
     import tkinter as tk
     from tkinter import messagebox
 
+    # Material Design dark theme, same tokens as the audiobook
+    # requests site (cogs/audiobooks_web.py): background #141218,
+    # card #1e1b24, text #e6e0e9, primary #d0bcff on #381e72,
+    # input #2b2930 with #938f99 outline, secondary text #cac4d0,
+    # chip #4a4458, error #b3261e, dark green #274d27.
     bg, card, text_colour, accent = "#141218", "#1e1b24", "#e6e0e9", "#d0bcff"
+    topbar, input_bg, outline = "#2b2930", "#2b2930", "#938f99"
+    secondary, on_primary, chip_bg = "#cac4d0", "#381e72", "#4a4458"
+    error, ok_dark = "#b3261e", "#274d27"
     lines = queue.Queue()
 
     root = tk.Tk()
@@ -296,6 +395,7 @@ def main():
     supervisor = BotSupervisor(emit)
     wiki = wiki_supervisor(emit)
     abs_login = abslogin_supervisor(emit)
+    classifier = classifier_supervisor(emit)
     extras = [(wiki, WIKI_BACKEND / "server.py"), (abs_login, ABSLOGIN_DIR / "app.py")]
     services = [supervisor] + [service for service, path in extras if path.is_file()]
 
@@ -314,33 +414,38 @@ def main():
 
         in_background(work)
 
-    bar = tk.Frame(root, bg=bg)
-    bar.pack(fill="x", padx=10, pady=10)
+    bar = tk.Frame(root, bg=topbar)
+    bar.pack(fill="x", padx=0, pady=0)
 
     def button(label, command):
-        widget = tk.Button(bar, text=label, command=command, bg=accent, fg=bg,
+        widget = tk.Button(bar, text=label, command=command, bg=accent, fg=on_primary,
                            activebackground=text_colour, relief="flat",
                            padx=14, pady=6, font=("Segoe UI", 10, "bold"))
-        widget.pack(side="left", padx=(0, 8))
+        widget.pack(side="left", padx=(10, 0), pady=10)
         return widget
 
     button("Restart Bot", lambda: in_background(supervisor.restart))
     button("Restart Site", supervisor.reload_site)
     button("Restart absLogin", lambda: in_background(abs_login.restart))
     button("Restart Wiki", lambda: in_background(wiki.restart))
+    button("Restart Classifier", lambda: in_background(classifier.restart))
     pull_button = button("Pull + Restart", pull)
-    status = tk.Label(bar, bg=bg, fg=text_colour, font=("Segoe UI", 10))
-    status.pack(side="right")
+    status = tk.Label(bar, bg=topbar, fg=text_colour, font=("Segoe UI", 10))
+    status.pack(side="right", padx=10, pady=10)
 
-    grid = tk.Frame(root, bg=bg)
-    grid.pack(fill="both", expand=True, padx=6, pady=(0, 6))
+    body = tk.Frame(root, bg=bg)
+    body.pack(fill="both", expand=True)
+    grid = tk.Frame(body, bg=bg)
+    grid.pack(side="left", fill="both", expand=True, padx=6, pady=(0, 6))
     for index in (0, 1):
-        grid.rowconfigure(index, weight=1, uniform="pane")
+        grid.rowconfigure(index, weight=3, uniform="pane")
         grid.columnconfigure(index, weight=1, uniform="pane")
+    grid.rowconfigure(2, weight=2)
 
-    def pane(title, row, column):
+    def pane(title, row, column, columnspan=1):
         frame = tk.Frame(grid, bg=bg)
-        frame.grid(row=row, column=column, sticky="nsew", padx=4, pady=4)
+        frame.grid(row=row, column=column, columnspan=columnspan,
+                   sticky="nsew", padx=4, pady=4)
         tk.Label(frame, text=title, bg=bg, fg=accent, anchor="w",
                  font=("Segoe UI", 10, "bold")).pack(fill="x")
         scroll = tk.Scrollbar(frame)
@@ -352,9 +457,199 @@ def main():
         scroll.configure(command=box.yview)
         return box
 
-    # Bot first, then the servers in port order.
+    # Bot first, then the servers in port order. The classifier gets a
+    # shorter row of its own at the bottom: its log is the thought
+    # process, worth watching, but quieter than the bot.
     boxes = {"bot": pane("Bot", 0, 0), "site": pane("Site (13380)", 0, 1),
-             "absLogin": pane("absLogin (13381)", 1, 0), "wiki": pane("Wiki (13382)", 1, 1)}
+             "absLogin": pane("absLogin (13381)", 1, 0), "wiki": pane("Wiki (13382)", 1, 1),
+             "classifier": pane("Classifier (13383)", 2, 0, columnspan=2)}
+
+    # -- decisions panel (right-hand sidebar) --------------------------
+    # Most recent first, up to 50, with a search box. Each row is a
+    # card with the decision text, a chip with id / verdict / score /
+    # trigger / lean, and an approve button (check mark) and a
+    # disagree button (X). A ruling is saved by the classifier
+    # service as a training label at once.
+    sidebar = tk.Frame(body, bg=bg, width=400)
+    sidebar.pack(side="right", fill="y", padx=(0, 6), pady=(0, 6))
+    sidebar.pack_propagate(False)
+    tk.Label(sidebar, text="Decisions", bg=bg, fg=accent, anchor="w",
+             font=("Segoe UI", 10, "bold")).pack(fill="x", pady=(4, 2))
+    decisions_status = tk.Label(sidebar, text="Classifier: checking...",
+                                bg=bg, fg=secondary, anchor="w",
+                                font=("Segoe UI", 9))
+    decisions_status.pack(fill="x")
+
+    search_row = tk.Frame(sidebar, bg=bg)
+    search_row.pack(fill="x", pady=(6, 4))
+    search_entry = tk.Entry(search_row, bg=input_bg, fg=text_colour,
+                            insertbackground=text_colour, relief="flat",
+                            highlightthickness=1, highlightbackground=outline,
+                            highlightcolor=accent, font=("Segoe UI", 10))
+    search_entry.pack(side="left", fill="x", expand=True, ipady=4)
+    search_entry.insert(0, "Search decisions...")
+    search_entry.configure(fg=outline)
+
+    def clear_search():
+        search_entry.delete(0, "end")
+        search_entry.configure(fg=text_colour)
+        render_decisions()
+
+    tk.Button(search_row, text="\u00d7", command=clear_search,
+              bg=chip_bg, fg=text_colour, relief="flat",
+              font=("Segoe UI", 10, "bold")).pack(side="left", padx=(6, 0))
+
+    note = tk.Label(sidebar, text="", bg=bg, fg=secondary, anchor="w",
+                    font=("Segoe UI", 9), wraplength=380, justify="left")
+    note.pack(fill="x")
+
+    list_canvas = tk.Canvas(sidebar, bg=bg, highlightthickness=0)
+    list_scroll = tk.Scrollbar(sidebar, command=list_canvas.yview)
+    list_scroll.pack(side="right", fill="y")
+    list_canvas.pack(side="left", fill="both", expand=True)
+    list_canvas.configure(yscrollcommand=list_scroll.set)
+    list_frame = tk.Frame(list_canvas, bg=bg)
+    list_window = list_canvas.create_window((0, 0), window=list_frame, anchor="nw")
+    list_frame.bind("<Configure>",
+                    lambda e: list_canvas.configure(scrollregion=list_canvas.bbox("all")))
+    list_canvas.bind("<Configure>",
+                     lambda e: list_canvas.itemconfigure(list_window, width=e.width))
+
+    def scroll_decisions(event):
+        steps = -1 if event.delta > 0 else 1
+        list_canvas.yview_scroll(steps, "units")
+
+    def bind_wheel(widget):
+        widget.bind("<MouseWheel>", scroll_decisions)
+        for child in widget.winfo_children():
+            bind_wheel(child)
+
+    decisions_state = {"snapshot": None, "query": "",
+                       "render_key": None, "ruling": set()}
+
+    def render_decisions():
+        snapshot = decisions_state["snapshot"]
+        query = decisions_state["query"]
+        if snapshot is None:
+            visible = None
+        else:
+            visible = filter_decisions(snapshot, query)
+        key = (None if snapshot is None else
+               tuple((d.get("id"), d.get("ruled_label")) for d in visible),
+               query)
+        if key == decisions_state["render_key"]:
+            return
+        decisions_state["render_key"] = key
+        if snapshot is None:
+            decisions_status.configure(text="Classifier: not running")
+        else:
+            decisions_status.configure(
+                text=f"Classifier: running - {len(snapshot)} decision(s)")
+        for child in list_frame.winfo_children():
+            child.destroy()
+        if snapshot is None:
+            tk.Label(list_frame,
+                     text="Classifier service is not running.\nStart "
+                          "classifier_service.py and decisions will "
+                          "appear here.",
+                     bg=bg, fg=secondary, font=("Segoe UI", 10),
+                     wraplength=360, justify="left", anchor="w").pack(
+                         fill="x", padx=6, pady=8)
+        elif not snapshot:
+            tk.Label(list_frame, text="No decisions yet. They appear here "
+                                      "as the bot classifies messages.",
+                     bg=bg, fg=secondary, font=("Segoe UI", 10),
+                     wraplength=360, justify="left", anchor="w").pack(
+                         fill="x", padx=6, pady=8)
+        elif not visible:
+            tk.Label(list_frame, text=f"No decisions match '{query}'.",
+                     bg=bg, fg=secondary, font=("Segoe UI", 10),
+                     wraplength=360, justify="left", anchor="w").pack(
+                         fill="x", padx=6, pady=8)
+        else:
+            for decision in visible:
+                entry_id = decision.get("id")
+                ruled = decision.get("ruled_label")
+                card_frame = tk.Frame(list_frame, bg=card)
+                card_frame.pack(fill="x", padx=6, pady=4)
+                inner = tk.Frame(card_frame, bg=card)
+                inner.pack(fill="x", padx=10, pady=8)
+                tk.Label(inner, text=str(decision.get("text", "")),
+                         bg=card, fg=text_colour, font=("Segoe UI", 10),
+                         wraplength=340, justify="left", anchor="w").pack(
+                             fill="x")
+                tk.Label(inner, text=decision_summary(decision),
+                         bg=chip_bg, fg=text_colour, font=("Segoe UI", 9),
+                         padx=6, pady=2).pack(anchor="w", pady=(6, 0))
+                if decision.get("reason"):
+                    tk.Label(inner, text=str(decision.get("reason")),
+                             bg=card, fg=secondary, font=("Segoe UI", 9),
+                             wraplength=340, justify="left", anchor="w").pack(
+                                 fill="x", pady=(4, 0))
+                buttons = tk.Frame(inner, bg=card)
+                buttons.pack(fill="x", pady=(8, 0))
+                if ruled is None:
+                    approve = tk.Button(buttons, text="\u2713",
+                                        bg=ok_dark, fg="#ffffff", relief="flat",
+                                        font=("Segoe UI", 11, "bold"), width=3)
+                    disagree = tk.Button(buttons, text="\u2715",
+                                         bg=error, fg="#ffffff", relief="flat",
+                                         font=("Segoe UI", 11, "bold"), width=3)
+                    approve.pack(side="left", padx=(0, 6))
+                    disagree.pack(side="left")
+                    if entry_id in decisions_state["ruling"]:
+                        approve.configure(state="disabled")
+                        disagree.configure(state="disabled")
+
+                    def rule_clicked(entry_id=entry_id, agree=True,
+                                     approve=approve, disagree=disagree):
+                        approve.configure(state="disabled")
+                        disagree.configure(state="disabled")
+                        decisions_state["ruling"].add(entry_id)
+
+                        def work():
+                            ok, message = rule_decision(
+                                CLASSIFIER_URL, entry_id, agree)
+                            lines.put(("__decision_note__",
+                                       message if ok else
+                                       f"Ruling failed: {message}"))
+                            decisions_state["ruling"].discard(entry_id)
+                            lines.put(("__decisions__", fetch_decisions()))
+
+                        in_background(work)
+
+                    # Bind the current rule_clicked now: a bare closure
+                    # over the loop variable would call the last row's
+                    # function for every button.
+                    approve.configure(command=lambda rc=rule_clicked: rc(agree=True))
+                    disagree.configure(command=lambda rc=rule_clicked: rc(agree=False))
+                else:
+                    tk.Label(buttons,
+                             text=("Recorded as a task" if ruled == 1 else
+                                   "Recorded as not a task"),
+                             bg=card, fg=secondary,
+                             font=("Segoe UI", 9, "italic")).pack(side="left")
+        bind_wheel(sidebar)
+        list_canvas.configure(scrollregion=list_canvas.bbox("all"))
+
+    def on_search_key(event):
+        if search_entry.cget("fg") == outline:
+            search_entry.configure(fg=text_colour)
+        decisions_state["query"] = search_entry.get()
+        decisions_state["render_key"] = None
+        list_canvas.yview_moveto(0)
+        render_decisions()
+
+    search_entry.bind("<KeyRelease>", on_search_key)
+    search_entry.bind("<FocusIn>", lambda e: (
+        search_entry.delete(0, "end")
+        if search_entry.cget("fg") == outline else None,
+        search_entry.configure(fg=text_colour)))
+
+    def poll_decisions():
+        while True:
+            lines.put(("__decisions__", fetch_decisions()))
+            time.sleep(DECISIONS_POLL_SECONDS)
 
     def drain():
         while True:
@@ -362,6 +657,13 @@ def main():
                 stream, line = lines.get_nowait()
             except queue.Empty:
                 break
+            if stream == "__decisions__":
+                decisions_state["snapshot"] = line
+                render_decisions()
+                continue
+            if stream == "__decision_note__":
+                note.configure(text=line)
+                continue
             box = boxes[stream]
             pinned = box.yview()[1] >= 0.999  # do not yank a scrolled-up view
             box.configure(state="normal")
@@ -373,13 +675,15 @@ def main():
             if pinned:
                 box.see("end")
         status.configure(text="   ".join(f"{s.title}: {s.status()}"
-                                         for s in (supervisor, abs_login, wiki)))
+                                         for s in (supervisor, abs_login, wiki,
+                                                   classifier)))
         root.after(100, drain)
 
     def on_close():
         if messagebox.askokcancel("Astrabot Console",
-                                  "Closing this window stops the bot, site, wiki and absLogin. Close?"):
-            for service in (supervisor, wiki, abs_login):
+                                  "Closing this window stops the bot, site, wiki, "
+                                  "absLogin and classifier. Close?"):
+            for service in (supervisor, wiki, abs_login, classifier):
                 service.shutdown()
             root.destroy()
 
@@ -390,6 +694,14 @@ def main():
             service.start()
         else:
             emit(service.name, f"Not found, so not started: {path}")
+    classifier_files = [CLASSIFIER_SERVICE, CLASSIFIER_PYTHON]
+    if all(path.is_file() for path in classifier_files):
+        classifier.start()
+    else:
+        missing = next(path for path in classifier_files if not path.is_file())
+        emit("classifier", f"Not found, so not started: {missing}")
+    render_decisions()
+    threading.Thread(target=poll_decisions, daemon=True).start()
     drain()
     root.mainloop()
 

@@ -19,7 +19,10 @@ How it works:
 - ``auto_task`` pieces become wiki tasks (POST /api/tasks on the
   wiki backend, ``WIKI_API_URL`` default ``http://127.0.0.1:13382``,
   header ``X-Astra-Wiki-Key``) and are posted as embeds in
-  #astra-feedback with Claim / In Progress / Done / Not a Task.
+  #astra-feedback with Claim / Unclaim (toggle), In Progress, Done,
+  Not a Task. Several people can claim the same task; the Claim
+  button adds you to the assignees, and clicking it again removes
+  you (unclaims you).
 - ``review`` pieces are posted as amber "Needs review" embeds in
   #astra-feedback, with a public thread created on the message for
   discussion. They do NOT become wiki tasks until a human rules.
@@ -64,7 +67,9 @@ Permissions:
   config admin IDs, guild owner, or bot owner, the same check as
   the audiobooks cog. Thea is the label authority and the reviewer
   list is still open, so the narrow default is deliberate.
-- Claim / In Progress / Done are team-wide. Slash commands:
+- Claim / Unclaim, In Progress and Done are team-wide. Claim is a
+  toggle: it adds the clicker to the task's assignees, and a second
+  click by the same person removes them again. Slash commands:
   /task_add, /task_edit and /task_delete are admin-only;
   /task_done, /task_start, /task_list and /task_stats are team-wide.
 
@@ -218,7 +223,7 @@ def build_task_embed(
     status: str = "open",
     wiki_task_id: str | None = None,
     source_message: object | None = None,
-    assignee: str | None = None,
+    assignees: list[str] | None = None,
     score: float | None = None,
 ) -> discord.Embed:
     """Embed for a confirmed task in #astra-feedback."""
@@ -229,8 +234,8 @@ def build_task_embed(
     embed.add_field(name="Status", value=status, inline=True)
     if wiki_task_id:
         embed.add_field(name="Task ID", value=wiki_task_id, inline=True)
-    if assignee:
-        embed.add_field(name="Assignee", value=assignee, inline=True)
+    if assignees:
+        embed.add_field(name="Assignees", value=", ".join(assignees), inline=True)
     if score is not None:
         embed.add_field(name="Model score", value=f"{score:.0%}", inline=True)
     if source_message is not None:
@@ -300,6 +305,22 @@ def _embed_source_id(embed) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _task_assignees(task: dict) -> list[str]:
+    """Names assigned to a wiki task.
+
+    Prefers the "assignees" list; falls back to the legacy single
+    "assignee" string so tasks written before the list existed still
+    show who claimed them.
+    """
+    raw = task.get("assignees")
+    if isinstance(raw, list):
+        names = [str(n).strip() for n in raw if str(n).strip()]
+        if names:
+            return names
+    legacy = str(task.get("assignee", "") or "").strip()
+    return [legacy] if legacy else []
+
+
 class _TaskView(discord.ui.View):
     """Buttons on a confirmed task. Persistent: timeout=None."""
 
@@ -307,7 +328,7 @@ class _TaskView(discord.ui.View):
         super().__init__(timeout=None)
         self.cog = cog
 
-    @discord.ui.button(label="Claim", style=discord.ButtonStyle.primary,
+    @discord.ui.button(label="Claim / Unclaim", style=discord.ButtonStyle.primary,
                        custom_id="tasks:claim")
     async def claim(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.cog.handle_task_button(interaction, "claim")
@@ -559,7 +580,7 @@ class Tasks(commands.Cog):
             status=task.get("status") or "open",
             wiki_task_id=task.get("id"),
             source_message=source_message,
-            assignee=task.get("assignee"),
+            assignees=_task_assignees(task),
             score=score,
         )
         message = await channel.send(embed=embed, view=_TaskView(self))
@@ -710,9 +731,27 @@ class Tasks(commands.Cog):
                 await interaction.followup.send("No wiki task linked to this message.", ephemeral=True)
                 return
             try:
+                current = await self._wiki_api("GET", f"/api/tasks/{wiki_task_id}")
+                current_task = current.get("task") or {}
+            except WikiApiError as exc:
+                await interaction.followup.send(f"Wiki backend error: {exc.error}", ephemeral=True)
+                return
+            # Claim is a toggle, and several people can claim one task.
+            # Discord shows one button label to everyone, so the button
+            # says "Claim / Unclaim" and does whichever applies to the
+            # person who clicked it.
+            name = interaction.user.display_name
+            names = _task_assignees(current_task)
+            if name in names:
+                names = [n for n in names if n != name]
+                verb = "Unclaimed."
+            else:
+                names = names + [name]
+                verb = "Claimed."
+            try:
                 task = await self._wiki_api(
                     "PATCH", f"/api/tasks/{wiki_task_id}",
-                    json={"assignee": interaction.user.display_name},
+                    json={"assignees": names},
                 )
                 task = task.get("task") or {}
             except WikiApiError as exc:
@@ -724,12 +763,12 @@ class Tasks(commands.Cog):
             await message.edit(
                 embed=build_task_embed(
                     piece, status=record["status"], wiki_task_id=wiki_task_id,
-                    assignee=task.get("assignee") or interaction.user.display_name,
+                    assignees=_task_assignees(task),
                     score=score,
                 ),
                 view=_TaskView(self),
             )
-            await interaction.followup.send("Claimed.", ephemeral=True)
+            await interaction.followup.send(verb, ephemeral=True)
             return
         status = "in_progress" if action == "in_progress" else "done"
         if not wiki_task_id:
@@ -749,7 +788,7 @@ class Tasks(commands.Cog):
         await message.edit(
             embed=build_task_embed(
                 piece, status=status, wiki_task_id=wiki_task_id,
-                assignee=task.get("assignee"), score=score,
+                assignees=_task_assignees(task), score=score,
             ),
             view=_TaskView(self),
         )
@@ -800,7 +839,7 @@ class Tasks(commands.Cog):
                 embed=build_task_embed(
                     piece, status=task.get("status") or "open",
                     wiki_task_id=task.get("id"),
-                    assignee=task.get("assignee"), score=score,
+                    assignees=_task_assignees(task), score=score,
                 ),
                 view=_TaskView(self),
             )
@@ -910,7 +949,7 @@ class Tasks(commands.Cog):
                 inline=False,
             )
         for task in tasks[:25]:
-            assignee = task.get("assignee") or "-"
+            assignee = ", ".join(_task_assignees(task)) or "-"
             embed.add_field(
                 name=f"{task.get('id')} - {task.get('title')}",
                 value=f"{task.get('status')} | {task.get('priority')} | {assignee}",
@@ -950,7 +989,7 @@ class Tasks(commands.Cog):
         title="New title",
         description="New description",
         priority="New priority",
-        assignee="New assignee",
+        assignee="New assignee (replaces the assignee list)",
     )
     @app_commands.choices(priority=[
         app_commands.Choice(name="low", value="low"),

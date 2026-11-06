@@ -20,7 +20,10 @@ review in a thread in #astra-feedback instead of being auto-posted.
 2. `auto_task` pieces become wiki tasks (POST /api/tasks on the wiki
    backend, `WIKI_API_URL` default `http://127.0.0.1:13382`, header
    `X-Astra-Wiki-Key`) and are posted to #astra-feedback
-   (1568142915631325355) with Claim / In Progress / Done / Not a Task.
+   (1568142915631325355) with Claim / Unclaim, In Progress, Done,
+   Not a Task. Claim is a toggle: it adds the clicker to the task's
+   assignees, and clicking again removes them. Several people can
+   claim the same task; the embed lists them all under Assignees.
 3. `review` pieces are posted as amber "Needs review" embeds in
    #astra-feedback, with a public thread created on the message.
    "Is a task" creates the wiki task, edits the parent message in

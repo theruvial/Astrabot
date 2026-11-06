@@ -399,24 +399,122 @@ class TaskButtonTests(unittest.TestCase):
         }
         return message
 
-    def test_claim_patches_assignee(self):
+    def _claim_fake(self, current_task, calls):
+        """Fake wiki API: GET returns the task, PATCH applies assignees."""
+        async def fake_wiki(method, path, **kwargs):
+            calls.append((method, path, kwargs.get("json")))
+            if method == "GET":
+                return {"ok": True, "task": dict(current_task)}
+            patched = dict(current_task)
+            patched["assignees"] = kwargs.get("json", {}).get("assignees", [])
+            patched["assignee"] = (
+                patched["assignees"][0] if patched["assignees"] else "")
+            return {"ok": True, "task": patched}
+        return fake_wiki
+
+    def test_claim_adds_first_assignee(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cog, bot = make_cog(tmpdir)
             message = self._task_message(cog)
             interaction = FakeInteraction(message=message)
-
-            async def fake_wiki(method, path, **kwargs):
-                self.assertEqual(method, "PATCH")
-                return {"ok": True, "task": {
-                    "id": "task-0001", "title": "fix the door",
-                    "status": "open", "assignee": "Thea"}}
-
+            calls = []
+            fake = self._claim_fake(
+                {"id": "task-0001", "title": "fix the door",
+                 "status": "open", "assignees": []}, calls)
             with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}), \
-                    patch.object(cog, "_wiki_api", side_effect=fake_wiki):
+                    patch.object(cog, "_wiki_api", side_effect=fake):
                 run(cog.handle_task_button(interaction, "claim"))
+            self.assertIn(
+                ("GET", "/api/tasks/task-0001", None), calls)
+            self.assertIn(
+                ("PATCH", "/api/tasks/task-0001", {"assignees": ["Thea"]}),
+                calls)
             self.assertEqual(len(message.edits), 1)
             values = {f.name: f.value for f in message.edits[0]["embed"].fields}
-            self.assertEqual(values.get("Assignee"), "Thea")
+            self.assertEqual(values.get("Assignees"), "Thea")
+            self.assertEqual(interaction.followup.sent[0]["content"], "Claimed.")
+
+    def test_claim_second_user_joins_list(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot = make_cog(tmpdir)
+            message = self._task_message(cog)
+            justin = FakeUser(user_id=222222, name="Justin")
+            interaction = FakeInteraction(user=justin, message=message)
+            calls = []
+            fake = self._claim_fake(
+                {"id": "task-0001", "title": "fix the door",
+                 "status": "open", "assignees": ["Thea"]}, calls)
+            with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}), \
+                    patch.object(cog, "_wiki_api", side_effect=fake):
+                run(cog.handle_task_button(interaction, "claim"))
+            self.assertIn(
+                ("PATCH", "/api/tasks/task-0001",
+                 {"assignees": ["Thea", "Justin"]}), calls)
+            values = {f.name: f.value for f in message.edits[0]["embed"].fields}
+            self.assertEqual(values.get("Assignees"), "Thea, Justin")
+
+    def test_claim_by_assigned_user_unclaims(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot = make_cog(tmpdir)
+            message = self._task_message(cog)
+            interaction = FakeInteraction(message=message)
+            calls = []
+            fake = self._claim_fake(
+                {"id": "task-0001", "title": "fix the door",
+                 "status": "open", "assignees": ["Thea"]}, calls)
+            with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}), \
+                    patch.object(cog, "_wiki_api", side_effect=fake):
+                run(cog.handle_task_button(interaction, "claim"))
+            self.assertIn(
+                ("PATCH", "/api/tasks/task-0001", {"assignees": []}), calls)
+            values = {f.name: f.value for f in message.edits[0]["embed"].fields}
+            self.assertNotIn("Assignees", values)
+            self.assertEqual(interaction.followup.sent[0]["content"], "Unclaimed.")
+
+    def test_unclaim_keeps_other_assignees(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot = make_cog(tmpdir)
+            message = self._task_message(cog)
+            justin = FakeUser(user_id=222222, name="Justin")
+            interaction = FakeInteraction(user=justin, message=message)
+            calls = []
+            fake = self._claim_fake(
+                {"id": "task-0001", "title": "fix the door",
+                 "status": "open", "assignees": ["Thea", "Justin"]}, calls)
+            with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}), \
+                    patch.object(cog, "_wiki_api", side_effect=fake):
+                run(cog.handle_task_button(interaction, "claim"))
+            self.assertIn(
+                ("PATCH", "/api/tasks/task-0001", {"assignees": ["Thea"]}),
+                calls)
+            values = {f.name: f.value for f in message.edits[0]["embed"].fields}
+            self.assertEqual(values.get("Assignees"), "Thea")
+
+    def test_claim_reads_legacy_single_assignee(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot = make_cog(tmpdir)
+            message = self._task_message(cog)
+            justin = FakeUser(user_id=222222, name="Justin")
+            interaction = FakeInteraction(user=justin, message=message)
+            calls = []
+            fake = self._claim_fake(
+                {"id": "task-0001", "title": "fix the door",
+                 "status": "open", "assignee": "Thea"}, calls)
+            with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}), \
+                    patch.object(cog, "_wiki_api", side_effect=fake):
+                run(cog.handle_task_button(interaction, "claim"))
+            self.assertIn(
+                ("PATCH", "/api/tasks/task-0001",
+                 {"assignees": ["Thea", "Justin"]}), calls)
+            values = {f.name: f.value for f in message.edits[0]["embed"].fields}
+            self.assertEqual(values.get("Assignees"), "Thea, Justin")
+
+    def test_embed_lists_multiple_assignees(self):
+        embed = build_task_embed(
+            "fix the door", wiki_task_id="task-0001",
+            assignees=["Thea", "Justin"])
+        values = {f.name: f.value for f in embed.fields}
+        self.assertEqual(values.get("Assignees"), "Thea, Justin")
 
     def test_not_task_deletes_wiki_task_and_saves_label(self):
         with tempfile.TemporaryDirectory() as tmpdir:

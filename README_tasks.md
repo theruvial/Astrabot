@@ -5,6 +5,19 @@ whether each message is a task, and posts tasks to #todo
 where the team can claim them. Borderline messages go to human
 review in a thread in #human-intervention instead of being auto-posted.
 
+## Channels
+
+All three are in mcdungeons, under Task Tracking:
+
+| Role | Channel | ID |
+|---|---|---|
+| Reads messages from | #astra-feedback | `1568142915631325355` |
+| Decisions needing a person | #human-intervention | `1568329972928610546` |
+| Confirmed tasks | #todo | `1568332728573759621` |
+
+Channel IDs are constants at the top of `cogs/tasks.py`. Changing them
+needs a bot restart. Embeds already posted elsewhere keep working.
+
 ## Files
 
 - `cogs/tasks.py`: the cog.
@@ -20,7 +33,7 @@ review in a thread in #human-intervention instead of being auto-posted.
 2. `auto_task` pieces become wiki tasks (POST /api/tasks on the wiki
    backend, `WIKI_API_URL` default `http://127.0.0.1:13382`, header
    `X-Astra-Wiki-Key`) and are posted to #todo (1568332728573759621)
-   (1568142915631325355) with Claim / Unclaim, In Progress, Done,
+   with Claim / Unclaim, In Progress, Done,
    Not a Task. Claim is a toggle: it adds the clicker to the task's
    assignees, and clicking again removes them. Several people can
    claim the same task; the embed lists them all under Assignees.

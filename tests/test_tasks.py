@@ -150,7 +150,8 @@ class FakeBot:
 
 def make_cog(tmpdir):
     bot = FakeBot()
-    bot.channels[tasks_mod.FEEDBACK_CHANNEL_ID] = FakeChannel(tasks_mod.FEEDBACK_CHANNEL_ID)
+    bot.channels[tasks_mod.TODO_CHANNEL_ID] = FakeChannel(tasks_mod.TODO_CHANNEL_ID)
+    bot.channels[tasks_mod.REVIEW_CHANNEL_ID] = FakeChannel(tasks_mod.REVIEW_CHANNEL_ID)
     cog = Tasks(
         bot,
         config_override={"admin_user_ids": [151408413744693248]},
@@ -195,7 +196,7 @@ class RoutingTests(unittest.TestCase):
     def test_auto_task_creates_wiki_task_and_posts_embed(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cog, bot = make_cog(tmpdir)
-            channel = bot.channels[tasks_mod.FEEDBACK_CHANNEL_ID]
+            channel = bot.channels[tasks_mod.TODO_CHANNEL_ID]
             message = FakeMessage(content="fix the door")
 
             async def fake_classify(text):
@@ -224,7 +225,7 @@ class RoutingTests(unittest.TestCase):
     def test_review_posts_review_embed_and_thread(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cog, bot = make_cog(tmpdir)
-            channel = bot.channels[tasks_mod.FEEDBACK_CHANNEL_ID]
+            channel = bot.channels[tasks_mod.REVIEW_CHANNEL_ID]
             message = FakeMessage(content="asteroid field is not an asteroid field")
 
             async def fake_classify(text):
@@ -248,10 +249,40 @@ class RoutingTests(unittest.TestCase):
             self.assertEqual(record["kind"], "review")
             self.assertEqual(record["thread_id"], 999)
 
+    def test_channels_are_the_agreed_ones(self):
+        self.assertEqual(tasks_mod.WATCH_CHANNEL_ID, 1568142915631325355)
+        self.assertEqual(tasks_mod.TODO_CHANNEL_ID, 1568332728573759621)
+        self.assertEqual(tasks_mod.REVIEW_CHANNEL_ID, 1568329972928610546)
+
+    def test_tasks_and_reviews_land_in_separate_channels(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot = make_cog(tmpdir)
+            message = FakeMessage(content="fix the door and maybe the wall")
+
+            async def fake_classify(text):
+                return {"ok": True, "pieces": [
+                    {"text": "fix the door", "score": 0.9, "decision": "auto_task", "trigger": "none"},
+                    {"text": "maybe the wall", "score": 0.5, "decision": "review", "trigger": "score_band"},
+                ]}
+
+            async def fake_wiki(method, path, **kwargs):
+                if method == "GET":
+                    return {"ok": True, "tasks": {"items": []}}
+                return {"ok": True, "task": {"id": "task-0005", "title": "fix the door", "status": "open"}}
+
+            with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}), \
+                    patch.object(cog, "_classify", side_effect=fake_classify), \
+                    patch.object(cog, "_wiki_api", side_effect=fake_wiki):
+                run(cog.on_message(message))
+            todo = bot.channels[tasks_mod.TODO_CHANNEL_ID].sent
+            review = bot.channels[tasks_mod.REVIEW_CHANNEL_ID].sent
+            self.assertEqual([s["embed"].title for s in todo], ["fix the door"])
+            self.assertEqual([s["embed"].title for s in review], ["Needs review"])
+
     def test_auto_drop_posts_nothing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cog, bot = make_cog(tmpdir)
-            channel = bot.channels[tasks_mod.FEEDBACK_CHANNEL_ID]
+            channel = bot.channels[tasks_mod.TODO_CHANNEL_ID]
             message = FakeMessage(content="hi")
 
             async def fake_classify(text):
@@ -268,7 +299,7 @@ class RoutingTests(unittest.TestCase):
     def test_wrong_channel_and_bot_messages_ignored(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cog, bot = make_cog(tmpdir)
-            channel = bot.channels[tasks_mod.FEEDBACK_CHANNEL_ID]
+            channel = bot.channels[tasks_mod.TODO_CHANNEL_ID]
             other = FakeMessage(content="fix the door", channel_id=123)
             bot_message = FakeMessage(content="fix the door")
             bot_message.author.bot = True
@@ -284,7 +315,7 @@ class RoutingTests(unittest.TestCase):
     def test_classifier_down_logs_and_does_nothing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cog, bot = make_cog(tmpdir)
-            channel = bot.channels[tasks_mod.FEEDBACK_CHANNEL_ID]
+            channel = bot.channels[tasks_mod.TODO_CHANNEL_ID]
             message = FakeMessage(content="fix the door")
             with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}), \
                     patch.object(cog, "_classify", return_value=None):
@@ -294,7 +325,7 @@ class RoutingTests(unittest.TestCase):
     def test_duplicate_piece_is_not_posted_twice(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cog, bot = make_cog(tmpdir)
-            channel = bot.channels[tasks_mod.FEEDBACK_CHANNEL_ID]
+            channel = bot.channels[tasks_mod.TODO_CHANNEL_ID]
 
             async def fake_classify(text):
                 return {"ok": True, "pieces": [
@@ -346,10 +377,14 @@ class ReviewButtonTests(unittest.TestCase):
             with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}), \
                     patch.object(cog, "_wiki_api", side_effect=fake_wiki):
                 run(cog.handle_review_button(interaction, "is_task"))
-            self.assertEqual(len(message.edits), 1)
-            self.assertEqual(message.edits[0]["embed"].title,
+            todo = bot.channels[tasks_mod.TODO_CHANNEL_ID]
+            self.assertEqual(len(todo.sent), 1)
+            self.assertEqual(todo.sent[0]["embed"].title,
                              "asteroid field is not an asteroid field")
-            record = cog.state.get("300")
+            self.assertTrue(message.deleted)
+            self.assertEqual(message.edits, [])
+            self.assertNotIn("300", cog.state)
+            record = cog.state[str(todo.sent[0]["message"].id)]
             self.assertEqual(record["kind"], "task")
             self.assertEqual(record["wiki_task_id"], "task-0002")
             labels = open(cog.labels_path, encoding="utf-8").read().strip().splitlines()
@@ -357,6 +392,44 @@ class ReviewButtonTests(unittest.TestCase):
             self.assertEqual(json.loads(labels[0])["label"], 1)
             overrides = json.loads(open(cog.overrides_path, encoding="utf-8").read())
             self.assertEqual(overrides["asteroid field is not an asteroid field"], 1)
+
+    def test_review_is_task_stays_in_place_if_todo_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot = make_cog(tmpdir)
+            del bot.channels[tasks_mod.TODO_CHANNEL_ID]
+            message = self._review_message(cog)
+            bot.fetch_channel = AsyncMock(return_value=FakeThread(999))
+            interaction = FakeInteraction(message=message)
+
+            async def fake_wiki(method, path, **kwargs):
+                return {"ok": True, "task": {"id": "task-0003", "title": "x", "status": "open"}}
+
+            with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}), \
+                    patch.object(cog, "_wiki_api", side_effect=fake_wiki):
+                run(cog.handle_review_button(interaction, "is_task"))
+            self.assertFalse(message.deleted)
+            self.assertEqual(len(message.edits), 1)
+            self.assertEqual(cog.state["300"]["wiki_task_id"], "task-0003")
+
+    def test_confirmed_task_keeps_its_source_link(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot = make_cog(tmpdir)
+            message = self._review_message(cog)
+            cog.state["300"]["source_url"] = "https://discord.com/channels/1/2/3"
+            cog.state["300"]["source_author"] = "Steve"
+            bot.fetch_channel = AsyncMock(return_value=FakeThread(999))
+            interaction = FakeInteraction(message=message)
+
+            async def fake_wiki(method, path, **kwargs):
+                return {"ok": True, "task": {"id": "task-0004", "title": "x", "status": "open"}}
+
+            with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}), \
+                    patch.object(cog, "_wiki_api", side_effect=fake_wiki):
+                run(cog.handle_review_button(interaction, "is_task"))
+            embed = bot.channels[tasks_mod.TODO_CHANNEL_ID].sent[0]["embed"]
+            source = {f.name: f.value for f in embed.fields}["Source"]
+            self.assertIn("https://discord.com/channels/1/2/3", source)
+            self.assertIn("Steve", source)
 
     def test_review_not_task_deletes_message_and_thread(self):
         with tempfile.TemporaryDirectory() as tmpdir:

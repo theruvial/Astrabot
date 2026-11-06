@@ -19,6 +19,7 @@ A personal Discord bot (discord.py 2.x) that started as a small 2021 bot and gre
 - **Moderation cog** — kick, purge, streaming notices, speak, reload.
 - **Wiki cog** — serves the Aboard the Astra game-mechanics wiki as a Discord attachment.
 - **Self-update watcher** — polls git and hot-reloads changed cogs.
+- **Tasks cog** — reads #astra-feedback, classifies messages with the local AstraThought model, sends unclear items to #human-intervention, and posts tasks to #todo (§5a).
 - **absLogin integration** — a separate repo/service (see §7) started from the same launcher.
 
 The bot runs on Thea's **Windows host at 192.168.4.80**. Local checkout: `G:\My Drive\codingShit\Astrabot`. Python is run as `py -3.14 bot.py` (plain `python` is a different install without discord.py — do not tell her to `pip install discord` into the wrong Python).
@@ -31,7 +32,7 @@ The bot runs on Thea's **Windows host at 192.168.4.80**. Local checkout: `G:\My 
 - **Launchers (repo root; use one, never both, each starts its own bot):**
   - `startConsole.bat` pulls Astrabot and absLogin, then opens the **Astrabot Console** (`astra_console.py`, tkinter, dark theme). No separate absLogin window.
   - `startBot.bat` is the plain console launcher: pulls, starts absLogin, runs the bot.
-- **Astrabot Console:** owns the bot, the wiki backend (`C:\codingShit\Aboard-the-Astra-Wiki\Tools\wiki\backend\server.py`) and absLogin as child processes, with output panes in a 2x2 grid: Bot top left, then by port (Site 13380, absLogin 13381, Wiki 13382). Buttons: Restart Bot (also restarts the site, which lives in the bot), Restart Site (reloads `cogs.audiobooks`), Restart absLogin, Restart Wiki, Pull + Restart (fast-forward pulls all three repos, restarts bot, wiki and absLogin only if every pull worked). Closing the window stops all of them. Do not run a hand-started `server.py` or `app.py` alongside it: they would share ports 13382 and 13381.
+- **Astrabot Console:** owns the bot, the audiobook site (13380, hosted by the audiobooks cog), absLogin (13381), the wiki backend (13382, `C:\codingShit\Aboard-the-Astra-Wiki\Tools\wiki\backend\server.py`) and the AstraThought classifier (13383), each with its own pane and crash handling. A Decisions panel shows the classifier's last 50 decisions and fetches on events rather than polling. "Pull + Restart" pulls Astrabot, absLogin and Wiki but not AstraThought, so use "Restart Classifier" for that. Closing the window stops everything. Do not run a hand-started `server.py` or `app.py` alongside it.
 - **Restart Site side effect:** a reload runs `cog_load`, so it clears and re-posts the requests channel (§4). Thea chose cog reload over a separate web-only restart on 2026-11-05.
 - **How Restart Site reaches the bot:** the console writes the cog name to `logs\reload_cog.flag`; `cogs/moderation.py` polls it every 2 s and calls `reload_extension`. A file, not an HTTP route, because the site binds `0.0.0.0`. The watcher is in moderation because a watcher inside the reloaded cog would cancel itself.
 - **Crash tracking (both launchers, console also covers the wiki and absLogin):** output is appended to `logs\bot.log` (`logs\wiki.log`, `logs\absLogin.log` for those), UTF-8. Every start/stop is timestamped with its exit code in `logs\crashes.log`. Auto-restarts after 10 s on a crash; **stops after 5 crashes in a row**; a clean exit (code 0) stops normally. In the console a run of 60 s or more resets the streak.
@@ -172,6 +173,23 @@ The old live bot token was merged into `master` in PR #9 (it was in the pre-untr
 
 ---
 
+## 5a. Tasks cog (`cogs/tasks.py`)
+
+Full behaviour is in `README_tasks.md`, and the classifier is documented in `README_classifier.md` in the private `theruvial/AstraThought` repo.
+
+| Role | Channel (mcdungeons) | ID |
+|---|---|---|
+| Reads messages from | #astra-feedback | `1568142915631325355` |
+| Decisions needing a person | #human-intervention | `1568329972928610546` |
+| Confirmed tasks | #todo | `1568332728573759621` |
+
+- **Flow:** each human message in #astra-feedback goes to the classifier on `127.0.0.1:13383`, which splits it and returns `auto_task`, `review` or `auto_drop` per piece. Tasks become wiki tasks through `/api/tasks` and post to #todo with Claim / Unclaim, In Progress, Done and Not a Task. Unclear pieces post to #human-intervention with a thread. Dropped pieces post nothing.
+- **Rulings:** "Is a task" creates the wiki task, posts it to #todo, and deletes the review message and thread. If #todo cannot be reached, it edits the review message in place instead. "Not a task" deletes the review message and thread. Every ruling is saved as a label and takes effect immediately through the overrides file.
+- **Host needs:** `"cogs.tasks",` uncommented in the host `bot.py` only, `WIKI_API_KEY` set, and Manage Threads for the bot in #human-intervention so it can delete threads.
+- **Model:** SetFit `tasks-AstraThought-v2`, 77% precision and 93% recall on the held-out test set. Retrain only after 50 new labels. Thea trains it herself.
+
+---
+
 ## 6. Self-update watcher (`cogs/selfupdate.py`)
 
 - Added 2026-11-01 (commit `7cd0d7d63fcdc4f386163f55e1ee446deb6f7b1f`); **enabled 2026-11-05** (commit `be44fbec`, `"cogs.selfupdate"` added to `startup_extensions`). Host still needs pull + restart to run it.
@@ -205,7 +223,8 @@ The old live bot token was merged into `master` in PR #9 (it was in the pre-untr
 | `cogs.selfupdate` | Loaded (2026-11-05) | `/check_updates` (§6) |
 | `cogs.music` | Removed from `startup_extensions` | Streaming music/clip code exists in repo history; host `bot.py` has clip commented out |
 | `cogs.clip` | Commented out on host | See host divergence (§2) |
-| `cogs.roles`, `points`, `gambling`, `shop`, `pet`, `tasks` | Commented out in repo `bot.py` | Legacy 2021 cogs, not loaded |
+| `cogs.tasks` | Loaded on the host only (local `bot.py` line) | Reads #astra-feedback, posts to #todo and #human-intervention (§5a) |
+| `cogs.roles`, `points`, `gambling`, `shop`, `pet` | Commented out in repo `bot.py` | Legacy 2021 cogs, not loaded |
 
 ---
 
@@ -250,6 +269,12 @@ Nginx host: Ubuntu, `thea-ubuntu-server`, all sites in `/etc/nginx/sites-availab
 ## 12. Change log
 
 Newest first. One dated entry per working day, by the agent that did the work.
+
+### 2026-11-06 — Claude Code (Opus 5.5), task channel split
+
+- **Changed task channels:** the cog now reads #astra-feedback, sends review items to #human-intervention, and posts tasks to #todo. It no longer reads #general.
+- **"Is a task" rulings** now move the item to #todo and keep its source link, instead of editing the review post in place.
+- **Docs:** rewrote `README.md`, added a channels section to `README_tasks.md`, and added §5a here.
 
 ### 2026-11-05 — Claude Code (Opus 5.5), branch `claude/astrabot-startbot-crash-logs-4b6db3`
 

@@ -1,9 +1,22 @@
 # Astrabot tasks cog
 
-Watches mcdungeons #general, asks the local AstraThought classifier
-whether each message is a task, and posts tasks to #astra-feedback
+Watches mcdungeons #astra-feedback, asks the local AstraThought classifier
+whether each message is a task, and posts tasks to #todo
 where the team can claim them. Borderline messages go to human
-review in a thread in #astra-feedback instead of being auto-posted.
+review in a thread in #human-intervention instead of being auto-posted.
+
+## Channels
+
+All three are in mcdungeons, under Task Tracking:
+
+| Role | Channel | ID |
+|---|---|---|
+| Reads messages from | #astra-feedback | `1568142915631325355` |
+| Decisions needing a person | #human-intervention | `1568329972928610546` |
+| Confirmed tasks | #todo | `1568332728573759621` |
+
+Channel IDs are constants at the top of `cogs/tasks.py`. Changing them
+needs a bot restart. Embeds already posted elsewhere keep working.
 
 ## Files
 
@@ -12,26 +25,27 @@ review in a thread in #astra-feedback instead of being auto-posted.
 
 ## How it works
 
-1. A message in #general (1407601803536760905) is sent to the
+1. A message in #astra-feedback (1568142915631325355) is sent to the
    classifier service on loopback (`TASKS_CLASSIFIER_URL`, default
    `http://127.0.0.1:13383`), which splits it into pieces and returns
    one decision per piece: `auto_task`, `auto_drop`, or `review`,
    with a score and a trigger. The cog trusts that decision.
 2. `auto_task` pieces become wiki tasks (POST /api/tasks on the wiki
    backend, `WIKI_API_URL` default `http://127.0.0.1:13382`, header
-   `X-Astra-Wiki-Key`) and are posted to #astra-feedback
-   (1568142915631325355) with Claim / Unclaim, In Progress, Done,
+   `X-Astra-Wiki-Key`) and are posted to #todo (1568332728573759621)
+   with Claim / Unclaim, In Progress, Done,
    Not a Task. Claim is a toggle: it adds the clicker to the task's
    assignees, and clicking again removes them. Several people can
    claim the same task; the embed lists them all under Assignees.
 3. `review` pieces are posted as amber "Needs review" embeds in
-   #astra-feedback, with a public thread created on the message.
-   "Is a task" creates the wiki task, edits the parent message in
-   place into the confirmed task embed, and deletes the thread.
+   #human-intervention (1568329972928610546), with a public thread created on the message.
+   "Is a task" creates the wiki task, posts the confirmed task embed
+   in #todo, and deletes the review message and its thread. If #todo
+   cannot be reached, the review message is edited in place instead.
    "Not a task" deletes the parent message and the thread.
 4. `auto_drop` pieces are dropped. Silence is not a label.
 
-Everything in #astra-feedback is team-wide: anyone who can see
+#todo and #human-intervention are team-wide: anyone who can see
 the channel can rule on a review item, use Claim / Unclaim,
 In Progress and Done, and use every slash command. A ruling still
 records who made it, and every ruling lands in the labels file
@@ -72,7 +86,7 @@ Task ids accept `1`, `task-1`, or `task-0001`.
 | `TASKS_OVERRIDES_PATH` | Overrides JSON file | `data/task_overrides.json` |
 | `TASKS_STATE_PATH` | Button state JSON file | `data/tasks_state.json` |
 
-The bot also needs Manage Threads permission in #astra-feedback
+The bot also needs Manage Threads permission in #human-intervention
 so it can create and delete review threads. If the classifier
 service is down, watched messages are logged and skipped. If the
 wiki backend is down or has no key, slash commands reply

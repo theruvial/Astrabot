@@ -29,9 +29,10 @@ How it works:
   someone with a channel claims a task, its message is re-posted there
   and deleted from #todo. Discord cannot move a message, so the new
   one is posted first and the old one deleted after. With several
-  claimers it lives in the first claimer's channel (in claim order), and
-  moves on if they unclaim; when nobody with a channel is left it goes
-  back to #todo. In Progress changes the status in place, and Done
+  claimers it lives in the first claimer's channel (in claim order).
+  Any unclaim sends it back to #todo, even if someone else is still
+  assigned; the next claim sends it to the first claimer's channel
+  again. In Progress changes the status in place, and Done
   deletes the message wherever it is. A claimer with no personal
   channel leaves the message where it is.
 - ``review`` pieces are posted as amber "Needs review" embeds in
@@ -986,7 +987,9 @@ class Tasks(commands.Cog):
                 embed, piece, record["status"], wiki_task_id,
                 _task_assignees(task), score,
             )
-            target_id = self._home_channel_id(record)
+            # Any unclaim returns the task to the shared #todo.
+            target_id = (TODO_CHANNEL_ID if verb == "Unclaimed."
+                         else self._home_channel_id(record))
             if target_id != getattr(message.channel, "id", None):
                 moved = await self._move_task_message(message, record, new_embed, target_id)
                 if moved is not None:

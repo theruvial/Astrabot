@@ -55,9 +55,9 @@ needs a bot restart. Embeds already posted elsewhere keep working.
    assignees and source link kept) in their channel and deletes the
    one in #todo. Discord cannot move a message, so the new one is
    posted first. If two people claim it, it stays in the first
-   claimer's channel, and moves on to the next claimer if that person
-   unclaims. When the last claimer with a channel unclaims, it goes
-   back to #todo. In Progress changes the status in place, and Done
+   claimer's channel. **Whenever anyone unclaims, the task goes back
+   to #todo**, even if someone else is still assigned; the next claim
+   sends it to the first claimer's channel again. In Progress changes the status in place, and Done
    deletes the message wherever it is. Someone with no personal
    channel can still claim, and the message stays where it is. To add
    a person, create their channel and add one line to

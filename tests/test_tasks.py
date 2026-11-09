@@ -896,7 +896,7 @@ class PersonalChannelTests(unittest.TestCase):
             self.assertFalse(moved.deleted)
             self.assertEqual(cog.state[str(moved.id)]["claimers"], [self.THEA, self.STEVE])
 
-    def test_first_claimer_unclaiming_hands_it_to_the_next(self):
+    def test_any_unclaim_sends_it_back_to_todo_even_with_another_claimer(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cog, bot, todo = self._setup(tmpdir)
             task = self._task()
@@ -907,10 +907,15 @@ class PersonalChannelTests(unittest.TestCase):
             self._click(cog, moved, self.STEVE, "Steve", "claim", task)
             self._click(cog, moved, self.THEA, "Thea", "claim", task)
             steves = bot.channels[tasks_mod.PERSONAL_CHANNELS[self.STEVE]]
-            self.assertEqual(len(steves.sent), 1)
+            self.assertEqual(steves.sent, [])
+            self.assertEqual(len(todo.sent), 1)
             self.assertTrue(moved.deleted)
-            new_id = str(steves.sent[0]["message"].id)
-            self.assertEqual(cog.state[new_id]["claimers"], [self.STEVE])
+            back = todo.sent[0]["message"]
+            self.assertEqual(cog.state[str(back.id)]["claimers"], [self.STEVE])
+            # The next claim sends it to the first remaining claimer's channel.
+            self._click(cog, back, self.JUSTIN, "Justin", "claim", task)
+            self.assertEqual(len(steves.sent), 1)
+            self.assertTrue(back.deleted)
 
     def test_last_unclaim_sends_it_back_to_todo(self):
         with tempfile.TemporaryDirectory() as tmpdir:

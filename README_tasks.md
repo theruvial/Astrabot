@@ -44,6 +44,28 @@ needs a bot restart. Embeds already posted elsewhere keep working.
    cannot be reached, the review message is edited in place instead.
    "Not a task" deletes the parent message and the thread.
 4. `auto_drop` pieces are dropped. Silence is not a label.
+5. **Done removes the task from #todo.** The Done button, or
+   `/task_done`, deletes the task's #todo message. The wiki keeps the
+   record, and the original message in #astra-feedback is not touched.
+   If the bot cannot delete the message, Done greys out the embed
+   instead. A task marked done on the wiki site is cleaned up by the
+   next sync (see below).
+
+## Live to-do list (`TODO.md`)
+
+The cog keeps a markdown list of every task that is not done, grouped
+In progress then Open, high priority first, with assignees and a link
+to each task's #todo message. The default path is `data/TODO.md`
+(`TASKS_TODO_MARKDOWN_PATH` to change it). It is rewritten whenever a
+task changes through the bot (new task, Claim, In Progress, Done, and
+the slash commands) and every 5 minutes, which also picks up changes
+made on the wiki site. It is only written when the list actually
+changed. Do not edit it by hand: the next change overwrites it. If
+the wiki backend is down, the file and the messages are left alone.
+
+The 5-minute sync also deletes the #todo messages of tasks the wiki
+shows as done, so the first sync after this was deployed clears any
+done tasks that still have a message.
 
 #todo and #human-intervention are team-wide: anyone who can see
 the channel can rule on a review item, use Claim / Unclaim,
@@ -85,6 +107,7 @@ Task ids accept `1`, `task-1`, or `task-0001`.
 | `TASKS_LABELS_PATH` | Labels JSONL file | `data/task_labels.jsonl` |
 | `TASKS_OVERRIDES_PATH` | Overrides JSON file | `data/task_overrides.json` |
 | `TASKS_STATE_PATH` | Button state JSON file | `data/tasks_state.json` |
+| `TASKS_TODO_MARKDOWN_PATH` | Live markdown to-do list | `data/TODO.md` |
 
 The bot also needs Manage Threads permission in #human-intervention
 so it can create and delete review threads. If the classifier

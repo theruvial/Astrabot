@@ -185,6 +185,7 @@ Full behaviour is in `README_tasks.md`, and the classifier is documented in `REA
 
 - **Flow:** each human message in #astra-feedback goes to the classifier on `127.0.0.1:13383`, which splits it and returns `auto_task`, `review` or `auto_drop` per piece. Tasks become wiki tasks through `/api/tasks` and post to #todo with Claim / Unclaim, In Progress, Done and Not a Task. Unclear pieces post to #human-intervention with a thread. Dropped pieces post nothing.
 - **Rulings:** "Is a task" creates the wiki task, posts it to #todo, and deletes the review message and thread. If #todo cannot be reached, it edits the review message in place instead. "Not a task" deletes the review message and thread. Every ruling is saved as a label and takes effect immediately through the overrides file.
+- **Done and the live list:** Done (button or `/task_done`) deletes the task's #todo message; the wiki keeps the record and the #astra-feedback source message is untouched. The cog also writes `data/TODO.md` (`TASKS_TODO_MARKDOWN_PATH`), a markdown list of every non-done wiki task with assignees and message links, whenever a task changes and every 5 minutes. The same sync deletes #todo messages of tasks the wiki shows as done.
 - **Host needs:** `"cogs.tasks",` uncommented in the host `bot.py` only, `WIKI_API_KEY` set, and Manage Threads for the bot in #human-intervention so it can delete threads.
 - **Model:** SetFit `tasks-AstraThought-v2`, 77% precision and 93% recall on the held-out test set. Retrain only after 50 new labels. Thea trains it herself.
 
@@ -274,7 +275,13 @@ Newest first. One dated entry per working day, by the agent that did the work.
 
 - **Titles and authors:** Audible links are looked up on Audnexus, and requests store `author` next to `bookName`. The migration backs the database up first. `scripts/backfill_audiobook_titles.py` fixes old rows. Emails and embeds say "Title by Author"; the admin request row has an Author box.
 - **Fulfil deletes the post:** Request Fulfilled (Discord or dashboard) deletes the Discord message, and restarts no longer re-post Fulfilled requests.
-- Not merged yet. After merging: restart the bot, then run the backfill with `--apply`.
+- Merged 2026-11-09. After the restart, run `py -3.14 scriptsackfill_audiobook_titles.py --apply` once to rename the four existing requests.
+
+### 2026-11-09 — Claude Code (Sonnet 5.5), branch `feature/tasks-cleanup-and-markdown`
+
+- **Done deletes the task message:** marking a task done in #todo (button or `/task_done`) deletes its message instead of greying it out. If the delete fails, it falls back to the old greyed embed.
+- **Live `data/TODO.md`:** the tasks cog keeps a markdown list of open and in-progress tasks, rewritten on every task change and every 5 minutes, and only when the list changed. The 5-minute sync also deletes #todo messages for tasks done on the wiki.
+- State records now remember the message's channel (`channel_id`), so links and deletes work for the rare task that stayed in #human-intervention.
 
 ### 2026-11-06 — Claude Code (Opus 5.5), task channel split
 

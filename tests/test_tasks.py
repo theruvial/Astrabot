@@ -101,11 +101,25 @@ class FakeThread:
         self.deleted = True
 
 
+class FakePartial:
+    def __init__(self, channel, message_id):
+        self.channel = channel
+        self.id = message_id
+
+    async def delete(self):
+        self.channel.deleted_ids.append(self.id)
+
+
 class FakeChannel:
     def __init__(self, channel_id):
         self.id = channel_id
         self.name = "general"
         self.sent = []
+        self.deleted_ids = []
+        self.guild = FakeGuild(guild_id=777)
+
+    def get_partial_message(self, message_id):
+        return FakePartial(self, message_id)
 
     async def send(self, embed=None, view=None):
         message = FakeMessage(message_id=200 + len(self.sent), content="")
@@ -116,8 +130,9 @@ class FakeChannel:
 
 
 class FakeGuild:
-    def __init__(self, owner_id=1):
+    def __init__(self, owner_id=1, guild_id=1):
         self.owner_id = owner_id
+        self.id = guild_id
 
 
 class FakeInteraction:
@@ -159,6 +174,7 @@ def make_cog(tmpdir):
         overrides_path=os.path.join(tmpdir, "task_overrides.json"),
         state_path=os.path.join(tmpdir, "tasks_state.json"),
         retrain_marker_path=os.path.join(tmpdir, "last_retrain.json"),
+        todo_markdown_path=os.path.join(tmpdir, "TODO.md"),
     )
     return cog, bot
 
@@ -627,6 +643,153 @@ class TaskButtonTests(unittest.TestCase):
                 run(cog.handle_task_button(interaction, "done"))
             self.assertEqual(len(interaction.followup.sent), 1)
             self.assertIn("task not found", interaction.followup.sent[0]["content"])
+
+
+class DoneAndMarkdownTests(unittest.TestCase):
+    TASKS = [
+        {"id": "task-0001", "title": "fix the door", "status": "open",
+         "priority": "low", "assignees": []},
+        {"id": "task-0002", "title": "paint\nthe wall", "status": "in_progress",
+         "priority": "high", "assignees": ["Thea", "Sam"]},
+        {"id": "task-0003", "title": "already finished", "status": "done",
+         "priority": "medium", "assignees": []},
+        {"id": "task-0004", "title": "add npcs", "status": "open",
+         "priority": "high", "assignees": []},
+    ]
+
+    def _add(self, cog, message_id, task_id):
+        cog.state[str(message_id)] = {
+            "kind": "task", "wiki_task_id": task_id, "source_message_id": 111,
+            "piece": task_id, "score": 0.9, "trigger": "none",
+            "thread_id": None, "status": "open"}
+
+    def _wiki(self, tasks, calls=None):
+        async def fake(method, path, **kwargs):
+            if calls is not None:
+                calls.append((method, path))
+            if method == "GET":
+                return {"ok": True, "tasks": {"items": list(tasks), "counts": {}}}
+            return {"ok": True, "task": {"id": "task-0002", "status": "done"}}
+        return fake
+
+    def _done_message(self, cog):
+        message = FakeMessage(message_id=400, content="")
+        message.embeds = [build_task_embed("paint the wall", wiki_task_id="task-0002")]
+        self._add(cog, 400, "task-0002")
+        return message
+
+    def test_done_button_deletes_message_and_keeps_wiki_task(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot = make_cog(tmpdir)
+            message = self._done_message(cog)
+            interaction = FakeInteraction(message=message)
+            calls = []
+            with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}), \
+                    patch.object(cog, "_wiki_api", side_effect=self._wiki([], calls)):
+                run(cog.handle_task_button(interaction, "done"))
+            self.assertTrue(message.deleted)
+            self.assertEqual(message.edits, [])
+            self.assertNotIn("400", cog.state)
+            self.assertIn(("PATCH", "/api/tasks/task-0002"), calls)
+            self.assertNotIn(("DELETE", "/api/tasks/task-0002"), calls)
+            self.assertIn("removed from #todo", interaction.followup.sent[0]["content"])
+
+    def test_done_button_falls_back_to_edit_if_delete_fails(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot = make_cog(tmpdir)
+            message = self._done_message(cog)
+
+            async def boom():
+                raise RuntimeError("no permission")
+            message.delete = boom
+            interaction = FakeInteraction(message=message)
+            with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}), \
+                    patch.object(cog, "_wiki_api", side_effect=self._wiki([])):
+                run(cog.handle_task_button(interaction, "done"))
+            self.assertEqual(len(message.edits), 1)
+            self.assertIn("400", cog.state)
+            self.assertEqual(interaction.followup.sent[0]["content"], "Marked done.")
+
+    def test_in_progress_button_keeps_message(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot = make_cog(tmpdir)
+            message = self._done_message(cog)
+            interaction = FakeInteraction(message=message)
+            with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}), \
+                    patch.object(cog, "_wiki_api", side_effect=self._wiki([])):
+                run(cog.handle_task_button(interaction, "in_progress"))
+            self.assertFalse(message.deleted)
+            self.assertEqual(len(message.edits), 1)
+
+    def test_task_done_command_deletes_the_todo_message(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot = make_cog(tmpdir)
+            self._add(cog, 401, "task-0002")
+            self._add(cog, 402, "task-0001")
+            interaction = FakeInteraction()
+            with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}), \
+                    patch.object(cog, "_wiki_api", side_effect=self._wiki([])):
+                run(cog.task_done.callback(cog, interaction, "task-0002"))
+            channel = bot.channels[tasks_mod.TODO_CHANNEL_ID]
+            self.assertEqual(channel.deleted_ids, [401])
+            self.assertNotIn("401", cog.state)
+            self.assertIn("402", cog.state)
+
+    def test_refresh_clears_messages_of_tasks_done_on_the_wiki(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot = make_cog(tmpdir)
+            self._add(cog, 403, "task-0003")
+            self._add(cog, 404, "task-0001")
+            with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}), \
+                    patch.object(cog, "_wiki_api", side_effect=self._wiki(self.TASKS)):
+                run(cog.refresh_todo())
+            channel = bot.channels[tasks_mod.TODO_CHANNEL_ID]
+            self.assertEqual(channel.deleted_ids, [403])
+            self.assertEqual(list(cog.state), ["404"])
+
+    def test_markdown_lists_unfinished_tasks_in_order(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot = make_cog(tmpdir)
+            self._add(cog, 404, "task-0001")
+            with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}), \
+                    patch.object(cog, "_wiki_api", side_effect=self._wiki(self.TASKS)):
+                run(cog.refresh_todo())
+            text = open(cog.todo_markdown_path, encoding="utf-8").read()
+            self.assertIn("**2 open, 1 in progress**", text)
+            self.assertNotIn("already finished", text)
+            self.assertIn("- [ ] **task-0002** paint the wall (high; Thea, Sam)", text)
+            self.assertLess(text.index("task-0004"), text.index("task-0001"))
+            self.assertLess(text.index("## In progress"), text.index("## Open"))
+            self.assertIn("(low) - [message](https://discord.com/channels/777/"
+                          f"{tasks_mod.TODO_CHANNEL_ID}/404)", text)
+
+    def test_markdown_only_rewritten_when_the_list_changes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot = make_cog(tmpdir)
+            with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}):
+                with patch.object(cog, "_wiki_api", side_effect=self._wiki(self.TASKS)):
+                    run(cog.refresh_todo())
+                    old = os.path.getmtime(cog.todo_markdown_path) - 100
+                    os.utime(cog.todo_markdown_path, (old, old))
+                    run(cog.refresh_todo())
+                    self.assertEqual(os.path.getmtime(cog.todo_markdown_path), old)
+                with patch.object(cog, "_wiki_api",
+                                  side_effect=self._wiki(self.TASKS[:2])):
+                    run(cog.refresh_todo())
+                self.assertGreater(os.path.getmtime(cog.todo_markdown_path), old + 50)
+
+    def test_wiki_outage_leaves_file_and_messages_alone(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot = make_cog(tmpdir)
+            self._add(cog, 403, "task-0003")
+
+            async def down(method, path, **kwargs):
+                raise WikiApiError(0, "wiki backend unreachable")
+            with patch.object(cog, "_wiki_api", side_effect=down):
+                run(cog.refresh_todo())
+            self.assertFalse(os.path.exists(cog.todo_markdown_path))
+            self.assertEqual(bot.channels[tasks_mod.TODO_CHANNEL_ID].deleted_ids, [])
+            self.assertIn("403", cog.state)
 
 
 class SlashCommandTests(unittest.TestCase):

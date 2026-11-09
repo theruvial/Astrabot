@@ -284,6 +284,10 @@ Newest first. One dated entry per working day, by the agent that did the work.
 - **Transmission matching (off by default):** `cogs/audiobooks_torrents.py` reads torrents from Transmission's RPC (the desktop app on the Ubuntu server, port 9092, basic auth) and marks matching `Requested` audiobook requests In Progress via `admin_fulfill`. `audiobooks.torrents` in `config.json` holds `enabled`, `dry_run` (default true), `url`, `username`, `password`, `interval_seconds`; the credentials stay in the untracked `config.json`. `scripts/check_torrents.py` previews matches read-only.
 - **Server notes:** Transmission is not in Docker. A `transmission-daemon` service was also running and held port 9091, so the desktop app's API was moved to 9092 and the daemon was stopped. The app's API only exists while the app is running.
 
+### 2026-11-09 — Claude Code (Sonnet 5.5), branch `fix/review-thread-type`
+
+- **Review threads work again:** `Message.create_thread` takes no `type` option (only `TextChannel.create_thread` does), so every "Needs review" post in #human-intervention was logging `Could not create review thread` and going up without its thread. The `type` argument was removed. The test fake now has the real signature, and a test binds the call to the installed discord.py's signature, so this cannot drift again.
+
 ### 2026-11-09 — Claude Code (Sonnet 5.5), branch `feature/personal-task-channels`
 
 - **Personal task channels:** the four channels under Task Tracking were renamed #todo-steve, #todo-justin, #todo-thea and #todo-kathi (ids unchanged). Claiming a task moves its embed to the claimer's channel; Done deletes it there. Mapping: theruvial to thea, egami_rorrim to justin, _metronome to steve, kathi.exe to kathi. Other members (e.g. twocanpeacan, Peachblight) have no channel yet.

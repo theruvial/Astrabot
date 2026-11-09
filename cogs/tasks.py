@@ -820,10 +820,11 @@ class Tasks(commands.Cog):
         message = await channel.send(embed=embed, view=_ReviewView(self))
         thread = None
         try:
+            # A thread started from a message is always public. Message.create_thread
+            # takes no ``type`` (only TextChannel.create_thread does).
             thread = await message.create_thread(
                 name=f"Review: {piece[:80]}",
                 auto_archive_duration=1440,
-                type=discord.ChannelType.public_thread,
             )
         except Exception as exc:  # noqa: BLE001 - a missing thread must not lose the review
             log.warning("Could not create review thread: %s", exc)

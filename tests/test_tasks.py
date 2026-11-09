@@ -87,7 +87,10 @@ class FakeMessage:
     async def delete(self):
         self.deleted = True
 
-    async def create_thread(self, name=None, auto_archive_duration=None, type=None):
+    async def create_thread(self, *, name, auto_archive_duration=4320,
+                            slowmode_delay=None, reason=None):
+        # Same signature as discord.Message.create_thread: it has no
+        # ``type`` option, so passing one raises TypeError like the real thing.
         self.thread = FakeThread(999)
         return self.thread
 
@@ -384,6 +387,17 @@ class ReviewButtonTests(unittest.TestCase):
             "status": "review",
         }
         return message
+
+    def test_thread_call_matches_the_installed_discord_py(self):
+        import inspect
+        import discord
+        # The cog calls message.create_thread(name=..., auto_archive_duration=...).
+        # Binding those to the real signature fails if discord.py rejects them,
+        # which a hand-written fake would never notice.
+        inspect.signature(discord.Message.create_thread).bind(
+            None, name="Review: x", auto_archive_duration=1440)
+        inspect.signature(discord.PartialMessage.create_thread).bind(
+            None, name="Review: x", auto_archive_duration=1440)
 
     def test_review_is_task_creates_wiki_task_and_deletes_thread(self):
         with tempfile.TemporaryDirectory() as tmpdir:

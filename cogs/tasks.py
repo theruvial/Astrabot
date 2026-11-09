@@ -23,6 +23,17 @@ How it works:
   Not a Task. Several people can claim the same task; the Claim
   button adds you to the assignees, and clicking it again removes
   you (unclaims you).
+- Claiming moves the task. Each team member has a personal channel
+  (``PERSONAL_CHANNELS``, Discord user id -> channel id, under Task
+  Tracking: #todo-steve, #todo-justin, #todo-thea, #todo-kathi). When
+  someone with a channel claims a task, its message is re-posted there
+  and deleted from #todo. Discord cannot move a message, so the new
+  one is posted first and the old one deleted after. With several
+  claimers it lives in the first claimer's channel (in claim order), and
+  moves on if they unclaim; when nobody with a channel is left it goes
+  back to #todo. In Progress changes the status in place, and Done
+  deletes the message wherever it is. A claimer with no personal
+  channel leaves the message where it is.
 - ``review`` pieces are posted as amber "Needs review" embeds in
   #human-intervention (``REVIEW_CHANNEL_ID``), with a public thread
   created on the message for discussion. They do NOT become wiki
@@ -119,6 +130,14 @@ log = logging.getLogger("tasks")
 WATCH_CHANNEL_ID = 1568142915631325355  # #astra-feedback
 TODO_CHANNEL_ID = 1568332728573759621  # #todo
 REVIEW_CHANNEL_ID = 1568329972928610546  # #human-intervention
+
+# Personal task channels, by Discord user id (stable, unlike display names).
+PERSONAL_CHANNELS = {
+    151408413744693248: 1569493220151394517,  # theruvial -> #todo-thea
+    120661885573005316: 1569493185946853517,  # egami_rorrim -> #todo-justin
+    168897667387097089: 1569493103033843822,  # _metronome -> #todo-steve
+    185961347832348673: 1569493240896290816,  # kathi.exe -> #todo-kathi
+}
 
 DEFAULT_WIKI_API_URL = "http://127.0.0.1:13382"
 DEFAULT_CLASSIFIER_URL = "http://127.0.0.1:13383"
@@ -332,6 +351,23 @@ def build_task_embed(
     return embed
 
 
+def rebuild_task_embed(old_embed, piece: str, status: str,
+                       wiki_task_id: str | None, assignees: list[str],
+                       score: float | None) -> discord.Embed:
+    """A task embed with new status and assignees, keeping Source and footer."""
+    embed = build_task_embed(
+        piece, status=status, wiki_task_id=wiki_task_id,
+        assignees=assignees, score=score,
+    )
+    source = _embed_field(old_embed, "Source")
+    if source:
+        embed.add_field(name="Source", value=source, inline=False)
+    footer = getattr(getattr(old_embed, "footer", None), "text", None)
+    if footer:
+        embed.set_footer(text=footer)
+    return embed
+
+
 def build_review_embed(
     piece: str,
     score: float | None,
@@ -536,6 +572,43 @@ class Tasks(commands.Cog):
                 return await response.json()
         except (aiohttp.ClientError, asyncio.TimeoutError, Exception):
             return None
+
+    # -- personal channels --------------------------------------------
+
+    @staticmethod
+    def _home_channel_id(record: dict) -> int:
+        """Where a task's message belongs: its first claimer's channel."""
+        for user_id in record.get("claimers") or []:
+            channel_id = PERSONAL_CHANNELS.get(int(user_id))
+            if channel_id:
+                return channel_id
+        return TODO_CHANNEL_ID
+
+    async def _move_task_message(self, message, record: dict, embed,
+                                 target_id: int):
+        """Re-post a task in another channel and delete the old message.
+
+        Discord cannot move a message, so the new one goes up first. If
+        that fails nothing is deleted. Returns the new message, or None.
+        """
+        channel = self._channel(target_id)
+        if channel is None:
+            log.warning("Channel %s not found, task stays where it is", target_id)
+            return None
+        try:
+            new_message = await channel.send(embed=embed, view=_TaskView(self))
+        except Exception as exc:  # noqa: BLE001 - keep the task where it is
+            log.warning("Could not post task in channel %s: %s", target_id, exc)
+            return None
+        record["channel_id"] = target_id
+        self.state[str(new_message.id)] = record
+        self.state.pop(str(message.id), None)
+        self._save_state()
+        try:
+            await message.delete()
+        except Exception as exc:  # noqa: BLE001 - the new message is the live one
+            log.warning("Could not delete the old task message %s: %s", message.id, exc)
+        return new_message
 
     # -- finished tasks and the live markdown list ----------------------
 
@@ -900,16 +973,33 @@ class Tasks(commands.Cog):
                 await interaction.followup.send(f"Wiki backend error: {exc.error}", ephemeral=True)
                 return
             record["status"] = task.get("status") or record.get("status") or "open"
+            # Track who claimed, in order, by Discord id: the personal
+            # channel comes from the first claimer.
+            claimers = [int(u) for u in record.get("claimers") or []]
+            if verb == "Claimed.":
+                if interaction.user.id not in claimers:
+                    claimers.append(interaction.user.id)
+            else:
+                claimers = [u for u in claimers if u != interaction.user.id]
+            record["claimers"] = claimers
+            new_embed = rebuild_task_embed(
+                embed, piece, record["status"], wiki_task_id,
+                _task_assignees(task), score,
+            )
+            target_id = self._home_channel_id(record)
+            if target_id != getattr(message.channel, "id", None):
+                moved = await self._move_task_message(message, record, new_embed, target_id)
+                if moved is not None:
+                    where = getattr(moved.channel, "name", None)
+                    await interaction.followup.send(
+                        f"{verb} The task is now in #{where}." if where else verb,
+                        ephemeral=True)
+                    await self.refresh_todo()
+                    return
+            record.setdefault("channel_id", getattr(message.channel, "id", None))
             self.state[str(message.id)] = record
             self._save_state()
-            await message.edit(
-                embed=build_task_embed(
-                    piece, status=record["status"], wiki_task_id=wiki_task_id,
-                    assignees=_task_assignees(task),
-                    score=score,
-                ),
-                view=_TaskView(self),
-            )
+            await message.edit(embed=new_embed, view=_TaskView(self))
             await interaction.followup.send(verb, ephemeral=True)
             await self.refresh_todo()
             return
@@ -943,9 +1033,9 @@ class Tasks(commands.Cog):
         self.state[str(message.id)] = record
         self._save_state()
         await message.edit(
-            embed=build_task_embed(
-                piece, status=status, wiki_task_id=wiki_task_id,
-                assignees=_task_assignees(task), score=score,
+            embed=rebuild_task_embed(
+                embed, piece, status, wiki_task_id,
+                _task_assignees(task), score,
             ),
             view=_TaskView(self),
         )

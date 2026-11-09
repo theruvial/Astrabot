@@ -14,6 +14,10 @@ All three are in mcdungeons, under Task Tracking:
 | Reads messages from | #astra-feedback | `1568142915631325355` |
 | Decisions needing a person | #human-intervention | `1568329972928610546` |
 | Confirmed tasks | #todo | `1568332728573759621` |
+| Claimed by Steve | #todo-steve | `1569493103033843822` |
+| Claimed by Justin | #todo-justin | `1569493185946853517` |
+| Claimed by Thea | #todo-thea | `1569493220151394517` |
+| Claimed by Kathi | #todo-kathi | `1569493240896290816` |
 
 Channel IDs are constants at the top of `cogs/tasks.py`. Changing them
 needs a bot restart. Embeds already posted elsewhere keep working.
@@ -44,7 +48,21 @@ needs a bot restart. Embeds already posted elsewhere keep working.
    cannot be reached, the review message is edited in place instead.
    "Not a task" deletes the parent message and the thread.
 4. `auto_drop` pieces are dropped. Silence is not a label.
-5. **Done removes the task from #todo.** The Done button, or
+5. **Claiming moves the task to your channel.** Each person has a
+   personal channel (the table above; `PERSONAL_CHANNELS` in
+   `cogs/tasks.py` maps Discord user ids to channel ids). When someone
+   claims a task in #todo, the bot posts the same embed (status,
+   assignees and source link kept) in their channel and deletes the
+   one in #todo. Discord cannot move a message, so the new one is
+   posted first. If two people claim it, it stays in the first
+   claimer's channel, and moves on to the next claimer if that person
+   unclaims. When the last claimer with a channel unclaims, it goes
+   back to #todo. In Progress changes the status in place, and Done
+   deletes the message wherever it is. Someone with no personal
+   channel can still claim, and the message stays where it is. To add
+   a person, create their channel and add one line to
+   `PERSONAL_CHANNELS`, then restart the bot.
+6. **Done removes the task from #todo.** The Done button, or
    `/task_done`, deletes the task's #todo message. The wiki keeps the
    record, and the original message in #astra-feedback is not touched.
    If the bot cannot delete the message, Done greys out the embed

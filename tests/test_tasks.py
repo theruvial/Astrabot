@@ -118,11 +118,19 @@ class FakeChannel:
         self.deleted_ids = []
         self.guild = FakeGuild(guild_id=777)
 
+    _counter = 200
+
+    @classmethod
+    def next_id(cls):
+        # Real Discord message ids are unique across channels.
+        cls._counter += 1
+        return cls._counter
+
     def get_partial_message(self, message_id):
         return FakePartial(self, message_id)
 
     async def send(self, embed=None, view=None):
-        message = FakeMessage(message_id=200 + len(self.sent), content="")
+        message = FakeMessage(message_id=FakeChannel.next_id(), content="")
         message.embeds = [embed] if embed is not None else []
         message.channel = self
         self.sent.append({"embed": embed, "view": view, "message": message})
@@ -483,6 +491,7 @@ class ReviewButtonTests(unittest.TestCase):
 class TaskButtonTests(unittest.TestCase):
     def _task_message(self, cog):
         message = FakeMessage(message_id=400, content="")
+        message.channel = FakeChannel(tasks_mod.TODO_CHANNEL_ID)
         message.embeds = [build_task_embed(
             "fix the door", wiki_task_id="task-0001")]
         cog.state["400"] = {
@@ -790,6 +799,183 @@ class DoneAndMarkdownTests(unittest.TestCase):
             self.assertFalse(os.path.exists(cog.todo_markdown_path))
             self.assertEqual(bot.channels[tasks_mod.TODO_CHANNEL_ID].deleted_ids, [])
             self.assertIn("403", cog.state)
+
+
+class PersonalChannelTests(unittest.TestCase):
+    THEA = 151408413744693248
+    JUSTIN = 120661885573005316
+    STEVE = 168897667387097089
+    STRANGER = 4242
+
+    def _setup(self, tmpdir):
+        cog, bot = make_cog(tmpdir)
+        names = {self.THEA: "todo-thea", self.JUSTIN: "todo-justin",
+                 self.STEVE: "todo-steve"}
+        for user_id, name in names.items():
+            channel = FakeChannel(tasks_mod.PERSONAL_CHANNELS[user_id])
+            channel.name = name
+            bot.channels[channel.id] = channel
+        todo = bot.channels[tasks_mod.TODO_CHANNEL_ID]
+        todo.name = "todo"
+        return cog, bot, todo
+
+    def _task_message(self, cog, channel, message_id=500, claimers=None):
+        message = FakeMessage(message_id=message_id, content="")
+        message.channel = channel
+        source = FakeMessage(message_id=111)
+        embed = build_task_embed("fix the door", wiki_task_id="task-0001",
+                                 source_message=source)
+        message.embeds = [embed]
+        cog.state[str(message_id)] = {
+            "kind": "task", "wiki_task_id": "task-0001", "source_message_id": 111,
+            "piece": "fix the door", "score": 0.9, "trigger": "none",
+            "thread_id": None, "status": "open", "channel_id": channel.id,
+            "claimers": list(claimers or [])}
+        return message
+
+    def _wiki(self, task):
+        async def fake(method, path, **kwargs):
+            if method == "PATCH":
+                body = kwargs.get("json") or {}
+                if "assignees" in body:
+                    task["assignees"] = body["assignees"]
+                if "status" in body:
+                    task["status"] = body["status"]
+            return {"ok": True, "task": dict(task)}
+        return fake
+
+    def _click(self, cog, message, user_id, name, action, task):
+        interaction = FakeInteraction(user=FakeUser(user_id, name), message=message)
+        with patch.dict(os.environ, {"WIKI_API_KEY": "testkey"}), \
+                patch.object(cog, "_wiki_api", side_effect=self._wiki(task)):
+            run(cog.handle_task_button(interaction, action))
+        return interaction
+
+    def _task(self):
+        return {"id": "task-0001", "title": "fix the door",
+                "status": "open", "assignees": []}
+
+    def test_claim_moves_task_to_the_claimers_channel(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot, todo = self._setup(tmpdir)
+            message = self._task_message(cog, todo)
+            interaction = self._click(cog, message, self.THEA, "Thea", "claim", self._task())
+            mine = bot.channels[tasks_mod.PERSONAL_CHANNELS[self.THEA]]
+            self.assertEqual(len(mine.sent), 1)
+            self.assertTrue(message.deleted)
+            self.assertNotIn("500", cog.state)
+            new_id = str(mine.sent[0]["message"].id)
+            self.assertEqual(cog.state[new_id]["channel_id"], mine.id)
+            self.assertEqual(cog.state[new_id]["claimers"], [self.THEA])
+            self.assertIn("#todo-thea", interaction.followup.sent[0]["content"])
+            fields = {f.name: f.value for f in mine.sent[0]["embed"].fields}
+            self.assertEqual(fields["Assignees"], "Thea")
+            self.assertIn("Source", fields)
+
+    def test_claim_by_someone_without_a_channel_stays_put(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot, todo = self._setup(tmpdir)
+            message = self._task_message(cog, todo)
+            self._click(cog, message, self.STRANGER, "Peach", "claim", self._task())
+            self.assertFalse(message.deleted)
+            self.assertEqual(len(message.edits), 1)
+            self.assertEqual(todo.sent, [])
+            self.assertIn("500", cog.state)
+
+    def test_second_claimer_does_not_move_it(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot, todo = self._setup(tmpdir)
+            task = self._task()
+            message = self._task_message(cog, todo)
+            self._click(cog, message, self.THEA, "Thea", "claim", task)
+            mine = bot.channels[tasks_mod.PERSONAL_CHANNELS[self.THEA]]
+            moved = mine.sent[0]["message"]
+            self._click(cog, moved, self.STEVE, "Steve", "claim", task)
+            steves = bot.channels[tasks_mod.PERSONAL_CHANNELS[self.STEVE]]
+            self.assertEqual(steves.sent, [])
+            self.assertFalse(moved.deleted)
+            self.assertEqual(cog.state[str(moved.id)]["claimers"], [self.THEA, self.STEVE])
+
+    def test_first_claimer_unclaiming_hands_it_to_the_next(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot, todo = self._setup(tmpdir)
+            task = self._task()
+            message = self._task_message(cog, todo)
+            self._click(cog, message, self.THEA, "Thea", "claim", task)
+            mine = bot.channels[tasks_mod.PERSONAL_CHANNELS[self.THEA]]
+            moved = mine.sent[0]["message"]
+            self._click(cog, moved, self.STEVE, "Steve", "claim", task)
+            self._click(cog, moved, self.THEA, "Thea", "claim", task)
+            steves = bot.channels[tasks_mod.PERSONAL_CHANNELS[self.STEVE]]
+            self.assertEqual(len(steves.sent), 1)
+            self.assertTrue(moved.deleted)
+            new_id = str(steves.sent[0]["message"].id)
+            self.assertEqual(cog.state[new_id]["claimers"], [self.STEVE])
+
+    def test_last_unclaim_sends_it_back_to_todo(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot, todo = self._setup(tmpdir)
+            task = self._task()
+            message = self._task_message(cog, todo)
+            self._click(cog, message, self.THEA, "Thea", "claim", task)
+            mine = bot.channels[tasks_mod.PERSONAL_CHANNELS[self.THEA]]
+            moved = mine.sent[0]["message"]
+            self._click(cog, moved, self.THEA, "Thea", "claim", task)
+            self.assertEqual(len(todo.sent), 1)
+            self.assertTrue(moved.deleted)
+            back = todo.sent[0]["message"]
+            self.assertEqual(cog.state[str(back.id)]["claimers"], [])
+            fields = {f.name: f.value for f in todo.sent[0]["embed"].fields}
+            self.assertNotIn("Assignees", fields)
+
+    def test_in_progress_keeps_the_message_in_the_personal_channel(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot, todo = self._setup(tmpdir)
+            task = self._task()
+            message = self._task_message(cog, todo)
+            self._click(cog, message, self.THEA, "Thea", "claim", task)
+            mine = bot.channels[tasks_mod.PERSONAL_CHANNELS[self.THEA]]
+            moved = mine.sent[0]["message"]
+            self._click(cog, moved, self.THEA, "Thea", "in_progress", task)
+            self.assertFalse(moved.deleted)
+            self.assertEqual(len(moved.edits), 1)
+            values = {f.name: f.value for f in moved.edits[0]["embed"].fields}
+            self.assertEqual(values["Status"], "in_progress")
+            self.assertIn("Source", values)
+            self.assertEqual(len(mine.sent), 1)
+
+    def test_done_deletes_the_message_in_the_personal_channel(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot, todo = self._setup(tmpdir)
+            task = self._task()
+            message = self._task_message(cog, todo)
+            self._click(cog, message, self.THEA, "Thea", "claim", task)
+            mine = bot.channels[tasks_mod.PERSONAL_CHANNELS[self.THEA]]
+            moved = mine.sent[0]["message"]
+            self._click(cog, moved, self.THEA, "Thea", "done", task)
+            self.assertTrue(moved.deleted)
+            self.assertEqual(cog.state, {})
+
+    def test_failed_post_keeps_the_task_where_it_was(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot, todo = self._setup(tmpdir)
+            mine = bot.channels[tasks_mod.PERSONAL_CHANNELS[self.THEA]]
+
+            async def boom(embed=None, view=None):
+                raise RuntimeError("missing permissions")
+            mine.send = boom
+            message = self._task_message(cog, todo)
+            self._click(cog, message, self.THEA, "Thea", "claim", self._task())
+            self.assertFalse(message.deleted)
+            self.assertEqual(len(message.edits), 1)
+            self.assertIn("500", cog.state)
+
+    def test_every_personal_channel_is_a_distinct_known_channel(self):
+        ids = list(tasks_mod.PERSONAL_CHANNELS.values())
+        self.assertEqual(len(ids), len(set(ids)))
+        for banned in (tasks_mod.TODO_CHANNEL_ID, tasks_mod.WATCH_CHANNEL_ID,
+                       tasks_mod.REVIEW_CHANNEL_ID):
+            self.assertNotIn(banned, ids)
 
 
 class SlashCommandTests(unittest.TestCase):

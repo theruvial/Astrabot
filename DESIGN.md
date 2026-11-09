@@ -182,9 +182,11 @@ Full behaviour is in `README_tasks.md`, and the classifier is documented in `REA
 | Reads messages from | #astra-feedback | `1568142915631325355` |
 | Decisions needing a person | #human-intervention | `1568329972928610546` |
 | Confirmed tasks | #todo | `1568332728573759621` |
+| Tasks claimed by a person | #todo-steve, #todo-justin, #todo-thea, #todo-kathi | `1569493103033843822`, `1569493185946853517`, `1569493220151394517`, `1569493240896290816` |
 
 - **Flow:** each human message in #astra-feedback goes to the classifier on `127.0.0.1:13383`, which splits it and returns `auto_task`, `review` or `auto_drop` per piece. Tasks become wiki tasks through `/api/tasks` and post to #todo with Claim / Unclaim, In Progress, Done and Not a Task. Unclear pieces post to #human-intervention with a thread. Dropped pieces post nothing.
 - **Rulings:** "Is a task" creates the wiki task, posts it to #todo, and deletes the review message and thread. If #todo cannot be reached, it edits the review message in place instead. "Not a task" deletes the review message and thread. Every ruling is saved as a label and takes effect immediately through the overrides file.
+- **Personal channels:** claiming a task re-posts its embed in the claimer's channel (`PERSONAL_CHANNELS`, Discord user id to channel id) and deletes the one in #todo; the first claimer decides with several claimers, and the last unclaim sends it back to #todo. State records carry `claimers` (user ids, in order) and `channel_id`. Claimers with no channel leave the message in place.
 - **Done and the live list:** Done (button or `/task_done`) deletes the task's #todo message; the wiki keeps the record and the #astra-feedback source message is untouched. The cog also writes `data/TODO.md` (`TASKS_TODO_MARKDOWN_PATH`), a markdown list of every non-done wiki task with assignees and message links, whenever a task changes and every 5 minutes. The same sync deletes #todo messages of tasks the wiki shows as done.
 - **Host needs:** `"cogs.tasks",` uncommented in the host `bot.py` only, `WIKI_API_KEY` set, and Manage Threads for the bot in #human-intervention so it can delete threads.
 - **Model:** SetFit `tasks-AstraThought-v2`, 77% precision and 93% recall on the held-out test set. Retrain only after 50 new labels. Thea trains it herself.
@@ -281,6 +283,11 @@ Newest first. One dated entry per working day, by the agent that did the work.
 
 - **Transmission matching (off by default):** `cogs/audiobooks_torrents.py` reads torrents from Transmission's RPC (the desktop app on the Ubuntu server, port 9092, basic auth) and marks matching `Requested` audiobook requests In Progress via `admin_fulfill`. `audiobooks.torrents` in `config.json` holds `enabled`, `dry_run` (default true), `url`, `username`, `password`, `interval_seconds`; the credentials stay in the untracked `config.json`. `scripts/check_torrents.py` previews matches read-only.
 - **Server notes:** Transmission is not in Docker. A `transmission-daemon` service was also running and held port 9091, so the desktop app's API was moved to 9092 and the daemon was stopped. The app's API only exists while the app is running.
+
+### 2026-11-09 — Claude Code (Sonnet 5.5), branch `feature/personal-task-channels`
+
+- **Personal task channels:** the four channels under Task Tracking were renamed #todo-steve, #todo-justin, #todo-thea and #todo-kathi (ids unchanged). Claiming a task moves its embed to the claimer's channel; Done deletes it there. Mapping: theruvial to thea, egami_rorrim to justin, _metronome to steve, kathi.exe to kathi. Other members (e.g. twocanpeacan, Peachblight) have no channel yet.
+- Embeds rebuilt on Claim and In Progress now keep their Source field and footer (they used to lose them).
 
 ### 2026-11-09 — Claude Code (Sonnet 5.5), branch `feature/tasks-cleanup-and-markdown`
 

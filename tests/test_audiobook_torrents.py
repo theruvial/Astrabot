@@ -44,6 +44,15 @@ class MatchTests(unittest.TestCase):
             req(1, "The Ever King", "LJ Andrews"),
             tor(1, "the.ever.king.-.andrews.MP3")))
 
+    def test_series_name_and_book_number_in_torrent_name(self):
+        # Real torrent names from Thea's Transmission.
+        self.assertTrue(match_torrent(
+            req(1, "The Ever Queen", "LJ Andrews"),
+            tor(1, "The Ever Queen - The Ever Seas, Book 2.m4b")))
+        self.assertTrue(match_torrent(
+            req(1, "The Ever King", "LJ Andrews"),
+            tor(1, "The Ever King- The Ever Seas, Book 1.m4b")))
+
     def test_other_book_in_series_does_not_match(self):
         self.assertFalse(match_torrent(
             req(1, "The Ever King", "LJ Andrews"),
@@ -88,6 +97,14 @@ class FindMatchesTests(unittest.TestCase):
         rows = [req(1, "The Ever King", "LJ Andrews"),
                 req(2, "The Ever King", "LJ Andrews")]
         self.assertEqual(find_matches(rows, [tor(1, "LJ Andrews - The Ever King")]), [])
+
+    def test_series_requests_do_not_cross_match(self):
+        rows = [req(1, "The Ever King", "LJ Andrews"),
+                req(2, "The Ever Queen", "LJ Andrews")]
+        torrents = [tor(1, "The Ever King- The Ever Seas, Book 1.m4b"),
+                    tor(2, "The Ever Queen - The Ever Seas, Book 2.m4b")]
+        got = find_matches(rows, torrents)
+        self.assertEqual(sorted((r["id"], t["id"]) for r, t in got), [(1, 1), (2, 2)])
 
     def test_clean_match_is_returned(self):
         rows = [req(1, "The Ever King", "LJ Andrews"),

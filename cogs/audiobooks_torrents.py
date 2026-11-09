@@ -99,6 +99,10 @@ class TransmissionClient:
         return [t for t in torrents if isinstance(t, dict)]
 
 
+# "Book 2", "Vol. 3", "Part 1": a position in a series, not part of the title.
+_SERIES_NUMBER_RE = re.compile(r"\b(book|vol|volume|part)\.?\s*#?\d+\b", re.IGNORECASE)
+
+
 def tokens(text: str) -> list[str]:
     """Lowercase words, punctuation removed, accents left alone."""
     return re.findall(r"[a-z0-9]+", str(text or "").lower().replace("'", ""))
@@ -140,7 +144,8 @@ def match_torrent(row: dict, torrent: dict) -> bool:
     # A bare Audible ID is not a title. Wait for a real one.
     if re.fullmatch(r"b[0-9a-z]{9}", "".join(want)):
         return False
-    name = [w for w in tokens(torrent.get("name")) if w not in NOISE]
+    name_text = _SERIES_NUMBER_RE.sub(" ", str(torrent.get("name") or ""))
+    name = [w for w in tokens(name_text) if w not in NOISE]
     have = set(name)
     if not all(w in have for w in want):
         return False

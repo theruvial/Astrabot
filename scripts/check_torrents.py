@@ -46,8 +46,8 @@ async def main() -> int:
         return 1
     db = sqlite3.connect("file:audiobooks.db?mode=ro", uri=True)
     db.row_factory = sqlite3.Row
-    requests = [dict(r) for r in db.execute(
-        "SELECT id, bookName, author, status, createdAt FROM requests")]
+    # SELECT * so it also works before the bot has added the author column.
+    requests = [dict(r) for r in db.execute("SELECT * FROM requests")]
     print(f"{len(torrents)} torrent(s) in Transmission, {len(requests)} request(s).")
     waiting = [r for r in requests if r["status"] == "Requested"]
     print(f"{len(waiting)} request(s) still Requested.")
@@ -55,7 +55,7 @@ async def main() -> int:
     if not matches:
         print("No matches.")
     for row, torrent in matches:
-        print(f"MATCH  request {row['id']} {row['bookName']!r} by {row['author'] or '?'}"
+        print(f"MATCH  request {row['id']} {row['bookName']!r} by {row.get('author') or '?'}"
               f"  <->  torrent {torrent['name']!r} ({torrent.get('percentDone', 0):.0%})")
     return 0
 

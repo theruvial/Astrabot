@@ -28,7 +28,7 @@ from urllib.parse import parse_qs, urlparse
 
 from aiohttp import web
 
-from .audiobooks_db import normalize_email
+from .audiobooks_db import book_label, normalize_email
 from .audiobooks_providers import check_link
 
 log = logging.getLogger("audiobooks.web")
@@ -158,7 +158,7 @@ async function load() {
   if (!data.requests.length) { rows.innerHTML = '<p style="padding:16px;">No requests yet. Use New Request + to add one.</p>'; return; }
   for (const r of data.requests) {
     const div = document.createElement('div'); div.className = 'row';
-    const name = document.createElement('span'); name.textContent = r.bookName;
+    const name = document.createElement('span'); name.textContent = r.author ? r.bookName + ' by ' + r.author : r.bookName;
     const status = document.createElement('span');
     const chip = document.createElement('span'); chip.className = 'chip' + (r.status === 'Fulfilled' ? ' fulfilled' : r.status === 'Cancelled' ? ' cancelled' : ''); chip.textContent = r.status; status.appendChild(chip);
     const req = document.createElement('span'); req.textContent = r.requesterName || '';
@@ -346,11 +346,11 @@ async function loadRequests() {
   const tbody = document.getElementById('requests'); tbody.innerHTML = '';
   for (const r of data.requests) {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><input type="text" value="' + esc(r.bookName) + '"></td><td><input type="url" value="' + esc(r.linkToBook) + '"></td><td>' + esc(r.status) + '</td><td>' + esc(r.requesterName || '') + '<br><small>' + esc(r.requester) + '</small></td><td></td>';
-    const [bookEl, linkEl] = tr.querySelectorAll('input');
+    tr.innerHTML = '<td><input type="text" value="' + esc(r.bookName) + '"><br><input type="text" placeholder="Author" value="' + esc(r.author || '') + '"></td><td><input type="url" value="' + esc(r.linkToBook) + '"></td><td>' + esc(r.status) + '</td><td>' + esc(r.requesterName || '') + '<br><small>' + esc(r.requester) + '</small></td><td></td>';
+    const [bookEl, authorEl, linkEl] = tr.querySelectorAll('input');
     const cell = tr.lastElementChild;
     const save = document.createElement('button'); save.className = 'small'; save.textContent = 'Save';
-    save.onclick = async () => { try { await api('/api/admin/requests/edit', {id: r.id, bookName: bookEl.value, linkToBook: linkEl.value}); showMsg('Request saved.', true); loadRequests(); } catch (e) { showMsg(e.message); } };
+    save.onclick = async () => { try { await api('/api/admin/requests/edit', {id: r.id, bookName: bookEl.value, author: authorEl.value, linkToBook: linkEl.value}); showMsg('Request saved.', true); loadRequests(); } catch (e) { showMsg(e.message); } };
     cell.appendChild(save);
     if (r.status === 'Requested') {
       const f = document.createElement('button'); f.className = 'small'; f.textContent = 'Fulfill';
@@ -483,6 +483,7 @@ class AudiobooksWeb:
             rows.append({
                 "id": row["id"],
                 "bookName": row["bookName"],
+                "author": row.get("author") or "",
                 "status": row["status"],
                 "requesterName": row.get("requesterName") or "",
                 "isMine": row["requester"] == email,
@@ -543,7 +544,7 @@ class AudiobooksWeb:
         # message delete is logged, never a reason to keep the row:
         # the requester asked to cancel, so it is cancelled.
         requester_email = row["requester"]
-        book_name = row["bookName"]
+        book_name = book_label(row)
         try:
             await self.cog.notifier(
                 requester_email,
@@ -665,6 +666,7 @@ class AudiobooksWeb:
             rows.append({
                 "id": row["id"],
                 "bookName": row["bookName"],
+                "author": row.get("author") or "",
                 "status": row["status"],
                 "requester": row["requester"],
                 "requesterName": row.get("requesterName") or "",
@@ -725,7 +727,7 @@ class AudiobooksWeb:
         try:
             data = await request.json()
             request_id = int(data.get("id"))
-            updated = self.db.update_request(request_id, data.get("bookName") or "", data.get("linkToBook") or "")
+            updated = self.db.update_request(request_id, data.get("bookName") or "", data.get("linkToBook") or "", data.get("author"))
         except ValueError as exc:
             return web.json_response({"error": str(exc)}, status=400)
         except Exception:

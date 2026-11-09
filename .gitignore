@@ -9,3 +9,5 @@ logs/
 crash.log
 audiobooks.db
 thi.db
+backups/
+*.bak

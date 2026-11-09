@@ -6,6 +6,9 @@ use a fake fetcher returning canned HTML.
 """
 
 import asyncio
+import glob
+import json
+import sqlite3
 import os
 import sys
 import tempfile
@@ -13,7 +16,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cogs.audiobooks_db import AudiobooksDB, mask_email, normalize_email
+from cogs.audiobooks_db import AudiobooksDB, book_label, mask_email, normalize_email
 from cogs.audiobooks_providers import check_link, extract_series_books, provider_for
 
 
@@ -137,6 +140,63 @@ def fake_fetch_factory(pages):
     return fetch
 
 
+class AuthorMigrationTests(unittest.TestCase):
+    def test_old_database_keeps_rows_and_gets_backup(self):
+        tmp = tempfile.mkdtemp()
+        path = os.path.join(tmp, "audiobooks.db")
+        old = sqlite3.connect(path)
+        old.executescript("""
+            CREATE TABLE users (email TEXT PRIMARY KEY, firstName TEXT NOT NULL,
+                                createdAt TEXT NOT NULL);
+            CREATE TABLE requests (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                requester TEXT NOT NULL, bookName TEXT NOT NULL,
+                linkToBook TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'Requested',
+                discordMessageId TEXT, discordChannelId TEXT,
+                createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL);
+            INSERT INTO users VALUES ('a@b.co', 'A', 't');
+            INSERT INTO requests (requester, bookName, linkToBook, status,
+                discordMessageId, createdAt, updatedAt)
+                VALUES ('a@b.co', 'B0CLD8MBT6', 'https://x', 'Fulfilled', '42', 't', 't');
+        """)
+        old.commit()
+        old.close()
+        db = AudiobooksDB(path)
+        row = db.get_request(1)
+        self.assertEqual(row["bookName"], "B0CLD8MBT6")
+        self.assertEqual(row["status"], "Fulfilled")
+        self.assertEqual(row["discordMessageId"], "42")
+        self.assertEqual(row["author"], "")
+        backups = glob.glob(path + ".pre-author-*.bak")
+        self.assertEqual(len(backups), 1)
+        saved = sqlite3.connect(backups[0])
+        self.assertEqual(saved.execute("SELECT bookName FROM requests").fetchone()[0], "B0CLD8MBT6")
+        saved.close()
+        db.conn.close()
+        # Opening again must not make another backup.
+        AudiobooksDB(path).conn.close()
+        self.assertEqual(len(glob.glob(path + ".pre-author-*.bak")), 1)
+
+    def test_author_saved_and_edited(self):
+        tmp = tempfile.mkdtemp()
+        db = AudiobooksDB(os.path.join(tmp, "a.db"))
+        db.create_user("a@b.co", "A")
+        row = db.create_requests("a@b.co", [{"bookName": "The Ever King",
+                                             "author": "LJ Andrews",
+                                             "linkToBook": "https://x"}])[0]
+        self.assertEqual(db.get_request(row["id"])["author"], "LJ Andrews")
+        db.update_request(row["id"], "The Ever King", "https://x")
+        self.assertEqual(db.get_request(row["id"])["author"], "LJ Andrews")
+        db.update_request(row["id"], "The Ever King", "https://x", "L. J. Andrews")
+        self.assertEqual(db.get_request(row["id"])["author"], "L. J. Andrews")
+        db.conn.close()
+
+    def test_book_label(self):
+        self.assertEqual(book_label({"bookName": "Dune", "author": "Frank Herbert"}),
+                         "Dune by Frank Herbert")
+        self.assertEqual(book_label({"bookName": "Dune", "author": ""}), "Dune")
+        self.assertEqual(book_label({"bookName": "Dune"}), "Dune")
+
+
 class ProviderTests(unittest.TestCase):
     def test_allowlist(self):
         self.assertEqual(provider_for("https://www.audible.com/pd/x"), "Audible")
@@ -202,7 +262,30 @@ class ProviderTests(unittest.TestCase):
             "https://www.audible.com/pd/Dune-Audiobook/B002V1OF70",
             fetch=fail_fetch))
         self.assertEqual(result["created"][0]["bookName"], "Dune")
-        self.assertEqual(calls, [])
+        # Only the Audnexus catalogue may be asked, never audible.com.
+        self.assertFalse([u for u in calls if "audible." in u])
+
+    def test_audible_title_and_author_from_audnexus(self):
+        calls = []
+
+        async def fetch(url):
+            calls.append(url)
+            return json.dumps({"asin": "B0CLD8MBT6", "title": "The Ever King",
+                               "authors": [{"name": "LJ Andrews"}]})
+        result = asyncio.run(check_link(
+            "https://www.audible.com/pd/B0CLD8MBT6?source_code=X", fetch=fetch))
+        book = result["created"][0]
+        self.assertEqual(book["bookName"], "The Ever King")
+        self.assertEqual(book["author"], "LJ Andrews")
+        self.assertEqual(calls, ["https://api.audnex.us/books/B0CLD8MBT6"])
+
+    def test_audible_bad_audnexus_reply_keeps_url_title(self):
+        async def fetch(url):
+            return "<html>not json</html>"
+        result = asyncio.run(check_link(
+            "https://www.audible.com/pd/B0CLD8MBT6", fetch=fetch))
+        self.assertEqual(result["created"][0]["bookName"], "B0CLD8MBT6")
+        self.assertEqual(result["created"][0]["author"], "")
 
     def test_amazon_with_audiobook_edition(self):
         html = ('<html><head><title>Song of Sorrows and Fate: LJ Andrews: '

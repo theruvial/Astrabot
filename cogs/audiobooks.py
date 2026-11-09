@@ -49,7 +49,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from .audiobooks_db import AudiobooksDB, normalize_email
+from .audiobooks_db import AudiobooksDB, book_label, normalize_email
 from .audiobooks_notify import configure_email, send_email
 from .audiobooks_web import AudiobooksWeb
 
@@ -127,7 +127,7 @@ def _audiobooks_config(bot) -> dict:
 
 def build_embed(row: dict) -> discord.Embed:
     embed = discord.Embed(
-        title=row["bookName"],
+        title=book_label(row),
         color=STATUS_COLORS.get(row["status"], discord.Color.blurple()),
     )
     embed.add_field(name="Requester", value=row.get("requesterName") or "Unknown", inline=True)
@@ -289,7 +289,7 @@ class Audiobooks(commands.Cog):
             updated["requester"],
             "Your audiobook request is being worked on",
             f"Hi {updated.get('requesterName') or 'there'}, Thea has begun "
-            f"working on your request for {updated['bookName']}.",
+            f"working on your request for {book_label(updated)}.",
         )
         await self.update_embed_for_request(updated)
         return updated, sent, None
@@ -307,7 +307,7 @@ class Audiobooks(commands.Cog):
         sent = await self.notifier(
             updated["requester"],
             "Your audiobook request has been fulfilled",
-            f"The requested book {updated['bookName']} has been added to the server",
+            f"The requested book {book_label(updated)} has been added to the server",
         )
         await self.update_embed_for_request(updated, disabled=True)
         return updated, sent, None
@@ -325,7 +325,7 @@ class Audiobooks(commands.Cog):
         if row["status"] == "Fulfilled":
             return False, "already_closed"
         email = row["requester"]
-        book = row["bookName"]
+        book = book_label(row)
         self.db.delete_request(request_id)
         embed = (
             discord.Embed(title=book, color=discord.Color.red(), description="Rejected")
@@ -695,7 +695,7 @@ class Audiobooks(commands.Cog):
         never substituted for it.
         """
         email = row["requester"]
-        book = row["bookName"]
+        book = book_label(row)
         request_id = row["id"]
         self.db.delete_request(request_id)
         embed = (
@@ -809,7 +809,7 @@ class Audiobooks(commands.Cog):
                 row["requester"],
                 "Your audiobook request is being worked on",
                 f"Hi {row.get('requesterName') or 'there'}, Thea has begun "
-                f"working on your request for {row['bookName']}.",
+                f"working on your request for {book_label(row)}.",
             )
             await self.update_embed_for_request(updated)
             await interaction.followup.send(
@@ -833,7 +833,7 @@ class Audiobooks(commands.Cog):
             sent = await self.notifier(
                 row["requester"],
                 "Your audiobook request has been fulfilled",
-                f"The requested book {row['bookName']} has been added to the server",
+                f"The requested book {book_label(row)} has been added to the server",
             )
             await self.update_embed_for_request(updated, disabled=True)
             await interaction.followup.send(

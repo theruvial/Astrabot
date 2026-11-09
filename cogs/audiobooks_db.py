@@ -3,7 +3,7 @@
 Database name: ``audiobooks`` (file ``audiobooks.db`` by default).
 Tables keep the column names from the design document so the code maps
 1:1 to the spec: ``users(email, firstName)`` and
-``requests(requester, bookName, linkToBook)``.
+``requests(requester, bookName, author, linkToBook)``.
 
 Email addresses are stored lowercased, with no surrounding whitespace.
 Migration note (2026-10-29): this feature was originally phone-based.
@@ -12,6 +12,11 @@ and ``sessions`` tables are renamed to ``*_phone_legacy`` (preserved,
 not used) and fresh email-based tables are created. Old phone accounts
 cannot be converted automatically -- there is no email address on file
 for them -- so those users create a new account with their email.
+
+Migration note (2026-11-09): ``requests.author`` was added. Opening an
+older database copies it to ``<name>.pre-author-<time>.bak`` first,
+then adds the column with ADD COLUMN, which keeps every existing row.
+Old rows get an empty author.
 """
 
 from __future__ import annotations
@@ -46,6 +51,13 @@ def mask_email(email: str) -> str:
         local, domain = email.split("@", 1)
         return f"{local[:1]}***@{domain}" if local else f"***@{domain}"
     return "***"
+
+
+def book_label(row: dict) -> str:
+    """How a request's book is named in emails and Discord messages."""
+    title = str(row.get("bookName") or "").strip()
+    author = str(row.get("author") or "").strip()
+    return f"{title} by {author}" if author else title
 
 
 class AudiobooksDB:
@@ -98,6 +110,7 @@ class AudiobooksDB:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     requester TEXT NOT NULL REFERENCES users(email),
                     bookName TEXT NOT NULL,
+                    author TEXT NOT NULL DEFAULT '',
                     linkToBook TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'Requested',
                     discordMessageId TEXT,
@@ -107,6 +120,7 @@ class AudiobooksDB:
                 )
                 """
             )
+            self._add_author_column()
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_requests_requester "
                 "ON requests(requester)"
@@ -125,6 +139,27 @@ class AudiobooksDB:
                 """
             )
             self.conn.commit()
+
+    def _add_author_column(self) -> None:
+        """Add requests.author to an older database, backing it up first.
+
+        Caller holds the lock. ADD COLUMN never touches existing rows,
+        but the backup means a bad migration can still be undone by
+        copying the .bak file back while the bot is stopped.
+        """
+        if "author" in self._table_columns("requests"):
+            return
+        if self.path != ":memory:" and Path(self.path).exists():
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            backup_path = f"{self.path}.pre-author-{stamp}.bak"
+            backup = sqlite3.connect(backup_path)
+            try:
+                self.conn.backup(backup)
+            finally:
+                backup.close()
+        self.conn.execute(
+            "ALTER TABLE requests ADD COLUMN author TEXT NOT NULL DEFAULT ''"
+        )
 
     # -- users ---------------------------------------------------------
     def get_user(self, email: str) -> dict | None:
@@ -217,7 +252,7 @@ class AudiobooksDB:
         """
         with self._lock:
             rows = self.conn.execute(
-                "SELECT r.id, r.requester, r.bookName, r.linkToBook, "
+                "SELECT r.id, r.requester, r.bookName, r.author, r.linkToBook, "
                 "r.status, r.discordMessageId, r.discordChannelId, "
                 "r.createdAt, r.updatedAt, u.firstName AS requesterName "
                 "FROM requests r LEFT JOIN users u "
@@ -270,7 +305,8 @@ class AudiobooksDB:
     ) -> list[dict]:
         """Insert one row per book, in a single transaction.
 
-        ``books`` is a list of ``{"bookName": ..., "linkToBook": ...}``.
+        ``books`` is a list of ``{"bookName": ..., "linkToBook": ...}``,
+        with an optional ``"author"``.
         Returns the created rows (with ids).
         """
         now = utcnow_iso()
@@ -279,16 +315,18 @@ class AudiobooksDB:
             cur = self.conn.cursor()
             for book in books:
                 cur.execute(
-                    "INSERT INTO requests (requester, bookName, linkToBook, "
-                    "status, createdAt, updatedAt) VALUES (?, ?, ?, "
-                    "'Requested', ?, ?)",
-                    (email, book["bookName"], book["linkToBook"], now, now),
+                    "INSERT INTO requests (requester, bookName, author, "
+                    "linkToBook, status, createdAt, updatedAt) "
+                    "VALUES (?, ?, ?, ?, 'Requested', ?, ?)",
+                    (email, book["bookName"], book.get("author") or "",
+                     book["linkToBook"], now, now),
                 )
                 created.append(
                     {
                         "id": cur.lastrowid,
                         "requester": email,
                         "bookName": book["bookName"],
+                        "author": book.get("author") or "",
                         "linkToBook": book["linkToBook"],
                         "status": "Requested",
                         "discordMessageId": None,
@@ -304,7 +342,7 @@ class AudiobooksDB:
         """All requests, newest first, with the requester's first name."""
         with self._lock:
             rows = self.conn.execute(
-                "SELECT r.id, r.requester, r.bookName, r.linkToBook, "
+                "SELECT r.id, r.requester, r.bookName, r.author, r.linkToBook, "
                 "r.status, r.discordMessageId, r.discordChannelId, "
                 "r.createdAt, r.updatedAt, u.firstName AS requesterName "
                 "FROM requests r LEFT JOIN users u "
@@ -316,7 +354,7 @@ class AudiobooksDB:
     def get_request(self, request_id: int) -> dict | None:
         with self._lock:
             row = self.conn.execute(
-                "SELECT r.id, r.requester, r.bookName, r.linkToBook, "
+                "SELECT r.id, r.requester, r.bookName, r.author, r.linkToBook, "
                 "r.status, r.discordMessageId, r.discordChannelId, "
                 "r.createdAt, r.updatedAt, u.firstName AS requesterName "
                 "FROM requests r LEFT JOIN users u "
@@ -328,7 +366,7 @@ class AudiobooksDB:
     def get_request_by_message(self, message_id: int | str) -> dict | None:
         with self._lock:
             row = self.conn.execute(
-                "SELECT r.id, r.requester, r.bookName, r.linkToBook, "
+                "SELECT r.id, r.requester, r.bookName, r.author, r.linkToBook, "
                 "r.status, r.discordMessageId, r.discordChannelId, "
                 "r.createdAt, r.updatedAt, u.firstName AS requesterName "
                 "FROM requests r LEFT JOIN users u "
@@ -339,8 +377,11 @@ class AudiobooksDB:
         return dict(row) if row else None
 
     def update_request(self, request_id: int, book_name: str,
-                       link: str) -> dict | None:
-        """Edit a request's book name and link (admin dashboard)."""
+                       link: str, author: str | None = None) -> dict | None:
+        """Edit a request's book name, link and author (admin dashboard).
+
+        ``author=None`` leaves the stored author unchanged.
+        """
         book_name = book_name.strip()
         link = link.strip()
         if not book_name or not link:
@@ -351,6 +392,11 @@ class AudiobooksDB:
                 "updatedAt = ? WHERE id = ?",
                 (book_name, link, utcnow_iso(), request_id),
             )
+            if author is not None:
+                self.conn.execute(
+                    "UPDATE requests SET author = ? WHERE id = ?",
+                    (author.strip(), request_id),
+                )
             self.conn.commit()
         return self.get_request(request_id)
 

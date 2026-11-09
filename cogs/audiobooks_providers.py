@@ -17,6 +17,7 @@ unit-tested with a fake fetcher. The default fetcher uses aiohttp.
 
 from __future__ import annotations
 
+import json
 import re
 from html import unescape
 from html.parser import HTMLParser
@@ -331,7 +332,7 @@ async def default_fetch(url: str, timeout: float = 10.0) -> str | None:
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/124.0 Safari/537.36"
         ),
-        "Accept": "text/html,application/xhtml+xml",
+        "Accept": "text/html,application/xhtml+xml,application/json",
     }
     try:
         timeout_cfg = aiohttp.ClientTimeout(total=timeout)
@@ -385,6 +386,43 @@ def audible_title(path: str) -> str | None:
     return parts[-1]
 
 
+AUDNEXUS_URL = "https://api.audnex.us/books/{asin}"
+
+
+def audible_asin(path: str) -> str | None:
+    """The ASIN in an Audible product path, e.g. B002V1OF70, or None."""
+    for part in path.split("/"):
+        if re.fullmatch(r"B[A-Z0-9]{9}", part):
+            return part
+    return None
+
+
+async def audnexus_lookup(asin: str, fetch=default_fetch) -> dict | None:
+    """Title and author for an Audible ASIN from Audnexus, or None.
+
+    Audnexus is the catalogue service Audiobookshelf uses. It is not
+    Audible itself, so this keeps the rule that Audible pages are never
+    scraped. Any failure returns None and the caller keeps the title
+    it read from the URL.
+    """
+    body = await fetch(AUDNEXUS_URL.format(asin=asin))
+    if not body:
+        return None
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    title = str(data.get("title") or "").strip()
+    if not title:
+        return None
+    authors = [str(a.get("name") or "").strip()
+               for a in data.get("authors") or [] if isinstance(a, dict)]
+    return {"bookName": title,
+            "author": ", ".join(a for a in authors if a)}
+
+
 def audible_slug_title(path: str) -> str | None:
     """Backwards-compatible alias for audible_title()."""
     return audible_title(path)
@@ -406,9 +444,13 @@ async def check_single(
         # No scrape at all: Audible links are audiobook links by
         # definition, so the URL alone accepts the request.
         title = audible_title(path)
-        if title is not None:
-            return {"bookName": title, "linkToBook": clean}
-        return None
+        if title is None:
+            return None
+        asin = audible_asin(path)
+        found = await audnexus_lookup(asin, fetch) if asin else None
+        if found:
+            return {**found, "linkToBook": clean}
+        return {"bookName": title, "author": "", "linkToBook": clean}
     if provider == "Amazon":
         # Amazon IS scraped: the page must show an audiobook edition.
         html = await fetch(clean)

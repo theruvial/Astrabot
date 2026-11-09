@@ -32,6 +32,16 @@ How it works:
   message is edited in place instead, so the task is never lost.
   "Not a task" deletes the review message and the thread.
 - ``auto_drop`` pieces are dropped. Silence is not a label.
+- Finished tasks leave #todo. Done (button or /task_done) deletes
+  the task's #todo message; the wiki keeps the record. The source
+  message in #astra-feedback is never touched.
+- A live markdown list of the open and in-progress wiki tasks is kept
+  in ``TASKS_TODO_MARKDOWN_PATH`` (default ``data/TODO.md``). It is
+  rewritten whenever a task changes through this cog and every
+  ``SYNC_MINUTES`` minutes, which also catches changes made on the
+  wiki site. The same pass deletes the #todo messages of tasks the
+  wiki now shows as done. The file is only written when the list
+  changed.
 
 Buttons and restarts:
 - Views are persistent (``timeout=None``, fixed ``custom_id``) and
@@ -102,6 +112,7 @@ import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
+from discord.ext import tasks as ext_tasks
 
 log = logging.getLogger("tasks")
 
@@ -114,6 +125,8 @@ DEFAULT_CLASSIFIER_URL = "http://127.0.0.1:13383"
 
 RETRAIN_LABEL_COUNT = 50
 SEEN_CAP = 1000
+SYNC_MINUTES = 5
+PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 STATUS_COLORS = {
     "open": discord.Color.green(),
@@ -187,6 +200,9 @@ def _default_paths() -> dict:
         "labels": Path(os.environ.get("TASKS_LABELS_PATH") or root / "data" / "task_labels.jsonl"),
         "overrides": Path(os.environ.get("TASKS_OVERRIDES_PATH") or root / "data" / "task_overrides.json"),
         "state": Path(os.environ.get("TASKS_STATE_PATH") or root / "data" / "tasks_state.json"),
+        "todo_markdown": Path(
+            os.environ.get("TASKS_TODO_MARKDOWN_PATH") or root / "data" / "TODO.md"
+        ),
         "retrain_marker": Path(
             os.environ.get("TASKS_RETRAIN_MARKER_PATH")
             or root / "data" / "task_labels_last_retrain.json"
@@ -211,6 +227,70 @@ def _write_json_file(path: Path, data) -> None:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _write_text_file(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(path)
+
+
+def _md_text(value) -> str:
+    """One line of plain text: newlines and runs of spaces collapsed."""
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+_LAST_CHANGE_RE = re.compile(r"^_Last change:.*_$", re.MULTILINE)
+
+
+def build_todo_markdown(items: list, links: dict[str, str],
+                        changed_at: datetime) -> str:
+    """Markdown list of the tasks that are not done.
+
+    ``links`` maps a task id to the jump URL of its #todo message.
+    Tasks are grouped In progress, then Open, high priority first.
+    """
+    live = [t for t in items
+            if isinstance(t, dict) and t.get("status") != "done"]
+
+    def order(task: dict):
+        priority = str(task.get("priority") or "").lower()
+        return (PRIORITY_ORDER.get(priority, 1), str(task.get("id") or ""))
+
+    in_progress = sorted(
+        (t for t in live if t.get("status") == "in_progress"), key=order)
+    opened = sorted(
+        (t for t in live if t.get("status") != "in_progress"), key=order)
+
+    lines = [
+        "# To-do",
+        "",
+        "Live list of the open tasks from #todo. Astrabot rewrites this "
+        "file whenever a task changes, so do not edit it by hand. "
+        "Finished tasks are left out.",
+        "",
+        f"_Last change: {changed_at:%Y-%m-%d %H:%M}_",
+        "",
+        f"**{len(opened)} open, {len(in_progress)} in progress**",
+    ]
+    for heading, group in (("In progress", in_progress), ("Open", opened)):
+        lines += ["", f"## {heading}", ""]
+        if not group:
+            lines.append("_Nothing here._")
+            continue
+        for task in group:
+            task_id = _md_text(task.get("id"))
+            details = [_md_text(task.get("priority"))]
+            names = ", ".join(_task_assignees(task))
+            if names:
+                details.append(_md_text(names))
+            line = f"- [ ] **{task_id}** {_md_text(task.get('title'))}"
+            line += f" ({'; '.join(d for d in details if d)})"
+            if links.get(task_id):
+                line += f" - [message]({links[task_id]})"
+            lines.append(line)
+    return "\n".join(lines) + "\n"
 
 
 def build_task_embed(
@@ -366,7 +446,8 @@ class Tasks(commands.Cog):
     """Watch #astra-feedback, classify with the local model, post tasks."""
 
     def __init__(self, bot, *, config_override=None, labels_path=None,
-                 overrides_path=None, state_path=None, retrain_marker_path=None):
+                 overrides_path=None, state_path=None, retrain_marker_path=None,
+                 todo_markdown_path=None):
         self.bot = bot
         self.config = config_override if config_override is not None else _tasks_config(bot)
         paths = _default_paths()
@@ -374,6 +455,10 @@ class Tasks(commands.Cog):
         self.overrides_path = Path(overrides_path) if overrides_path else paths["overrides"]
         self.state_path = Path(state_path) if state_path else paths["state"]
         self.retrain_marker_path = Path(retrain_marker_path) if retrain_marker_path else paths["retrain_marker"]
+        self.todo_markdown_path = (Path(todo_markdown_path) if todo_markdown_path
+                                   else paths["todo_markdown"])
+        self._todo_key: str | None = None
+        self._sync_lock = asyncio.Lock()
         self._http_session: aiohttp.ClientSession | None = None
         self._seen: set[str] = set()
         self.state: dict = _load_json_file(self.state_path, {})
@@ -389,6 +474,7 @@ class Tasks(commands.Cog):
         return self._http_session
 
     async def cog_unload(self) -> None:
+        self._sync_loop.cancel()
         if self._http_session is not None and not self._http_session.closed:
             await self._http_session.close()
 
@@ -450,6 +536,90 @@ class Tasks(commands.Cog):
                 return await response.json()
         except (aiohttp.ClientError, asyncio.TimeoutError, Exception):
             return None
+
+    # -- finished tasks and the live markdown list ----------------------
+
+    async def _delete_message(self, channel_id: int, message_id: int) -> bool:
+        """Delete one message by id. True if it is gone afterwards."""
+        channel = self._channel(channel_id)
+        if channel is None:
+            return False
+        try:
+            await channel.get_partial_message(message_id).delete()
+            return True
+        except discord.NotFound:
+            return True
+        except Exception as exc:  # noqa: BLE001 - retried by the next sync
+            log.warning("Could not delete task message %s: %s", message_id, exc)
+            return False
+
+    async def _remove_task_messages(self, wiki_task_id: str) -> int:
+        """Delete every bot message for a finished task. Returns the count.
+
+        Messages that could not be deleted stay in the state file, so
+        the next sync tries again.
+        """
+        removed = 0
+        for message_id, record in list(self.state.items()):
+            if record.get("kind") != "task" or record.get("wiki_task_id") != wiki_task_id:
+                continue
+            channel_id = record.get("channel_id") or TODO_CHANNEL_ID
+            if await self._delete_message(channel_id, int(message_id)):
+                self.state.pop(message_id, None)
+                removed += 1
+        if removed:
+            self._save_state()
+        return removed
+
+    def _task_message_links(self) -> dict[str, str]:
+        links: dict[str, str] = {}
+        for message_id, record in self.state.items():
+            task_id = record.get("wiki_task_id")
+            if record.get("kind") != "task" or not task_id:
+                continue
+            channel_id = record.get("channel_id") or TODO_CHANNEL_ID
+            guild = getattr(self._channel(channel_id), "guild", None)
+            guild_id = getattr(guild, "id", None)
+            if guild_id:
+                links[task_id] = (
+                    f"https://discord.com/channels/{guild_id}/{channel_id}/{message_id}")
+        return links
+
+    async def refresh_todo(self) -> None:
+        """Rewrite the markdown list, and clear messages of done tasks.
+
+        Never raises: a wiki outage or a locked file is logged and the
+        next sync tries again.
+        """
+        async with self._sync_lock:
+            try:
+                payload = await self._wiki_api("GET", "/api/tasks")
+                items = (payload.get("tasks") or {}).get("items")
+                if not isinstance(items, list):
+                    return
+                for item in items:
+                    if (isinstance(item, dict) and item.get("status") == "done"
+                            and item.get("id")):
+                        await self._remove_task_messages(str(item["id"]))
+                text = build_todo_markdown(
+                    items, self._task_message_links(), datetime.now())
+                key = _LAST_CHANGE_RE.sub("", text)
+                if key == self._todo_key:
+                    return
+                _write_text_file(self.todo_markdown_path, text)
+                self._todo_key = key
+            except WikiApiError as exc:
+                log.warning("Could not refresh the todo list: %s", exc)
+            except Exception as exc:  # noqa: BLE001 - the bot must keep running
+                log.warning("Could not refresh the todo list: %s", exc)
+
+    @ext_tasks.loop(minutes=SYNC_MINUTES)
+    async def _sync_loop(self) -> None:
+        await self.refresh_todo()
+
+    @_sync_loop.before_loop
+    async def _before_sync_loop(self) -> None:
+        await self.bot.wait_until_ready()
 
     # -- state, labels, overrides ---------------------------------------
 
@@ -560,8 +730,10 @@ class Tasks(commands.Cog):
             "trigger": trigger,
             "thread_id": None,
             "status": task.get("status") or "open",
+            "channel_id": channel.id,
         }
         self._save_state()
+        await self.refresh_todo()
         return message
 
     async def _post_review_embed(self, *, piece: str, score: float | None,
@@ -694,6 +866,7 @@ class Tasks(commands.Cog):
                 item.disabled = True
             await message.edit(embed=done_embed, view=view)
             await interaction.followup.send("Marked as not a task.", ephemeral=True)
+            await self.refresh_todo()
             return
         if action == "claim":
             if not wiki_task_id:
@@ -738,6 +911,7 @@ class Tasks(commands.Cog):
                 view=_TaskView(self),
             )
             await interaction.followup.send(verb, ephemeral=True)
+            await self.refresh_todo()
             return
         status = "in_progress" if action == "in_progress" else "done"
         if not wiki_task_id:
@@ -751,6 +925,20 @@ class Tasks(commands.Cog):
         except WikiApiError as exc:
             await interaction.followup.send(f"Wiki backend error: {exc.error}", ephemeral=True)
             return
+        if status == "done":
+            # A finished task leaves #todo. The wiki keeps the record, and
+            # the message in #astra-feedback it came from is not touched.
+            try:
+                await message.delete()
+            except Exception as exc:  # noqa: BLE001 - fall back to a greyed embed below
+                log.warning("Could not delete finished task message %s: %s", message.id, exc)
+            else:
+                self.state.pop(str(message.id), None)
+                self._save_state()
+                await interaction.followup.send(
+                    "Marked done and removed from #todo.", ephemeral=True)
+                await self.refresh_todo()
+                return
         record["status"] = status
         self.state[str(message.id)] = record
         self._save_state()
@@ -762,6 +950,7 @@ class Tasks(commands.Cog):
             view=_TaskView(self),
         )
         await interaction.followup.send(f"Marked {status.replace('_', ' ')}.", ephemeral=True)
+        await self.refresh_todo()
 
     async def handle_review_button(self, interaction: discord.Interaction, action: str):
         message = interaction.message
@@ -820,6 +1009,7 @@ class Tasks(commands.Cog):
                 "trigger": trigger,
                 "thread_id": None,
                 "status": task.get("status") or "open",
+                "channel_id": getattr(message.channel, "id", None),
             }
             self._save_state()
             await message.edit(
@@ -857,6 +1047,8 @@ class Tasks(commands.Cog):
             self.bot.add_view(_ReviewView(self))
         except Exception as exc:  # noqa: BLE001 - view registration must not kill the cog
             log.warning("Could not register persistent task views: %s", exc)
+        if not self._sync_loop.is_running():
+            self._sync_loop.start()
 
     # -- slash commands -----------------------------------------------------
 
@@ -896,6 +1088,7 @@ class Tasks(commands.Cog):
         task = payload.get("task") or {}
         await interaction.response.send_message(
             f"Task created: {task.get('id')} - {task.get('title')}", ephemeral=True)
+        await self.refresh_todo()
 
     @app_commands.command(name="task_list", description="List wiki to-do tasks")
     @app_commands.describe(status="Filter by status", priority="Filter by priority")
@@ -969,6 +1162,9 @@ class Tasks(commands.Cog):
         task = payload.get("task") or {}
         await interaction.response.send_message(
             f"{task.get('id')} is now {task.get('status')}.", ephemeral=True)
+        if status == "done":
+            await self._remove_task_messages(str(task.get("id") or task_id))
+        await self.refresh_todo()
 
     @app_commands.command(name="task_edit", description="Edit a wiki task")
     @app_commands.describe(
@@ -1009,6 +1205,7 @@ class Tasks(commands.Cog):
         task = payload.get("task") or {}
         await interaction.response.send_message(
             f"{task.get('id')} updated.", ephemeral=True)
+        await self.refresh_todo()
 
     @app_commands.command(name="task_delete", description="Delete a wiki task (permanent)")
     @app_commands.describe(task_id="Task id, e.g. task-0001 or 1")
@@ -1021,6 +1218,7 @@ class Tasks(commands.Cog):
             return
         await interaction.response.send_message(
             f"{normalize_task_id(task_id)} deleted.", ephemeral=True)
+        await self.refresh_todo()
 
     @app_commands.command(name="task_stats", description="Show task classifier and label counts")
     async def task_stats(self, interaction: discord.Interaction):

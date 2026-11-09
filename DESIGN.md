@@ -277,6 +277,11 @@ Newest first. One dated entry per working day, by the agent that did the work.
 - **Fulfil deletes the post:** Request Fulfilled (Discord or dashboard) deletes the Discord message, and restarts no longer re-post Fulfilled requests.
 - Merged 2026-11-09. After the restart, run `py -3.14 scriptsackfill_audiobook_titles.py --apply` once to rename the four existing requests.
 
+### 2026-11-09 — Claude Code (Sonnet 5.5), branch `feature/torrent-matching`
+
+- **Transmission matching (off by default):** `cogs/audiobooks_torrents.py` reads torrents from Transmission's RPC (the desktop app on the Ubuntu server, port 9092, basic auth) and marks matching `Requested` audiobook requests In Progress via `admin_fulfill`. `audiobooks.torrents` in `config.json` holds `enabled`, `dry_run` (default true), `url`, `username`, `password`, `interval_seconds`; the credentials stay in the untracked `config.json`. `scripts/check_torrents.py` previews matches read-only.
+- **Server notes:** Transmission is not in Docker. A `transmission-daemon` service was also running and held port 9091, so the desktop app's API was moved to 9092 and the daemon was stopped. The app's API only exists while the app is running.
+
 ### 2026-11-09 — Claude Code (Sonnet 5.5), branch `feature/tasks-cleanup-and-markdown`
 
 - **Done deletes the task message:** marking a task done in #todo (button or `/task_done`) deletes its message instead of greying it out. If the delete fails, it falls back to the old greyed embed.

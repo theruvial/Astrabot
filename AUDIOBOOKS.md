@@ -138,6 +138,20 @@ run-book for the feature; the design document is the full spec.
   as collected editions. Omnibus/anthology extras are therefore not
   requested, and are not reported as "skipped" either — they were
   never candidates.
+- **Torrent matching (2026-11-09, off by default):** the cog can watch
+  Thea's Transmission client (RPC on the Ubuntu server, port 9092, with
+  a login). When a torrent's name matches a request that is still
+  `Requested`, the request is marked In Progress, through the same path
+  as the Fulfill Request button, so the requester is emailed and the
+  Discord post updates. Matching is strict: every word of the title
+  must be in the torrent name, and either the author's surname is in it
+  too or the name is little more than the title; torrents added more
+  than an hour before the request are ignored; a request that matches
+  several torrents, or a torrent that matches several requests, is left
+  for Thea. Settings are in `config.json` under `audiobooks.torrents`
+  (`enabled`, `dry_run` which defaults to true and only logs matches,
+  `url`, `username`, `password`, `interval_seconds`). Preview matches
+  without changing anything: `py -3.14 scripts\check_torrents.py`.
 - **Titles and authors (2026-11-09):** Audible links are looked up on
   Audnexus (`api.audnex.us`) for the title and author, because app
   share links (`/pd/<ASIN>`) have no title in the URL. If the lookup

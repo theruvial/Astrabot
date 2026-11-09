@@ -252,6 +252,7 @@ class Audiobooks(commands.Cog):
         self.web = AudiobooksWeb(self)
         self._web_runner = None
         self._web_site = None
+        self.torrent_watcher = None
 
     # -- config helpers ------------------------------------------------
     @property
@@ -580,6 +581,17 @@ class Audiobooks(commands.Cog):
             log.info("Audiobook requests web UI listening on %s:%s", host, port)
         except Exception as exc:  # noqa: BLE001
             log.warning("Audiobook web UI could not start: %s", exc)
+        # Optional Transmission watcher (off unless audiobooks.torrents is on).
+        try:
+            from .audiobooks_torrents import build_watcher
+
+            self.torrent_watcher = build_watcher(self)
+            if self.torrent_watcher is not None:
+                self.torrent_watcher.start()
+                log.info("Torrent watcher started (dry run: %s).",
+                         self.torrent_watcher.dry_run)
+        except Exception as exc:  # noqa: BLE001 - must not kill the cog
+            log.warning("Torrent watcher could not start: %s", exc)
 
     async def cog_unload(self) -> None:
         # Awaited by discord.py (via maybe_coroutine). Awaiting the
@@ -588,6 +600,9 @@ class Audiobooks(commands.Cog):
         # the reloaded cog could try to bind the same port before
         # the old server had released it, and the web UI would fail
         # to start. Awaiting here frees the port before reload loads.
+        if self.torrent_watcher is not None:
+            self.torrent_watcher.stop()
+            self.torrent_watcher = None
         if self._web_runner is not None:
             try:
                 await self._web_runner.cleanup()

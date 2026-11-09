@@ -19,6 +19,14 @@
         "web_host": "0.0.0.0",
         "web_port": 13380,
         "db_path": "audiobooks.db",
-        "admin_user_ids": []
+        "admin_user_ids": [],
+        "torrents": {
+            "enabled": false,
+            "dry_run": true,
+            "url": "http://192.168.4.74:9092/transmission/rpc",
+            "username": "",
+            "password": "",
+            "interval_seconds": 120
+        }
     }
 }

@@ -309,7 +309,7 @@ class Audiobooks(commands.Cog):
             "Your audiobook request has been fulfilled",
             f"The requested book {book_label(updated)} has been added to the server",
         )
-        await self.update_embed_for_request(updated, disabled=True)
+        await self.delete_embed_for_request(updated)
         return updated, sent, None
 
     async def admin_reject(self, request_id: int, reason: str):
@@ -507,7 +507,7 @@ class Audiobooks(commands.Cog):
 
         - ``Requested``   -> Fulfill Request + Reject Request, enabled
         - ``In Progress`` -> Request Fulfilled + Reject Request, enabled
-        - ``Fulfilled``   -> Request Fulfilled + Reject Request, disabled
+        - ``Fulfilled``   -> not re-posted: fulfilling deletes the message
         - ``Cancelled``   -> Fulfill Request + Reject Request, disabled
 
         Each new message ID is stored back on its row, so button clicks
@@ -539,14 +539,10 @@ class Audiobooks(commands.Cog):
         count = 0
         for row in reversed(rows):
             status = row["status"]
-            if status == "Cancelled":
+            if status in ("Cancelled", "Fulfilled"):
                 continue
             if status == "In Progress":
                 view = view_for_status(self, "In Progress")
-            elif status == "Fulfilled":
-                view = view_for_status(self, "In Progress", disabled=True)
-            elif status == "Cancelled":
-                view = view_for_status(self, "Requested", disabled=True)
             else:
                 view = view_for_status(self, "Requested")
             try:
@@ -658,7 +654,7 @@ class Audiobooks(commands.Cog):
     async def delete_embed_for_request(self, row: dict) -> None:
         """Delete the Discord message for a request, if it still exists.
 
-        Used by the website cancel flow. A failure to delete (message
+        Used by the website cancel flow and by fulfilling a request. A failure to delete (message
         already gone, missing permission) is logged, not raised: the
         cancellation itself must not be rolled back because of it.
         """
@@ -835,7 +831,7 @@ class Audiobooks(commands.Cog):
                 "Your audiobook request has been fulfilled",
                 f"The requested book {book_label(row)} has been added to the server",
             )
-            await self.update_embed_for_request(updated, disabled=True)
+            await self.delete_embed_for_request(updated)
             await interaction.followup.send(
                 "Marked Fulfilled." + ("" if sent else " (The email could not be sent -- please follow up manually.)"),
                 ephemeral=True,

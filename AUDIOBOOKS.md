@@ -23,6 +23,8 @@ run-book for the feature; the design document is the full spec.
      **Request Fulfilled**.
   2. **Request Fulfilled** — status `Fulfilled`, requester emailed:
      `The requested book {book} has been added to the server`.
+     The Discord message is then deleted (2026-11-09). The request
+     stays in the database and on the website as Fulfilled.
   3. **Reject Request** — the row is hard-deleted from the database and
      the requester is emailed:
      `Request Rejected for {book} Speak to Thea for more information`.
@@ -136,12 +138,20 @@ run-book for the feature; the design document is the full spec.
   as collected editions. Omnibus/anthology extras are therefore not
   requested, and are not reported as "skipped" either — they were
   never candidates.
+- **Titles and authors (2026-11-09):** Audible links are looked up on
+  Audnexus (`api.audnex.us`) for the title and author, because app
+  share links (`/pd/<ASIN>`) have no title in the URL. If the lookup
+  fails, the URL title or the bare ASIN is kept. Emails and embeds
+  say "Title by Author". `requests.author` was added by a migration
+  that backs the database up first (`audiobooks.db.pre-author-*.bak`).
+  `scripts/backfill_audiobook_titles.py` fixes older rows: dry run by
+  default, `--apply` backs up and saves.
 - **Restart resync (2026-10-29):** every time the bot starts, the cog
   clears the requests channel completely and re-posts one embed per
   database row, oldest first, with buttons matching its status
   (Requested: Fulfill + Reject enabled; In Progress: Request
-  Fulfilled + Reject enabled; Fulfilled: Request Fulfilled + Reject
-  disabled; Cancelled: Fulfill + Reject disabled). New message IDs
+  Fulfilled + Reject enabled). Fulfilled and Cancelled requests are
+  not re-posted (Fulfilled since 2026-11-09). New message IDs
   are stored back on each row, so clicks on the re-posted embeds work.
   Treat that channel as dedicated to these embeds — anything else in
   it is deleted on restart. The bot needs permission to read, send,

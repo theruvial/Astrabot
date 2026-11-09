@@ -111,7 +111,7 @@ The old live bot token was merged into `master` in PR #9 (it was in the pre-untr
 
 - **Database:** sqlite3, file `audiobooks.db`. Users are keyed by **email** (see email migration below).
 - **Discord flow:** requests are posted as embeds in a **dedicated requests channel** (`request_channel_id` 1565347062965477386). **On every bot start the cog clears that channel completely and re-posts one embed per DB row, oldest first.** Treat that channel as dedicated — nothing else belongs there.
-- **Embed buttons:** `Fulfill Request` and `Reject Request`. After Fulfill, a `Request Fulfilled` button appears; it sets status Fulfilled and emails the requester: *"The requested book {book} has been added to the server"*.
+- **Embed buttons:** `Fulfill Request` and `Reject Request`. After Fulfill, a `Request Fulfilled` button appears; it sets status Fulfilled, emails the requester: *"The requested book {book} has been added to the server"*, and deletes the Discord message. Fulfilled requests are not re-posted on restart.
 - **Admin check:** config admin IDs, **or** guild owner, **or** bot application owner via `Bot.is_owner()`.
 - **Series requests are partial, not all-or-nothing** — create requests only for series books that have a valid audiobook.
 - **Goodreads series enumeration:** caps at the page's "X primary works" count, drops range-headed collected editions ("Book 1-3"), keeps decimal entries (Book 1.5).
@@ -269,6 +269,12 @@ Nginx host: Ubuntu, `thea-ubuntu-server`, all sites in `/etc/nginx/sites-availab
 ## 12. Change log
 
 Newest first. One dated entry per working day, by the agent that did the work.
+
+### 2026-11-09 — Claude Code (Opus 5.5), branch `feature/audiobook-titles`
+
+- **Titles and authors:** Audible links are looked up on Audnexus, and requests store `author` next to `bookName`. The migration backs the database up first. `scripts/backfill_audiobook_titles.py` fixes old rows. Emails and embeds say "Title by Author"; the admin request row has an Author box.
+- **Fulfil deletes the post:** Request Fulfilled (Discord or dashboard) deletes the Discord message, and restarts no longer re-post Fulfilled requests.
+- Not merged yet. After merging: restart the bot, then run the backfill with `--apply`.
 
 ### 2026-11-06 — Claude Code (Opus 5.5), task channel split
 

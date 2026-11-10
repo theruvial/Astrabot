@@ -38,7 +38,7 @@ class WikiTests(unittest.TestCase):
     def test_wiki_file_is_the_standalone_file(self):
         path = wiki_file_path()
         self.assertTrue(path.is_file(), "cogs/wiki.html is missing")
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         self.assertNotIn("api.theruvial.com", text)
         self.assertNotIn("fetch(", text)
         self.assertIn("Aboard the Astra", text)
@@ -92,7 +92,10 @@ class WikiTests(unittest.TestCase):
         try:
             cog = Wiki(bot=None)
             interaction = FakeInteraction()
-            run(cog.wiki.callback(cog, interaction))
+            # A WIKI_API_KEY in the environment makes the cog fetch from the
+            # live backend first, which would answer and skip this path.
+            with patch.dict(os.environ, {}, clear=True):
+                run(cog.wiki.callback(cog, interaction))
             sent = interaction.response.sent[0]
             self.assertTrue(sent["ephemeral"])
             self.assertIn("not on the bot host", sent["content"])

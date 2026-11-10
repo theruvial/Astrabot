@@ -92,7 +92,9 @@ class PullReloadTests(unittest.TestCase):
         self._module = module
         self.bot = FakeBot({"cogs.audiobooks": module})
         self.cog = SelfUpdate(self.bot, config_override={})
-        self.cog.repo_root = __import__("pathlib").Path(self.repo)
+        # resolve(): on Windows the temp folder has a short 8.3 name (THERUV~1) that
+        # the cog's own resolved paths would not match.
+        self.cog.repo_root = __import__("pathlib").Path(self.repo).resolve()
 
     def tearDown(self):
         sys.modules.pop("cogs.audiobooks", None)

@@ -14,6 +14,10 @@ from config import config
 # The watcher lives in this cog because a watcher inside the cog being
 # reloaded would cancel itself partway through.
 RELOAD_FLAG = Path(__file__).resolve().parent.parent / "logs" / "reload_cog.flag"
+# astra_console.py writes the text of a DM here when its watchdog gives up
+# (3 console restarts in an hour). The bot sends it to its owner and
+# deletes the file; if the bot is down, the DM goes out when it returns.
+ALERT_FLAG = Path(__file__).resolve().parent.parent / "logs" / "watchdog_alert.flag"
 
 
 class Moderation(commands.Cog):
@@ -84,6 +88,21 @@ class Moderation(commands.Cog):
                 await self._check_reload_flag()
             except Exception as e:
                 print(f"Console reload failed: {type(e).__name__}: {e}")
+            try:
+                await self._check_alert_flag()
+            except Exception as e:
+                print(f"Watchdog alert failed: {type(e).__name__}: {e}")
+
+    async def _check_alert_flag(self):
+        if not ALERT_FLAG.exists():
+            return
+        text = ALERT_FLAG.read_text(encoding="utf-8").strip()
+        ALERT_FLAG.unlink()
+        if not text:
+            return
+        owner = (await self.bot.application_info()).owner
+        await owner.send(text[:1900])
+        print("Watchdog alert sent to the bot owner")
 
     async def _check_reload_flag(self):
         if not RELOAD_FLAG.exists():

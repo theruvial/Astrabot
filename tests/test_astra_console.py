@@ -162,6 +162,38 @@ class DecisionLineTests(unittest.TestCase):
             self.assertFalse(astra_console.should_fetch_decisions(line), line)
 
 
+class WatchdogAlertTests(unittest.IsolatedAsyncioTestCase):
+    def test_the_console_leaves_a_dm_for_the_bot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            flag = Path(tmp) / "watchdog_alert.flag"
+            astra_console.write_watchdog_alert(flag, ["classifier", "wiki"])
+            text = flag.read_text(encoding="utf-8")
+            self.assertIn("classifier, wiki", text)
+            self.assertIn("3 times in the last hour", text)
+            self.assertFalse(flag.with_suffix(".tmp").exists())
+
+    async def test_the_bot_dms_its_owner_once_and_deletes_the_flag(self):
+        sent = []
+
+        class Owner:
+            async def send(self, text):
+                sent.append(text)
+
+        class Bot:
+            async def application_info(self):
+                return types.SimpleNamespace(owner=Owner())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            flag = Path(tmp) / "watchdog_alert.flag"
+            flag.write_text("the watchdog gave up", encoding="utf-8")
+            cog = moderation.Moderation(Bot())
+            with mock.patch.object(moderation, "ALERT_FLAG", flag):
+                await cog._check_alert_flag()
+                await cog._check_alert_flag()
+            self.assertEqual(sent, ["the watchdog gave up"])
+            self.assertFalse(flag.exists())
+
+
 class RestartBudgetTests(unittest.TestCase):
     def test_allows_three_restarts_an_hour_then_refuses(self):
         with tempfile.TemporaryDirectory() as folder:

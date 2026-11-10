@@ -357,6 +357,18 @@ class Watchdog:
         return lost
 
 
+def write_watchdog_alert(flag_path, lost, limit=WATCH_MAX_RESTARTS):
+    """Leave a DM for the bot to send (see cogs/moderation.py ALERT_FLAG)."""
+    path = Path(flag_path)
+    text = (f"Astra Console watchdog gave up. It already restarted the console {limit} "
+            f"times in the last hour, and it just lost: {', '.join(lost)}. "
+            "It will not restart the console again until you reopen it. "
+            "Look at logs/crashes.log on the host.")
+    pending = path.with_suffix(".tmp")
+    pending.write_text(text, encoding="utf-8")
+    pending.replace(path)  # renamed so the bot never reads half a message
+
+
 def restart_allowed(history_path, now=None, limit=WATCH_MAX_RESTARTS,
                     window=WATCH_WINDOW_SECONDS, record=False):
     """True while fewer than ``limit`` watchdog restarts happened in ``window`` seconds.
@@ -872,6 +884,10 @@ def main():
                               f"already restarted the console {WATCH_MAX_RESTARTS} times in "
                               "the last hour, so it is stopping here. Something keeps "
                               "killing a service watcher: look at logs/crashes.log."))
+            try:
+                write_watchdog_alert(ROOT / "logs" / "watchdog_alert.flag", lost)
+            except OSError:
+                pass
             root.after(0, lambda: watchdog_button.configure(text="Watchdog: gave up"))
             return
         lines.put(("bot", f"[{datetime.now():%H:%M:%S}] Watchdog: lost {names}. "

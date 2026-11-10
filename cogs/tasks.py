@@ -112,6 +112,7 @@ Configuration (no secrets in code or in a committed file):
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import os
@@ -130,6 +131,7 @@ log = logging.getLogger("tasks")
 
 WATCH_CHANNEL_ID = 1568142915631325355  # #astra-feedback
 TODO_CHANNEL_ID = 1568332728573759621  # #todo
+TEAM_GUILD_ID = 1407601802827792525  # mcdungeons: the only server /todo answers in
 REVIEW_CHANNEL_ID = 1568329972928610546  # #human-intervention
 
 # Personal task channels, by Discord user id (stable, unlike display names).
@@ -1313,6 +1315,35 @@ class Tasks(commands.Cog):
         await interaction.response.send_message(
             f"{normalize_task_id(task_id)} deleted.", ephemeral=True)
         await self.refresh_todo()
+
+    @app_commands.command(name="todo", description="Get the team to-do list as a markdown file")
+    @app_commands.guild_only()
+    async def todo(self, interaction: discord.Interaction):
+        """Anyone in mcdungeons can ask for the live to-do list.
+
+        Only the requester sees the reply (ephemeral), so the channel
+        does not fill up with copies. The list is refreshed first, so
+        it is current rather than up to SYNC_MINUTES old.
+        """
+        if interaction.guild_id != TEAM_GUILD_ID:
+            await interaction.response.send_message(
+                "This command only works in the mcdungeons server.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        await self.refresh_todo()
+        try:
+            data = Path(self.todo_markdown_path).read_bytes()
+        except OSError:
+            data = b""
+        if not data:
+            await interaction.followup.send(
+                "The to-do list is not available yet. Try again in a minute.",
+                ephemeral=True)
+            return
+        await interaction.followup.send(
+            "Here is the current to-do list.",
+            file=discord.File(io.BytesIO(data), filename="TODO.md"),
+            ephemeral=True)
 
     @app_commands.command(name="task_stats", description="Show task classifier and label counts")
     async def task_stats(self, interaction: discord.Interaction):

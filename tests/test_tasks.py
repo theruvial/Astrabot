@@ -62,8 +62,8 @@ class FakeFollowup:
     def __init__(self):
         self.sent = []
 
-    async def send(self, content=None, ephemeral=False):
-        self.sent.append({"content": content, "ephemeral": ephemeral})
+    async def send(self, content=None, ephemeral=False, file=None):
+        self.sent.append({"content": content, "ephemeral": ephemeral, "file": file})
 
 
 class FakeMessage:
@@ -151,6 +151,7 @@ class FakeInteraction:
         self.user = user or FakeUser()
         self.message = message
         self.guild = guild
+        self.guild_id = getattr(guild, "id", None)
         self.response = FakeResponse()
         self.followup = FakeFollowup()
 
@@ -1064,6 +1065,46 @@ class SlashCommandTests(unittest.TestCase):
             content = interaction.response.sent[0]["content"]
             self.assertIn("Labels since last retrain: 2", content)
             self.assertIn("Retrain ready: no", content)
+
+
+class TodoCommandTests(unittest.TestCase):
+    def run_todo(self, guild_id, markdown="# To-do\n- fix the door\n", fail_refresh=False):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cog, bot = make_cog(tmpdir)
+            if markdown is not None:
+                with open(cog.todo_markdown_path, "w", encoding="utf-8") as handle:
+                    handle.write(markdown)
+            interaction = FakeInteraction(guild=FakeGuild(guild_id=guild_id))
+            refreshed = []
+
+            async def fake_refresh():
+                refreshed.append(True)
+
+            with patch.object(cog, "refresh_todo", side_effect=fake_refresh):
+                run(cog.todo.callback(cog, interaction))
+            file = interaction.followup.sent[0]["file"] if interaction.followup.sent else None
+            data = file.fp.read() if file else None
+            return interaction, refreshed, file, data
+
+    def test_serves_the_markdown_file_to_the_requester_only(self):
+        interaction, refreshed, file, data = self.run_todo(tasks_mod.TEAM_GUILD_ID)
+        self.assertTrue(interaction.response.deferred)
+        self.assertEqual(refreshed, [True])
+        self.assertEqual(file.filename, "TODO.md")
+        self.assertIn(b"fix the door", data)
+        self.assertTrue(interaction.followup.sent[0]["ephemeral"])
+
+    def test_other_servers_are_refused(self):
+        interaction, refreshed, file, data = self.run_todo(12345)
+        self.assertIsNone(file)
+        self.assertEqual(refreshed, [])
+        self.assertIn("mcdungeons", interaction.response.sent[0]["content"])
+        self.assertTrue(interaction.response.sent[0]["ephemeral"])
+
+    def test_a_missing_list_says_so_instead_of_failing(self):
+        interaction, refreshed, file, data = self.run_todo(tasks_mod.TEAM_GUILD_ID, markdown=None)
+        self.assertIsNone(file)
+        self.assertIn("not available", interaction.followup.sent[0]["content"])
 
 
 if __name__ == "__main__":

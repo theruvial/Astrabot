@@ -112,6 +112,8 @@ keyed by feedback message id, plus the task id in the embed.
 
 - `/task_add`, `/task_edit`, `/task_delete`, `/task_done`,
   `/task_start`, `/task_list`, `/task_stats` (all team-wide)
+- `/todo`: anyone in mcdungeons gets the live to-do list as a `TODO.md` file,
+  visible only to them. It refreshes the list first. Other servers are refused.
 
 Task ids accept `1`, `task-1`, or `task-0001`.
 

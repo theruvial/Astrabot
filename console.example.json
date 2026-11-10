@@ -12,13 +12,7 @@
       "env": {},
       "stop_input": [],
       "stop_grace": 30,
-      "autostart": false,
-      "user": {
-        "enabled": true,
-        "username": "guest",
-        "domain": "",
-        "password_env": "GOLURK_GUEST_PASSWORD"
-      }
+      "autostart": false
     }
   ]
 }

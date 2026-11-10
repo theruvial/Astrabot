@@ -51,7 +51,12 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(len(set(names)), 3)
         self.assertNotIn("bot", names)  # never clashes with a built-in window
         self.assertEqual(cfg["services"][0]["stop_input"], ["/quit"])
-        self.assertFalse(cfg["services"][0]["user"]["enabled"])
+        self.assertNotIn("user", cfg["services"][0])
+
+    def test_an_old_user_option_in_console_json_is_ignored(self):
+        cfg = cs.merge_config({"services": [{"name": "d", "user": {"enabled": True,
+                                                                    "username": "guest"}}]})
+        self.assertNotIn("user", cfg["services"][0])
 
     def test_save_then_load_round_trips(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -73,18 +78,6 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(out["collapsed"], {"wiki": True})
         self.assertNotIn("bot", json.dumps(out["services"]))
 
-    def test_saved_file_has_no_password(self):
-        with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "console.json"
-            cfg = cs.merge_config({"services": [{"name": "d", "user": {
-                "enabled": True, "username": "guest", "password_env": "GOLURK_PW",
-                "password": "should-not-survive"}}]})
-            cs.save_console_config(cfg, path)
-            text = path.read_text(encoding="utf-8")
-        self.assertIn("GOLURK_PW", text)
-        self.assertNotIn("should-not-survive", text)
-
-
 class CommandTests(unittest.TestCase):
     def test_cmd_wraps_a_batch_file(self):
         argv = cs.command_to_argv('"D:\\Servers\\start.bat"', "cmd")
@@ -100,29 +93,8 @@ class CommandTests(unittest.TestCase):
     def test_empty_command_means_monitor_only(self):
         self.assertEqual(cs.command_to_argv("  ", "program"), [])
 
-    def test_guest_command_line_sets_variables_first(self):
-        line = cs.guest_command_line("run.bat", {"A": "1"})
-        self.assertEqual(line, 'cmd.exe /d /s /c "set "A=1"&& run.bat"')
-        self.assertEqual(cs.guest_command_line("run.bat"), "run.bat")
-
-    def test_password_comes_from_the_named_variable_only(self):
-        user = {"password_env": "GOLURK_PW"}
-        self.assertEqual(cs.password_from_env(user, {"GOLURK_PW": "s3"}), "s3")
-        self.assertEqual(cs.password_from_env(user, {}), "")
-        self.assertEqual(cs.password_from_env({"password_env": ""}, {"GOLURK_PW": "s3"}), "")
-
 
 class CheckTests(unittest.TestCase):
-    def test_a_guest_service_needs_a_user_name(self):
-        spec = {"command": "x.exe", "run_as": "cmd", "user": {"enabled": True, "username": ""}}
-        self.assertTrue(any("no user name" in p for p in cs.check_entry(spec)))
-
-    def test_a_named_password_variable_must_be_set(self):
-        spec = {"command": "x", "run_as": "cmd",
-                "user": {"enabled": True, "username": "g", "password_env": "NOPE"}}
-        self.assertTrue(any("NOPE" in p for p in cs.check_entry(spec, environ={})))
-        self.assertFalse(any("NOPE" in p for p in cs.check_entry(spec, environ={"NOPE": "x"})))
-
     def test_a_missing_folder_is_reported(self):
         problems = cs.check_entry({"command": "x", "run_as": "cmd", "cwd": "Z:/nope/nope"})
         self.assertTrue(any("Working folder" in p for p in problems))
@@ -160,18 +132,6 @@ class LayoutTests(unittest.TestCase):
     def test_the_built_in_windows_are_the_five_we_ship(self):
         self.assertEqual(set(cs.BUILTIN_PANES),
                          {"bot", "site", "absLogin", "wiki", "classifier"})
-
-
-@unittest.skipUnless(os.name == "nt", "Windows accounts")
-class GuestLaunchTests(unittest.TestCase):
-    def test_a_login_that_windows_refuses_is_a_clear_error(self):
-        # No such account, so no real credentials are involved.
-        with self.assertRaises(OSError) as caught:
-            cs.popen_as_user("cmd.exe /c echo hi", None, "golurk_no_such_user_x1",
-                             "wrong", ".")
-        self.assertIn("golurk_no_such_user_x1", str(caught.exception))
-        self.assertIn("error", str(caught.exception))
-
 
 class CustomSupervisorTests(unittest.TestCase):
     def setUp(self):

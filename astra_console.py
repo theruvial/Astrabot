@@ -3,9 +3,8 @@ classifier, plus any services you add, and watch their output.
 
 Every window has an arrow on its header that collapses it. The five
 built-in windows can never be removed. Settings adds your own services
-(a program, a PowerShell command or a batch file, optionally run under
-another Windows account such as a guest user); those get a pane of their
-own with Start, Restart, Stop and Remove, and are saved in console.json
+(a program, a PowerShell command or a batch file); those get a pane of
+their own with Start, Restart, Stop and Remove, and are saved in console.json
 (see console_services.py and console_settings.py).
 
 Run with startConsole.bat. This window owns the bot, wiki backend,
@@ -67,8 +66,6 @@ from console_services import (
     inner_row_weights,
     outer_row_weights,
     pane_cells,
-    password_from_env,
-    popen_as_user,
     save_console_config,
 )
 
@@ -366,8 +363,7 @@ def pull_and_restart(bot, services):
 class CustomSupervisor(Supervisor):
     """A service added in Settings: its own pane with Start, Restart, Stop
     and Remove. Unlike the built-in services it can be stopped and left
-    stopped, can stop cleanly by typing commands into the program, and can
-    run under another Windows account."""
+    stopped, and can stop cleanly by typing commands into the program."""
 
     stop_pause = 2  # seconds between typed stop commands
 
@@ -398,13 +394,6 @@ class CustomSupervisor(Supervisor):
 
     def _spawn(self, env):
         env = dict(env, **self.extra_env)
-        user = self.spec["user"]
-        if user.get("enabled"):
-            name = str(user.get("username") or "").strip()
-            if not name:
-                raise OSError("Run as another user is on, but no user name is set.")
-            return popen_as_user(self.command, self.cwd, name, password_from_env(user),
-                                 str(user.get("domain") or "").strip(), self.extra_env)
         return subprocess.Popen(self.command, cwd=self.cwd, env=env,
                                 stdin=subprocess.PIPE if self.stop_input else subprocess.DEVNULL,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

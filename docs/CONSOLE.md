@@ -40,46 +40,25 @@ Added services are saved in `console.json` next to the console. That file is not
 committed. `console.example.json` shows the format, including a RuneScape:
 Dragonwilds entry.
 
-## Running a service under another Windows account (guest user)
-
-Tick **Run as another Windows user** in the service's settings and give a user
-name (and a domain only for a domain account; blank means this PC). The program,
-and everything it starts, then run under that account instead of yours. A
-batch file works the same way: set Run as to **Batch file / cmd command**.
-
-- **Password:** it is never saved. Settings asks for the *name* of an environment
-  variable (for example `GOLURK_GUEST_PASSWORD`) and the console reads the
-  password from it when the service starts. Set it with `setx` and restart the
-  console. Leave the name blank for an account that has no password.
-- **The account needs:** permission to log on to this PC, read and execute access
-  to the server's folder, and write access to wherever the server saves its world,
-  config and logs. Windows only creates the account's profile the first time it
-  logs on.
-- **Stopping:** the console ends the whole process tree through a Windows job
-  object, since `taskkill` cannot end another account's processes. If the console
-  itself dies, Windows ends the guest processes with it.
-- **What `Check paths` cannot verify:** whether the account may log on or can
-  read the folder. A refused login shows in the pane, for example
-  `Windows could not start the program as guest: The user name or password is
-  incorrect. (error 1326)`.
-- **The built-in "Guest" account** is disabled by default and is meant to stay
-  that way. A normal limited local user (a standard account with no admin rights)
-  is the safer choice.
-
-### RuneScape: Dragonwilds server
+## RuneScape: Dragonwilds server
 
 From public setup guides (not Jagex documentation, so check against the official
 page before relying on it):
 
-- The dedicated server is a separate free Steam tool (app id 4019830), also
-  available through SteamCMD.
+- The dedicated server is a separate free Steam tool (app id 4019830). Installing it
+  with SteamCMD's `+login anonymous` needs no Steam account.
 - Settings live in `DedicatedServer.ini` under
   `RSDragonwilds\Saved\Config\WindowsServer\`, not in command-line flags. The
   server will not start or appear in the browser without an owner ID set there.
+  World saves are the `.sav` files in `RSDragonwilds\Saved\SaveGames\`.
 - The default game port is UDP 7777, so allow it in the Windows firewall.
 - Ending the server process with no clean stop command can lose progress since
-  the last save. If the server has a console command that saves and quits, put it
-  in Stop commands.
+  the last save. If the server has a console command that saves and quits, put it in
+  Stop commands.
+- Launching the server from the Steam library's Play button counts as you playing a
+  game, which logs the same account out on another PC. Start it from the console
+  (which runs the `.exe` directly), or use a separate anonymous SteamCMD install so
+  it never touches your library copy.
 
 Guides: <https://hub.tcno.co/games/dragonwilds/dedicated_server/> and
 <https://xgamingserver.com/docs/runescape-dragonwilds/configure-your-server>.

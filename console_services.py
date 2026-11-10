@@ -11,13 +11,9 @@ testable without a window:
   and atomic save. A broken file never stops the console from opening.
 * Turning what you typed in Settings into a command Windows can run
   (``command_to_argv``), and checking its paths (``check_entry``).
-* ``popen_as_user``: start a program under a different Windows account
-  (for example a limited guest user) with its output captured, and
-  everything it starts killed together when it is stopped. The password
-  is never stored: the service names an environment variable that holds
-  it, and a blank password is allowed for an account that has none.
 * Where each pane sits in the grid (``pane_cells``) and how much room a
-  row gets (``row_weights``), so collapsing a pane gives its space back.
+  row gets (``inner_row_weights``, ``outer_row_weights``), so collapsing
+  a pane or the Astrabot group gives its space back.
 
 Adapted from the Service Console that ships as service_console.py on
 the other machines.
@@ -67,7 +63,6 @@ DEFAULT_CONFIG = {
 DEFAULT_SERVICE = {
     "name": "", "title": "", "run_as": "program", "command": "", "cwd": "",
     "env": {}, "stop_input": [], "stop_grace": 30, "autostart": True,
-    "user": {"enabled": False, "username": "", "domain": "", "password_env": ""},
 }
 
 RUN_AS = {"program": "Program (path + arguments)",
@@ -98,12 +93,9 @@ def clean_service(spec) -> dict:
     spec = spec if isinstance(spec, dict) else {}
     out = json.loads(json.dumps(DEFAULT_SERVICE))
     for key, value in spec.items():
-        if key.startswith("_"):
+        if key.startswith("_") or key == "user":  # "user": an old, removed option
             continue
-        if key == "user" and isinstance(value, dict):
-            out["user"].update({k: v for k, v in value.items() if k in out["user"]})
-        else:
-            out[key] = value
+        out[key] = value
     if isinstance(out.get("stop_input"), str):
         out["stop_input"] = [out["stop_input"]]
     if not isinstance(out.get("env"), dict):
@@ -283,16 +275,13 @@ def text_lines(text) -> list:
     return [line.strip() for line in str(text or "").splitlines() if line.strip()]
 
 
-def check_entry(spec, which=None, environ=None) -> list:
+def check_entry(spec, which=None) -> list:
     """Problems with one service's settings, as plain sentences ([] = looks fine).
 
-    Checks the working folder, that the program exists (or is on PATH),
-    and, when it runs as another user, that a user name is given and the
-    password variable it names is set. ``which`` and ``environ`` are
-    injectable."""
+    Checks the working folder and that the program exists (or is on
+    PATH). ``which`` is injectable."""
     import shutil
     which = which or shutil.which
-    environ = os.environ if environ is None else environ
     problems = []
     cwd = str(spec.get("cwd") or "").strip()
     if cwd and not Path(cwd).is_dir():
@@ -310,14 +299,6 @@ def check_entry(spec, which=None, environ=None) -> list:
                 problems.append(f"Program not found: {prog}")
         elif not which(prog):
             problems.append(f"'{prog}' is not on PATH; use its full path.")
-    user = spec.get("user") or {}
-    if user.get("enabled"):
-        if not str(user.get("username") or "").strip():
-            problems.append("Run as another user is ticked but no user name is set.")
-        var = str(user.get("password_env") or "").strip()
-        if var and var not in environ:
-            problems.append(f"The password variable {var} is not set in this console's "
-                            "environment. Leave the name blank if the account has no password.")
     return problems
 
 
@@ -402,201 +383,3 @@ _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[
 def strip_ansi(line: str) -> str:
     """Remove terminal colour and cursor codes, which are noise in a pane. Pure."""
     return _ANSI.sub("", line)
-
-
-# -- running as another Windows user ---------------------------------------------
-def guest_command_line(command, env=None) -> str:
-    """The command line to hand to the other account. Pure.
-
-    A new process for another account starts with that account's own
-    environment, not ours, so any variables set for the service are put
-    in front with ``set`` inside cmd.exe."""
-    line = command if isinstance(command, str) else subprocess.list2cmdline(list(command))
-    sets = "".join(f'set "{k}={v}"&& ' for k, v in (env or {}).items())
-    return f'cmd.exe /d /s /c "{sets}{line}"' if sets else line
-
-
-def password_from_env(user, environ=None) -> str:
-    """The account's password from the variable the service names; "" if none.
-
-    The password is never written to console.json or the logs."""
-    environ = os.environ if environ is None else environ
-    var = str(user.get("password_env") or "").strip()
-    return environ.get(var, "") if var else ""
-
-
-if IS_WINDOWS:
-    import ctypes
-    import msvcrt
-    from ctypes import wintypes
-
-    _HANDLE = ctypes.c_void_p
-    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    _advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
-
-    class _STARTUPINFO(ctypes.Structure):
-        _fields_ = [("cb", wintypes.DWORD), ("lpReserved", wintypes.LPWSTR),
-                    ("lpDesktop", wintypes.LPWSTR), ("lpTitle", wintypes.LPWSTR),
-                    ("dwX", wintypes.DWORD), ("dwY", wintypes.DWORD),
-                    ("dwXSize", wintypes.DWORD), ("dwYSize", wintypes.DWORD),
-                    ("dwXCountChars", wintypes.DWORD), ("dwYCountChars", wintypes.DWORD),
-                    ("dwFillAttribute", wintypes.DWORD), ("dwFlags", wintypes.DWORD),
-                    ("wShowWindow", wintypes.WORD), ("cbReserved2", wintypes.WORD),
-                    ("lpReserved2", ctypes.c_void_p), ("hStdInput", _HANDLE),
-                    ("hStdOutput", _HANDLE), ("hStdError", _HANDLE)]
-
-    class _PROCESS_INFORMATION(ctypes.Structure):
-        _fields_ = [("hProcess", _HANDLE), ("hThread", _HANDLE),
-                    ("dwProcessId", wintypes.DWORD), ("dwThreadId", wintypes.DWORD)]
-
-    class _SECURITY_ATTRIBUTES(ctypes.Structure):
-        _fields_ = [("nLength", wintypes.DWORD), ("lpSecurityDescriptor", ctypes.c_void_p),
-                    ("bInheritHandle", wintypes.BOOL)]
-
-    class _BASIC_LIMITS(ctypes.Structure):
-        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64),
-                    ("PerJobUserTimeLimit", ctypes.c_int64),
-                    ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
-                    ("MaximumWorkingSetSize", ctypes.c_size_t),
-                    ("ActiveProcessLimit", wintypes.DWORD), ("Affinity", ctypes.c_size_t),
-                    ("PriorityClass", wintypes.DWORD), ("SchedulingClass", wintypes.DWORD)]
-
-    class _IO_COUNTERS(ctypes.Structure):
-        _fields_ = [(name, ctypes.c_uint64) for name in (
-            "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
-            "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
-
-    class _EXTENDED_LIMITS(ctypes.Structure):
-        _fields_ = [("BasicLimitInformation", _BASIC_LIMITS), ("IoInfo", _IO_COUNTERS),
-                    ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
-                    ("PeakProcessMemoryUsed", ctypes.c_size_t),
-                    ("PeakJobMemoryUsed", ctypes.c_size_t)]
-
-    _kernel32.CreatePipe.argtypes = [ctypes.POINTER(_HANDLE), ctypes.POINTER(_HANDLE),
-                                     ctypes.POINTER(_SECURITY_ATTRIBUTES), wintypes.DWORD]
-    _kernel32.SetHandleInformation.argtypes = [_HANDLE, wintypes.DWORD, wintypes.DWORD]
-    _kernel32.CloseHandle.argtypes = [_HANDLE]
-    _kernel32.ResumeThread.argtypes = [_HANDLE]
-    _kernel32.WaitForSingleObject.argtypes = [_HANDLE, wintypes.DWORD]
-    _kernel32.GetExitCodeProcess.argtypes = [_HANDLE, ctypes.POINTER(wintypes.DWORD)]
-    _kernel32.CreateJobObjectW.restype = _HANDLE
-    _kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
-    _kernel32.SetInformationJobObject.argtypes = [_HANDLE, ctypes.c_int, ctypes.c_void_p,
-                                                  wintypes.DWORD]
-    _kernel32.AssignProcessToJobObject.argtypes = [_HANDLE, _HANDLE]
-    _kernel32.TerminateJobObject.argtypes = [_HANDLE, wintypes.UINT]
-    _kernel32.TerminateProcess.argtypes = [_HANDLE, wintypes.UINT]
-    _advapi32.CreateProcessWithLogonW.argtypes = [
-        wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD,
-        wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD, ctypes.c_void_p,
-        wintypes.LPCWSTR, ctypes.POINTER(_STARTUPINFO),
-        ctypes.POINTER(_PROCESS_INFORMATION)]
-
-    _LOGON_WITH_PROFILE = 0x1
-    _CREATE_SUSPENDED = 0x4
-    _CREATE_UNICODE_ENVIRONMENT = 0x400
-    _CREATE_NO_WINDOW = 0x08000000
-    _STARTF_USESTDHANDLES = 0x100
-    _HANDLE_FLAG_INHERIT = 0x1
-    _JOB_KILL_ON_CLOSE = 0x2000
-    _JOB_EXTENDED_LIMITS = 9
-    _WAIT_TIMEOUT = 0x102
-
-    class GuestProcess:
-        """A program running under another Windows account.
-
-        Quacks like the parts of ``subprocess.Popen`` the console uses:
-        ``pid``, ``stdout`` (text lines), ``stdin``, ``poll``, ``wait``
-        and ``kill``. ``kill`` ends the whole job, so everything the
-        program started goes with it, which ``taskkill`` could not do
-        for another account's processes. The job also dies with the
-        console, so a crashed console never leaves the server behind."""
-
-        def __init__(self, process, thread, job, stdout, stdin, pid):
-            self._process, self._thread, self._job = process, thread, job
-            self.stdout, self.stdin, self.pid = stdout, stdin, pid
-            self.returncode = None
-
-        def poll(self):
-            if self.returncode is not None:
-                return self.returncode
-            if _kernel32.WaitForSingleObject(self._process, 0) == _WAIT_TIMEOUT:
-                return None
-            code = wintypes.DWORD()
-            _kernel32.GetExitCodeProcess(self._process, ctypes.byref(code))
-            self.returncode = int(code.value)
-            return self.returncode
-
-        def wait(self, timeout=None):
-            milliseconds = 0xFFFFFFFF if timeout is None else int(timeout * 1000)
-            if _kernel32.WaitForSingleObject(self._process, milliseconds) == _WAIT_TIMEOUT:
-                raise subprocess.TimeoutExpired("guest process", timeout)
-            return self.poll()
-
-        def kill(self):
-            if self._job:
-                _kernel32.TerminateJobObject(self._job, 1)
-            elif self.poll() is None:
-                _kernel32.TerminateProcess(self._process, 1)
-
-    def _make_pipe(parent_reads: bool):
-        """A pipe whose child end can be inherited and whose parent end cannot."""
-        sa = _SECURITY_ATTRIBUTES(ctypes.sizeof(_SECURITY_ATTRIBUTES), None, True)
-        read, write = _HANDLE(), _HANDLE()
-        if not _kernel32.CreatePipe(ctypes.byref(read), ctypes.byref(write),
-                                    ctypes.byref(sa), 0):
-            raise ctypes.WinError(ctypes.get_last_error())
-        parent, child = (read, write) if parent_reads else (write, read)
-        _kernel32.SetHandleInformation(parent, _HANDLE_FLAG_INHERIT, 0)
-        return parent, child
-
-    def popen_as_user(command, cwd, username, password="", domain="", env=None):
-        """Start ``command`` as another local or domain account. Raises OSError.
-
-        The account needs "log on locally" rights and read/execute access
-        to the program's folder (and write access wherever the program
-        saves). A blank password only works for an account that really
-        has none and that Windows allows to log on this way."""
-        line = guest_command_line(command, env)
-        buffer = ctypes.create_unicode_buffer(line)
-        out_parent, out_child = _make_pipe(parent_reads=True)
-        in_parent, in_child = _make_pipe(parent_reads=False)
-        startup = _STARTUPINFO()
-        startup.cb = ctypes.sizeof(_STARTUPINFO)
-        startup.dwFlags = _STARTF_USESTDHANDLES
-        startup.hStdInput, startup.hStdOutput, startup.hStdError = in_child, out_child, out_child
-        info = _PROCESS_INFORMATION()
-        ok = _advapi32.CreateProcessWithLogonW(
-            username, domain or ".", password or "", _LOGON_WITH_PROFILE, None, buffer,
-            _CREATE_SUSPENDED | _CREATE_UNICODE_ENVIRONMENT | _CREATE_NO_WINDOW, None,
-            str(cwd) if cwd else None, ctypes.byref(startup), ctypes.byref(info))
-        error = ctypes.get_last_error()
-        # Our copies of the child's ends must close, or the pipe never reports its end.
-        _kernel32.CloseHandle(out_child)
-        _kernel32.CloseHandle(in_child)
-        if not ok:
-            _kernel32.CloseHandle(out_parent)
-            _kernel32.CloseHandle(in_parent)
-            who = f"{domain}\\{username}" if domain else username
-            raise OSError(f"Windows could not start the program as {who}: "
-                          f"{ctypes.FormatError(error).strip()} (error {error})")
-        job = _kernel32.CreateJobObjectW(None, None)
-        if job:
-            limits = _EXTENDED_LIMITS()
-            limits.BasicLimitInformation.LimitFlags = _JOB_KILL_ON_CLOSE
-            _kernel32.SetInformationJobObject(job, _JOB_EXTENDED_LIMITS, ctypes.byref(limits),
-                                              ctypes.sizeof(limits))
-            if not _kernel32.AssignProcessToJobObject(job, info.hProcess):
-                _kernel32.CloseHandle(job)
-                job = None
-        _kernel32.ResumeThread(info.hThread)
-        stdout = os.fdopen(msvcrt.open_osfhandle(out_parent.value, os.O_RDONLY), "r",
-                           encoding="utf-8", errors="replace")
-        stdin = os.fdopen(msvcrt.open_osfhandle(in_parent.value, os.O_WRONLY), "w",
-                          encoding="utf-8")
-        return GuestProcess(info.hProcess, info.hThread, job, stdout, stdin, info.dwProcessId)
-
-else:  # pragma: no cover - the console is Windows-only
-
-    def popen_as_user(*_args, **_kwargs):
-        raise OSError("Running as another user is only available on Windows.")

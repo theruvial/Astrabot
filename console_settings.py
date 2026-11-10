@@ -276,23 +276,6 @@ def open_settings(root, colours, cfg, on_save):
         hint("How long to wait for a clean stop before ending it forcibly.")
         auto = check("Start this when the console opens", spec.get("autostart", True))
 
-        user = spec.get("user") or {}
-        heading_gap = tk.Label(form, text="Run under another Windows account", bg=bg,
-                               fg=accent, font=("Segoe UI", 11, "bold"), anchor="w")
-        heading_gap.grid(row=row["n"], column=0, columnspan=3, sticky="w", pady=(14, 4))
-        row["n"] += 1
-        as_user = check("Run as another Windows user (for example a limited guest account)",
-                        user.get("enabled"))
-        hint("The program and everything it starts run under that account instead of yours. "
-             "The account must be allowed to log on to this PC, and needs read and execute "
-             "access to the program's folder, and write access to wherever it saves.")
-        username = entry("User name", user.get("username", ""))
-        domain = entry("Domain", user.get("domain", ""))
-        hint("Leave the domain blank for an account on this PC.")
-        password_env = entry("Password variable", user.get("password_env", ""))
-        hint("The NAME of an environment variable that holds the account's password. The "
-             "password itself is never saved here or in any log. Leave blank for an account "
-             "that has no password.")
 
         def collect_service():
             spec["title"] = title.get().strip() or spec.get("name") or "Service"
@@ -303,10 +286,6 @@ def open_settings(root, colours, cfg, on_save):
             spec["stop_input"] = text_lines(get_text(stop))
             spec["stop_grace"] = _int(grace.get(), 30)
             spec["autostart"] = bool(auto.get())
-            spec["user"] = {"enabled": bool(as_user.get()),
-                            "username": username.get().strip(),
-                            "domain": domain.get().strip(),
-                            "password_env": password_env.get().strip()}
         current["collect"] = collect_service
 
     def on_select(_event=None):

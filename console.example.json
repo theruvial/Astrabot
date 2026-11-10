@@ -1,0 +1,24 @@
+{
+  "console_name": "Golurk Console",
+  "startup_delay_seconds": 0,
+  "collapsed": {},
+  "services": [
+    {
+      "name": "dragonwilds",
+      "title": "RuneScape Dragonwilds server",
+      "run_as": "cmd",
+      "command": "\"D:\\Servers\\Dragonwilds\\start.bat\"",
+      "cwd": "D:\\Servers\\Dragonwilds",
+      "env": {},
+      "stop_input": [],
+      "stop_grace": 30,
+      "autostart": false,
+      "user": {
+        "enabled": true,
+        "username": "guest",
+        "domain": "",
+        "password_env": "GOLURK_GUEST_PASSWORD"
+      }
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-REM Opens the Astrabot Console window, which runs the bot, wiki and absLogin
+REM Opens the Golurk Console window, which runs the bot, wiki and absLogin
 REM and shows their output. Use this OR startBot.bat, never both.
 REM absLogin needs ABS_API_KEY set (e.g. via setx). Never put it in this file.
 cd /d "%~dp0"

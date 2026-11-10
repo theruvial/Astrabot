@@ -1,4 +1,12 @@
-"""Astrabot console: run the bot, site, wiki, absLogin and classifier, watch output.
+"""Golurk Console (the Astrabot console): run the bot, site, wiki, absLogin and
+classifier, plus any services you add, and watch their output.
+
+Every window has an arrow on its header that collapses it. The five
+built-in windows can never be removed. Settings adds your own services
+(a program, a PowerShell command or a batch file, optionally run under
+another Windows account such as a guest user); those get a pane of their
+own with Start, Restart, Stop and Remove, and are saved in console.json
+(see console_services.py and console_settings.py).
 
 Run with startConsole.bat. This window owns the bot, wiki backend,
 absLogin and classifier processes, so it replaces startBot.bat and any
@@ -46,6 +54,23 @@ import time
 import urllib.request
 from datetime import datetime
 from pathlib import Path
+
+from console_services import (
+    BUILTIN_PANES,
+    BUILTIN_TITLES,
+    build_saved_config,
+    clean_service,
+    command_to_argv,
+    load_console_config,
+    GROUP_KEY,
+    GROUP_TITLE,
+    inner_row_weights,
+    outer_row_weights,
+    pane_cells,
+    password_from_env,
+    popen_as_user,
+    save_console_config,
+)
 
 ROOT = Path(__file__).resolve().parent
 ABSLOGIN_DIR = Path(r"G:\My Drive\codingShit\absLogin")
@@ -146,7 +171,7 @@ class Supervisor:
             self._want_running = True
             if self._proc is not None:
                 self._intentional = True
-                self._kill(self._proc)
+                self._stop(self._proc)
         self._wake.set()
 
     def shutdown(self):
@@ -154,7 +179,7 @@ class Supervisor:
             self._closing = True
             self._want_running = False
             if self._proc is not None:
-                self._kill(self._proc)
+                self._stop(self._proc)
         self._wake.set()
         if self._thread.is_alive():
             self._thread.join(timeout=10)
@@ -182,6 +207,17 @@ class Supervisor:
         if proc.poll() is None:
             proc.kill()
 
+    def _stop(self, proc):
+        """End the program. Subclasses may ask it to stop cleanly first."""
+        self._kill(proc)
+
+    def _spawn(self, env):
+        """Start the program with its output piped back. Subclasses may change how."""
+        return subprocess.Popen(self.command, cwd=self.cwd, env=env,
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, encoding="utf-8",
+                                errors="replace", creationflags=NO_WINDOW)
+
     def _before_start(self):
         pass
 
@@ -208,10 +244,14 @@ class Supervisor:
         env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1")
         self._record(f"Starting {self.name}")
         self._say(self.name, f"Starting {self.name}.")
-        proc = subprocess.Popen(self.command, cwd=self.cwd, env=env,
-                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, encoding="utf-8",
-                                errors="replace", creationflags=NO_WINDOW)
+        try:
+            proc = self._spawn(env)
+        except OSError as exc:
+            # A program that cannot start (wrong path, refused login) counts as
+            # a crash like any other, with the reason shown in its pane.
+            self._say(self.name, f"Could not start {self.title}: {exc}")
+            self._record(f"{self.name} could not start: {exc}")
+            return 1
         with self._lock:
             self._proc = proc
         stream = self.name
@@ -321,6 +361,97 @@ def pull_and_restart(bot, services):
     for service in services:
         service.restart()
     return True
+
+
+class CustomSupervisor(Supervisor):
+    """A service added in Settings: its own pane with Start, Restart, Stop
+    and Remove. Unlike the built-in services it can be stopped and left
+    stopped, can stop cleanly by typing commands into the program, and can
+    run under another Windows account."""
+
+    stop_pause = 2  # seconds between typed stop commands
+
+    def __init__(self, emit, spec, log_dir=None):
+        self._title = ""
+        self._apply(spec)
+        super().__init__(emit, self.spec["name"], self.cwd, self.command,
+                         log_dir or ROOT / "logs")
+
+    def _apply(self, spec):
+        spec = clean_service(spec)
+        self.spec = spec
+        self._title = spec["title"]
+        self.command = command_to_argv(spec["command"], spec["run_as"])
+        self.cwd = Path(spec["cwd"] or ROOT)
+        self.stop_input = list(spec["stop_input"])
+        self.stop_grace = spec["stop_grace"]
+        self.autostart = spec["autostart"]
+        self.extra_env = {str(k): str(v) for k, v in spec["env"].items()}
+
+    @property
+    def title(self):
+        return self._title
+
+    def reconfigure(self, spec):
+        """New settings; they apply the next time the program starts."""
+        self._apply(spec)
+
+    def _spawn(self, env):
+        env = dict(env, **self.extra_env)
+        user = self.spec["user"]
+        if user.get("enabled"):
+            name = str(user.get("username") or "").strip()
+            if not name:
+                raise OSError("Run as another user is on, but no user name is set.")
+            return popen_as_user(self.command, self.cwd, name, password_from_env(user),
+                                 str(user.get("domain") or "").strip(), self.extra_env)
+        return subprocess.Popen(self.command, cwd=self.cwd, env=env,
+                                stdin=subprocess.PIPE if self.stop_input else subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
+
+    def _stop(self, proc):
+        if self.stop_input and proc.stdin is not None:
+            try:
+                for command in self.stop_input:
+                    proc.stdin.write(command + "\n")
+                    proc.stdin.flush()
+                    time.sleep(self.stop_pause)
+                proc.wait(timeout=self.stop_grace)
+                return
+            except subprocess.TimeoutExpired:
+                self._say(self.name, f"{self.title} did not stop within "
+                                     f"{self.stop_grace}s, ending it.")
+            except (OSError, ValueError) as exc:
+                self._say(self.name, f"Clean stop of {self.title} failed ({exc}), ending it.")
+        self._kill(proc)
+
+    def start(self):
+        if not self.command:
+            self._say(self.name, f"No command set for {self.title} (see Settings).")
+            return
+        if not self._started:
+            super().start()
+            return
+        with self._lock:
+            self._want_running = True
+        self._wake.set()
+
+    def restart(self):
+        if not self._started:
+            self.start()
+            return
+        super().restart()
+
+    def stop(self):
+        """Stop it and leave it stopped until Start or Restart."""
+        with self._lock:
+            self._want_running = False
+            if self._proc is not None:
+                self._intentional = True
+                self._say(self.name, f"Stopping {self.title}.")
+                self._stop(self._proc)
+        self._wake.set()
 
 
 # -- watchdog ------------------------------------------------------------
@@ -542,9 +673,10 @@ def main():
     secondary, on_primary, chip_bg = "#cac4d0", "#381e72", "#4a4458"
     error, ok_dark = "#b3261e", "#274d27"
     lines = queue.Queue()
+    cfg, cfg_note = load_console_config()
 
     root = tk.Tk()
-    root.title("Astrabot Console")
+    root.title(cfg["console_name"])
     root.geometry("1400x900")
     root.configure(bg=bg)
 
@@ -590,6 +722,7 @@ def main():
     button("Restart Classifier", lambda: in_background(classifier.restart))
     watchdog_button = button("Watchdog: Off", lambda: toggle_watchdog())
     pull_button = button("Pull + Restart", pull)
+    button("Settings", lambda: open_settings_window())
     status = tk.Label(bar, bg=topbar, fg=text_colour, font=("Segoe UI", 10))
     status.pack(side="right", padx=10, pady=10)
 
@@ -597,32 +730,159 @@ def main():
     body.pack(fill="both", expand=True)
     grid = tk.Frame(body, bg=bg)
     grid.pack(side="left", fill="both", expand=True, padx=6, pady=(0, 6))
-    for index in (0, 1):
-        grid.rowconfigure(index, weight=3, uniform="pane")
-        grid.columnconfigure(index, weight=1, uniform="pane")
-    grid.rowconfigure(2, weight=2)
+    grid.columnconfigure(0, weight=1, uniform="pane")
+    grid.columnconfigure(1, weight=1, uniform="pane")
 
-    def pane(title, row, column, columnspan=1):
-        frame = tk.Frame(grid, bg=bg)
-        frame.grid(row=row, column=column, columnspan=columnspan,
-                   sticky="nsew", padx=4, pady=4)
-        tk.Label(frame, text=title, bg=bg, fg=accent, anchor="w",
-                 font=("Segoe UI", 10, "bold")).pack(fill="x")
-        scroll = tk.Scrollbar(frame)
+    # Every window is a pane with a header; the arrow collapses it. The five
+    # built-in windows cannot be removed. Services added in Settings (the
+    # `custom` dict, in the order added) can be.
+    panes = {}
+    custom = {}
+    boxes = {}
+    grid_rows = {"used": 0}
+    arrow_open, arrow_shut = "\u25be ", "\u25b8 "
+
+    # The five built-in windows share one collapsible "Astrabot" group, with
+    # a grid of their own inside it. Added services sit below the group.
+    group = tk.Frame(grid, bg=bg)
+    group_head = tk.Frame(group, bg=bg)
+    group_head.pack(fill="x")
+    group_toggle = tk.Button(group_head, text="", anchor="w", relief="flat", bd=0, bg=bg,
+                             fg=accent, activebackground=bg, activeforeground=text_colour,
+                             cursor="hand2", font=("Segoe UI", 11, "bold"),
+                             command=lambda: toggle_group())
+    group_toggle.pack(side="left")
+    group_content = tk.Frame(group, bg=bg)
+    inner_grid = tk.Frame(group_content, bg=bg)
+    inner_grid.pack(fill="both", expand=True)
+    inner_grid.columnconfigure(0, weight=1, uniform="pane")
+    inner_grid.columnconfigure(1, weight=1, uniform="pane")
+
+    def show_group_collapsed():
+        collapsed = bool(cfg["collapsed"].get(GROUP_KEY))
+        if collapsed:
+            group_content.pack_forget()
+        else:
+            group_content.pack(fill="both", expand=True)
+        group_toggle.configure(text=(arrow_shut if collapsed else arrow_open) + GROUP_TITLE)
+
+    def toggle_group():
+        if cfg["collapsed"].get(GROUP_KEY):
+            cfg["collapsed"].pop(GROUP_KEY)
+        else:
+            cfg["collapsed"][GROUP_KEY] = True
+        show_group_collapsed()
+        place_panes()
+        save_settings_quietly()
+
+    def save_settings_quietly():
+        try:
+            save_console_config(cfg)
+        except OSError as exc:
+            lines.put(("bot", f"Could not save console.json: {exc}"))
+
+    def place_panes():
+        cells = pane_cells(list(custom))
+        inner = inner_row_weights(cfg["collapsed"])
+        outer = outer_row_weights(list(custom), cfg["collapsed"])
+        group.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=4, pady=(4, 0))
+        for key, entry in panes.items():
+            row, column, span = cells[key]
+            entry["frame"].grid(row=row, column=column, columnspan=span,
+                                sticky="nsew", padx=4, pady=4)
+        for row, weight in inner.items():
+            inner_grid.rowconfigure(row, weight=weight)
+        total = max(outer) + 1
+        for row in range(max(grid_rows["used"], total)):
+            grid.rowconfigure(row, weight=outer.get(row, 0))
+        grid_rows["used"] = total
+
+    def show_collapsed(key):
+        entry = panes[key]
+        collapsed = bool(cfg["collapsed"].get(key))
+        if collapsed:
+            entry["content"].pack_forget()
+        else:
+            entry["content"].pack(fill="both", expand=True)
+        entry["toggle"].configure(text=(arrow_shut if collapsed else arrow_open) + entry["title"])
+
+    def toggle_pane(key):
+        if cfg["collapsed"].get(key):
+            cfg["collapsed"].pop(key)
+        else:
+            cfg["collapsed"][key] = True
+        show_collapsed(key)
+        place_panes()
+        save_settings_quietly()
+
+    def pane(key, title, buttons=(), parent=None):
+        frame = tk.Frame(parent or grid, bg=bg)
+        head = tk.Frame(frame, bg=bg)
+        head.pack(fill="x")
+        toggle = tk.Button(head, text="", anchor="w", relief="flat", bd=0, bg=bg, fg=accent,
+                           activebackground=bg, activeforeground=text_colour, cursor="hand2",
+                           font=("Segoe UI", 10, "bold"), command=lambda: toggle_pane(key))
+        toggle.pack(side="left")
+        for label, command in buttons:
+            tk.Button(head, text=label, command=command, bg=chip_bg, fg=text_colour,
+                      activebackground=card, relief="flat", font=("Segoe UI", 9),
+                      padx=8).pack(side="right", padx=(4, 0))
+        content = tk.Frame(frame, bg=bg)
+        scroll = tk.Scrollbar(content)
         scroll.pack(side="right", fill="y")
-        box = tk.Text(frame, bg=card, fg=text_colour, insertbackground=text_colour,
+        box = tk.Text(content, bg=card, fg=text_colour, insertbackground=text_colour,
                       relief="flat", wrap="word", state="disabled", width=1, height=1,
                       font=("Consolas", 10), yscrollcommand=scroll.set)
         box.pack(side="left", fill="both", expand=True)
         scroll.configure(command=box.yview)
+        panes[key] = {"frame": frame, "content": content, "toggle": toggle, "title": title}
+        boxes[key] = box
+        show_collapsed(key)
         return box
+
+    def add_custom(spec, start):
+        svc = CustomSupervisor(emit, spec)
+        custom[svc.name] = svc
+        pane(svc.name, svc.title, buttons=[
+            ("Remove", lambda n=svc.name: remove_custom(n)),
+            ("Stop", lambda s=svc: in_background(s.stop)),
+            ("Restart", lambda s=svc: in_background(s.restart)),
+            ("Start", lambda s=svc: in_background(s.start))])
+        place_panes()
+        if start and svc.autostart:
+            svc.start()
+        return svc
+
+    def retire_custom(name):
+        """Close a service's window and stop it. Does not touch console.json."""
+        svc = custom.pop(name, None)
+        if svc is None:
+            return
+        entry = panes.pop(name)
+        entry["frame"].destroy()
+        boxes.pop(name, None)
+        cfg["collapsed"].pop(name, None)
+        place_panes()
+        in_background(svc.shutdown)
+
+    def remove_custom(name):
+        svc = custom.get(name)
+        if svc is None or not messagebox.askyesno(
+                "Remove", f"Remove {svc.title}? It will be stopped and its window closed."):
+            return
+        cfg["services"] = [s for s in cfg["services"] if s["name"] != name]
+        retire_custom(name)
+        save_settings_quietly()
 
     # Bot first, then the servers in port order. The classifier gets a
     # shorter row of its own at the bottom: its log is the thought
     # process, worth watching, but quieter than the bot.
-    boxes = {"bot": pane("Bot", 0, 0), "site": pane("Site (13380)", 0, 1),
-             "absLogin": pane("absLogin (13381)", 1, 0), "wiki": pane("Wiki (13382)", 1, 1),
-             "classifier": pane("Classifier (13383)", 2, 0, columnspan=2)}
+    for key in BUILTIN_PANES:
+        pane(key, BUILTIN_TITLES[key], parent=inner_grid)
+    show_group_collapsed()
+    for spec in cfg["services"]:
+        add_custom(spec, start=False)
+    place_panes()
 
     # -- decisions panel (right-hand sidebar) --------------------------
     # Most recent first, up to 50, with a search box. Each row is a
@@ -633,14 +893,37 @@ def main():
     sidebar = tk.Frame(body, bg=bg, width=400)
     sidebar.pack(side="right", fill="y", padx=(0, 6), pady=(0, 6))
     sidebar.pack_propagate(False)
-    tk.Label(sidebar, text="Decisions", bg=bg, fg=accent, anchor="w",
-             font=("Segoe UI", 10, "bold")).pack(fill="x", pady=(4, 2))
-    decisions_status = tk.Label(sidebar, text="Classifier: checking...",
+    decisions_toggle = tk.Button(sidebar, text="", anchor="w", relief="flat", bd=0, bg=bg,
+                                 fg=accent, activebackground=bg, activeforeground=text_colour,
+                                 cursor="hand2", font=("Segoe UI", 10, "bold"),
+                                 command=lambda: toggle_decisions())
+    decisions_toggle.pack(fill="x", pady=(4, 2))
+    decisions_body = tk.Frame(sidebar, bg=bg)
+    decisions_body.pack(fill="both", expand=True)
+
+    def show_decisions_collapsed():
+        collapsed = bool(cfg["collapsed"].get("decisions"))
+        if collapsed:
+            decisions_body.pack_forget()
+        else:
+            decisions_body.pack(fill="both", expand=True)
+        sidebar.configure(width=150 if collapsed else 400)
+        decisions_toggle.configure(text=(arrow_shut if collapsed else arrow_open) + "Decisions")
+
+    def toggle_decisions():
+        if cfg["collapsed"].get("decisions"):
+            cfg["collapsed"].pop("decisions")
+        else:
+            cfg["collapsed"]["decisions"] = True
+        show_decisions_collapsed()
+        save_settings_quietly()
+
+    decisions_status = tk.Label(decisions_body, text="Classifier: checking...",
                                 bg=bg, fg=secondary, anchor="w",
                                 font=("Segoe UI", 9))
     decisions_status.pack(fill="x")
 
-    search_row = tk.Frame(sidebar, bg=bg)
+    search_row = tk.Frame(decisions_body, bg=bg)
     search_row.pack(fill="x", pady=(6, 4))
     search_entry = tk.Entry(search_row, bg=input_bg, fg=text_colour,
                             insertbackground=text_colour, relief="flat",
@@ -659,12 +942,12 @@ def main():
               bg=chip_bg, fg=text_colour, relief="flat",
               font=("Segoe UI", 10, "bold")).pack(side="left", padx=(6, 0))
 
-    note = tk.Label(sidebar, text="", bg=bg, fg=secondary, anchor="w",
+    note = tk.Label(decisions_body, text="", bg=bg, fg=secondary, anchor="w",
                     font=("Segoe UI", 9), wraplength=380, justify="left")
     note.pack(fill="x")
 
-    list_canvas = tk.Canvas(sidebar, bg=bg, highlightthickness=0)
-    list_scroll = tk.Scrollbar(sidebar, command=list_canvas.yview)
+    list_canvas = tk.Canvas(decisions_body, bg=bg, highlightthickness=0)
+    list_scroll = tk.Scrollbar(decisions_body, command=list_canvas.yview)
     list_scroll.pack(side="right", fill="y")
     list_canvas.pack(side="left", fill="both", expand=True)
     list_canvas.configure(yscrollcommand=list_scroll.set)
@@ -684,6 +967,7 @@ def main():
         for child in widget.winfo_children():
             bind_wheel(child)
 
+    show_decisions_collapsed()
     decisions_state = {"snapshot": None, "query": "",
                        "render_key": None, "ruling": set()}
 
@@ -858,7 +1142,9 @@ def main():
                 elif "stopped, exit code" in line or "not restarting" in line:
                     decisions_state["snapshot"] = None
                     render_decisions()
-            box = boxes[stream]
+            box = boxes.get(stream)
+            if box is None:  # a service removed while its output was still queued
+                continue
             pinned = box.yview()[1] >= 0.999  # do not yank a scrolled-up view
             box.configure(state="normal")
             box.insert("end", line + "\n")
@@ -870,7 +1156,7 @@ def main():
                 box.see("end")
         status.configure(text="   ".join(f"{s.title}: {s.status()}"
                                          for s in (supervisor, abs_login, wiki,
-                                                   classifier)))
+                                                   classifier, *custom.values())))
         root.after(100, drain)
 
     watch = {"on": False, "started": time.monotonic()}
@@ -899,7 +1185,7 @@ def main():
                              "restarting the console\n")
         except OSError:
             pass
-        for service in all_services:
+        for service in (*all_services, *custom.values()):
             try:
                 service.shutdown()
             except Exception:
@@ -927,12 +1213,49 @@ def main():
             watchdog.check()
         root.after(WATCH_INTERVAL_SECONDS * 1000, watch_tick)
 
+    def apply_settings(general, services):
+        """Save the Settings window's edits and apply them to the open console."""
+        new = build_saved_config(cfg, general, services)
+        save_console_config(new)
+        wanted = {s["name"]: s for s in new["services"]}
+        cfg.clear()
+        cfg.update(new)
+        root.title(cfg["console_name"])
+        for name in [n for n in custom if n not in wanted]:
+            retire_custom(name)
+        added = 0
+        for name, spec in wanted.items():
+            if name in custom:
+                custom[name].reconfigure(spec)
+                panes[name]["title"] = custom[name].title
+                show_collapsed(name)
+            else:
+                add_custom(spec, start=True)
+                added += 1
+        message = ("Saved. Changes to a service that is running apply the next time it "
+                   "starts: press its Restart.")
+        if added:
+            message += f"\n\n{added} new service(s) added and started."
+        return message
+
+    def open_settings_window():
+        from console_settings import open_settings
+        colours = {"bg": bg, "card": card, "text": text_colour, "accent": accent,
+                   "topbar": topbar, "secondary": secondary, "on_primary": on_primary}
+        open_settings(root, colours, cfg, apply_settings)
+
     def on_close():
-        if messagebox.askokcancel("Astrabot Console",
+        if messagebox.askokcancel(cfg["console_name"],
                                   "Closing this window stops the bot, site, wiki, "
-                                  "absLogin and classifier. Close?"):
-            for service in (supervisor, wiki, abs_login, classifier):
-                service.shutdown()
+                                  "absLogin and classifier, and every service you "
+                                  "added. Close?"):
+            everything = [supervisor, wiki, abs_login, classifier, *custom.values()]
+            # In parallel: a service with a clean-stop command can take a while.
+            stoppers = [threading.Thread(target=s.shutdown, daemon=True) for s in everything]
+            for stopper in stoppers:
+                stopper.start()
+            for stopper in stoppers:
+                stopper.join(timeout=90)
             root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)
@@ -953,6 +1276,15 @@ def main():
     # The classifier may already be running (started by an earlier
     # console), in which case no "Starting" line will ever arrive.
     trigger_decisions_fetch()
+    if cfg_note:
+        emit("bot", cfg_note)
+
+    def start_custom():
+        for service in list(custom.values()):
+            if service.autostart:
+                service.start()
+
+    root.after(cfg["startup_delay_seconds"] * 1000, start_custom)
     watch_tick()
     # On by default. --no-watchdog starts with it off (for debugging).
     if "--no-watchdog" not in sys.argv:

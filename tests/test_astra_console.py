@@ -140,6 +140,109 @@ class AbsLoginSupervisorTests(unittest.TestCase):
         self.assertTrue(any("not found" in line for line in lines))
 
 
+class WatchdogTests(unittest.TestCase):
+    class Fake:
+        def __init__(self, name, lost=False):
+            self.name, self.lost = name, lost
+
+        def is_lost(self):
+            return self.lost
+
+    def test_trips_after_two_bad_checks_in_a_row_with_the_lost_names(self):
+        seen = []
+        services = [self.Fake("bot"), self.Fake("wiki", lost=True)]
+        dog = astra_console.Watchdog(services, seen.append)
+        dog.check()
+        self.assertEqual(seen, [])
+        dog.check()
+        self.assertEqual(seen, [["wiki"]])
+
+    def test_one_bad_check_then_a_good_one_does_not_trip(self):
+        seen = []
+        wiki = self.Fake("wiki", lost=True)
+        dog = astra_console.Watchdog([wiki], seen.append)
+        dog.check()
+        wiki.lost = False
+        dog.check()
+        wiki.lost = True
+        dog.check()
+        self.assertEqual(seen, [])
+
+    def test_trips_only_once(self):
+        seen = []
+        dog = astra_console.Watchdog([self.Fake("bot", lost=True)], seen.append)
+        for _ in range(5):
+            dog.check()
+        self.assertEqual(len(seen), 1)
+
+    def test_a_supervisor_is_lost_only_when_started_and_its_thread_died(self):
+        sup = Supervisor(lambda *a: None, "classifier", ".", ["x"], tempfile.gettempdir())
+        self.assertFalse(sup.is_lost())  # never started: not lost, just absent
+        sup._started = True
+        sup._thread = types.SimpleNamespace(is_alive=lambda: False)
+        self.assertTrue(sup.is_lost())
+        sup._closing = True  # a deliberate shutdown is not a loss
+        self.assertFalse(sup.is_lost())
+
+    def test_listening_pids_reads_netstat_for_any_local_address(self):
+        output = (
+            "  TCP    127.0.0.1:13383        0.0.0.0:0              LISTENING       54292\n"
+            "  TCP    127.0.0.1:13382        0.0.0.0:0              LISTENING       100888\n"
+            "  TCP    127.0.0.1:13383        127.0.0.1:50000        ESTABLISHED     54292\n"
+            "  TCP    0.0.0.0:13380          0.0.0.0:0              LISTENING       777\n"
+            "  TCP    0.0.0.0:8080           0.0.0.0:0              LISTENING       999\n")
+        self.assertEqual(astra_console.listening_pids(output, (13383, 13382, 13380)),
+                         [777, 54292, 100888])
+
+    def test_relaunch_command_waits_then_starts_with_the_watchdog_on(self):
+        command = astra_console.relaunch_command("C:/py/pythonw.exe", "C:/bot/astra_console.py", delay=7)
+        self.assertIn("ping -n 8", command)
+        self.assertIn("--watchdog", command)
+        self.assertIn("astra_console.py", command)
+
+
+class PortClearingTests(unittest.TestCase):
+    def run_once(self, **kwargs):
+        with tempfile.TemporaryDirectory() as folder:
+            said = []
+            sup = Supervisor(lambda stream, line: said.append(line), "svc", folder,
+                             [sys.executable, "-c", "print('hi')"], folder, **kwargs)
+            return sup, said
+
+    def test_every_start_clears_the_service_port_first(self):
+        with tempfile.TemporaryDirectory() as folder:
+            sup = Supervisor(lambda *a: None, "classifier", folder,
+                             [sys.executable, "-c", "print('hi')"], folder, ports=(13383,))
+            with mock.patch.object(astra_console, "kill_listeners", return_value=[4242]) as kill:
+                sup._run_once()
+            kill.assert_called_once_with((13383,))
+
+    def test_a_service_without_ports_checks_nothing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            sup = Supervisor(lambda *a: None, "x", folder,
+                             [sys.executable, "-c", "print('hi')"], folder)
+            with mock.patch.object(astra_console, "kill_listeners") as kill:
+                sup._run_once()
+            kill.assert_not_called()
+
+    def test_a_failing_port_check_does_not_stop_the_start(self):
+        said = []
+        with tempfile.TemporaryDirectory() as folder:
+            sup = Supervisor(lambda stream, line: said.append(line), "wiki", folder,
+                             [sys.executable, "-c", "print('hi')"], folder, ports=(13382,))
+            with mock.patch.object(astra_console, "kill_listeners", side_effect=OSError("no netstat")):
+                code = sup._run_once()
+        self.assertEqual(code, 0)
+        self.assertTrue(any("Could not check ports" in line for line in said))
+
+    def test_each_service_owns_its_port(self):
+        emit = lambda *a: None
+        self.assertEqual(astra_console.classifier_supervisor(emit).ports, (13383,))
+        self.assertEqual(astra_console.wiki_supervisor(emit).ports, (13382,))
+        self.assertEqual(astra_console.abslogin_supervisor(emit).ports, (13381,))
+        self.assertEqual(BotSupervisor(emit).ports, (13380,))
+
+
 class PullTests(unittest.TestCase):
     def pull(self, returncode):
         result = types.SimpleNamespace(returncode=returncode, stdout="ok", stderr="")

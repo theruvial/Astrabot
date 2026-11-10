@@ -9,7 +9,7 @@ Built and maintained by Thea since 2019, originally as a solo project written by
 - **Wiki:** `/wiki` sends the Aboard the Astra mechanics wiki.
 - **Moderation and self-update:** admin commands, and a watcher that hot-reloads changed cogs.
 
-Run it with `startConsole.bat`, which opens the Astrabot Console. The console runs the bot, audiobook site, absLogin, wiki backend and task classifier, with output panes and restart buttons.
+Run it with `startConsole.bat`, which opens the Golurk Console ([docs/CONSOLE.md](docs/CONSOLE.md)). The console runs the bot, audiobook site, absLogin, wiki backend and task classifier in one collapsible Astrabot group, plus any other programs you add in Settings (optionally under another Windows account), with output panes and restart buttons.
 
 Project notes for people and agents are in [DESIGN.md](DESIGN.md). `config.json` holds live secrets and is never committed; start from `config.example.json`.
 

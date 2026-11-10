@@ -55,6 +55,11 @@ CLASSIFIER_DIR = Path(r"C:\codingShit\AstraThought")
 CLASSIFIER_SERVICE = CLASSIFIER_DIR / "classifier_service.py"
 CLASSIFIER_PYTHON = CLASSIFIER_DIR / ".venv" / "Scripts" / "python.exe"
 
+SITE_PORT = 13380
+ABSLOGIN_PORT = 13381
+WIKI_PORT = 13382
+CLASSIFIER_PORT = 13383
+
 MAX_CRASHES = 5
 RESTART_DELAY = 10
 # A run at least this long breaks a "crashes in a row" streak.
@@ -92,8 +97,12 @@ class Supervisor:
     """Runs one program, restarts it, and hands each output line to emit."""
 
     def __init__(self, emit, name, cwd, command, log_dir,
-                 restart_delay=RESTART_DELAY, stable_seconds=STABLE_SECONDS):
+                 restart_delay=RESTART_DELAY, stable_seconds=STABLE_SECONDS,
+                 ports=()):
         self.emit = emit
+        # Ports this program listens on. Whatever still holds one when we
+        # are about to start it is a leftover, and is stopped first.
+        self.ports = tuple(ports)
         self.name = name
         self.cwd = Path(cwd)
         self.command = command
@@ -107,6 +116,7 @@ class Supervisor:
         self._intentional = False
         self._closing = False
         self._waiting = False
+        self._started = False
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     @property
@@ -115,7 +125,17 @@ class Supervisor:
 
     # -- controls ------------------------------------------------------
     def start(self):
+        self._started = True
         self._thread.start()
+
+    def is_lost(self):
+        """True when this service was started but its watcher thread died.
+
+        The program it launched may still be running with nothing
+        reading its output, and the Restart button refuses to work
+        ("was not found at startup"). Only a console restart fixes that.
+        """
+        return self._started and not self._closing and not self._thread.is_alive()
 
     def restart(self):
         if self.name != "bot" and not self._thread.is_alive():
@@ -165,12 +185,26 @@ class Supervisor:
     def _before_start(self):
         pass
 
+    def _clear_ports(self):
+        """Stop leftovers holding this service's ports, so the start can bind."""
+        if not self.ports:
+            return
+        try:
+            killed = kill_listeners(self.ports)
+        except Exception as exc:  # never let cleanup stop the start
+            self._say(self.name, f"Could not check ports {self.ports}: {exc}")
+            return
+        if killed:
+            self._say(self.name, f"Cleared port {'/'.join(map(str, self.ports))}: "
+                                 f"stopped leftover PID {', '.join(map(str, killed))}.")
+
     def _route(self, line, previous):
         return self.name
 
     def _run_once(self):
         """Start the program, stream its output until it exits, return its code."""
         self._before_start()
+        self._clear_ports()
         env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1")
         self._record(f"Starting {self.name}")
         self._say(self.name, f"Starting {self.name}.")
@@ -239,6 +273,8 @@ class BotSupervisor(Supervisor):
     """The bot, plus the actions that only make sense for it."""
 
     def __init__(self, emit, root=ROOT, command=None, **kwargs):
+        if command is None:  # a custom command (the tests) never clears the real site port
+            kwargs.setdefault("ports", (SITE_PORT,))
         super().__init__(emit, "bot", root, command or [python_exe(), "-u", "bot.py"],
                          Path(root) / "logs", **kwargs)
         self.flag = self.log_dir / "reload_cog.flag"
@@ -285,6 +321,73 @@ def pull_and_restart(bot, services):
     for service in services:
         service.restart()
     return True
+
+
+# -- watchdog ------------------------------------------------------------
+WATCH_INTERVAL_SECONDS = 15
+# Do not judge a console that only just opened.
+WATCH_GRACE_SECONDS = 120
+WATCH_STRIKES = 2
+
+
+class Watchdog:
+    """Notices when a service's watcher thread has died, twice in a row.
+
+    Two checks in a row keep one unlucky moment from restarting the
+    bot. trip(lost_names) is called once, then the watchdog is done.
+    """
+
+    def __init__(self, services, trip, strikes=WATCH_STRIKES):
+        self.services = list(services)
+        self.trip = trip
+        self.strikes = strikes
+        self.bad_checks = 0
+        self.tripped = False
+
+    def check(self):
+        lost = [service.name for service in self.services if service.is_lost()]
+        self.bad_checks = self.bad_checks + 1 if lost else 0
+        if lost and self.bad_checks >= self.strikes and not self.tripped:
+            self.tripped = True
+            self.trip(lost)
+        return lost
+
+
+def listening_pids(netstat_output, ports):
+    """PIDs listening on the given local ports (any local address)."""
+    wanted = {str(port) for port in ports}
+    pids = set()
+    for line in netstat_output.splitlines():
+        parts = line.split()
+        if (len(parts) >= 5 and parts[0] == "TCP" and parts[3] == "LISTENING"
+                and parts[1].rsplit(":", 1)[-1] in wanted and parts[4].isdigit()):
+            pids.add(int(parts[4]))
+    return sorted(pids)
+
+
+def kill_listeners(ports):
+    """Stop anything listening on these ports; return the PIDs stopped.
+
+    Never touches this console's own process.
+    """
+    result = subprocess.run(["netstat", "-ano"], capture_output=True, text=True,
+                            creationflags=NO_WINDOW)
+    pids = [pid for pid in listening_pids(result.stdout, ports) if pid != os.getpid()]
+    for pid in pids:
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
+                       capture_output=True, creationflags=NO_WINDOW)
+    return pids
+
+
+def relaunch_command(executable=None, script=None, delay=5):
+    """A command line that waits for this console to exit, then opens a new one.
+
+    The new console starts with the watchdog already on.
+    """
+    executable = executable or sys.executable
+    script = script or str(ROOT / "astra_console.py")
+    return (f'cmd /c "ping -n {delay + 1} 127.0.0.1 >nul & '
+            f'"{executable}" "{script}" --watchdog"')
 
 
 # -- classifier decisions (the right-hand panel) -----------------------
@@ -352,12 +455,12 @@ def decision_summary(decision):
 
 def wiki_supervisor(emit):
     return Supervisor(emit, "wiki", WIKI_BACKEND, [python_exe(), "-u", "server.py"],
-                      ROOT / "logs")
+                      ROOT / "logs", ports=(WIKI_PORT,))
 
 
 def abslogin_supervisor(emit):
     return Supervisor(emit, "absLogin", ABSLOGIN_DIR, [python_exe(), "-u", "app.py"],
-                      ROOT / "logs")
+                      ROOT / "logs", ports=(ABSLOGIN_PORT,))
 
 
 def classifier_supervisor(emit):
@@ -366,7 +469,7 @@ def classifier_supervisor(emit):
     that directory so ./tasks-AstraThought-v2 resolves."""
     return Supervisor(emit, "classifier", CLASSIFIER_DIR,
                       [str(CLASSIFIER_PYTHON), "-u", "classifier_service.py"],
-                      ROOT / "logs")
+                      ROOT / "logs", ports=(CLASSIFIER_PORT,))
 
 
 def main():
@@ -429,6 +532,7 @@ def main():
     button("Restart absLogin", lambda: in_background(abs_login.restart))
     button("Restart Wiki", lambda: in_background(wiki.restart))
     button("Restart Classifier", lambda: in_background(classifier.restart))
+    watchdog_button = button("Watchdog: Off", lambda: toggle_watchdog())
     pull_button = button("Pull + Restart", pull)
     status = tk.Label(bar, bg=topbar, fg=text_colour, font=("Segoe UI", 10))
     status.pack(side="right", padx=10, pady=10)
@@ -712,6 +816,49 @@ def main():
                                                    classifier)))
         root.after(100, drain)
 
+    watch = {"on": False, "started": time.monotonic()}
+    all_services = (supervisor, wiki, abs_login, classifier)
+
+    def restart_console(lost):
+        """Stop whatever can still be found, close this window, open a new one."""
+        names = ", ".join(lost)
+        lines.put(("bot", f"[{datetime.now():%H:%M:%S}] Watchdog: lost {names}. "
+                          "Stopping everything and restarting the console."))
+        try:
+            with CRASH_LOG_LOCK, open(ROOT / "logs" / "crashes.log", "a",
+                                      encoding="utf-8") as handle:
+                handle.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Watchdog lost {names}; "
+                             "restarting the console\n")
+        except OSError:
+            pass
+        for service in all_services:
+            try:
+                service.shutdown()
+            except Exception:
+                pass
+        try:
+            kill_listeners([port for service in all_services for port in service.ports])
+        except Exception:
+            pass
+        subprocess.Popen(relaunch_command(), cwd=ROOT, shell=False,
+                         creationflags=NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0),
+                         close_fds=True)
+        root.after(0, root.destroy)
+
+    watchdog = Watchdog([s for s in all_services],
+                        lambda lost: in_background(lambda: restart_console(lost)))
+
+    def toggle_watchdog():
+        watch["on"] = not watch["on"]
+        watch["started"] = time.monotonic()
+        watchdog.bad_checks = 0
+        watchdog_button.configure(text="Watchdog: On" if watch["on"] else "Watchdog: Off")
+
+    def watch_tick():
+        if watch["on"] and time.monotonic() - watch["started"] >= WATCH_GRACE_SECONDS:
+            watchdog.check()
+        root.after(WATCH_INTERVAL_SECONDS * 1000, watch_tick)
+
     def on_close():
         if messagebox.askokcancel("Astrabot Console",
                                   "Closing this window stops the bot, site, wiki, "
@@ -735,6 +882,9 @@ def main():
         emit("classifier", f"Not found, so not started: {missing}")
     render_decisions()
     drain()
+    watch_tick()
+    if "--watchdog" in sys.argv:
+        toggle_watchdog()
     root.mainloop()
 
 

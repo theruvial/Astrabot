@@ -33,6 +33,7 @@
             "dry_run": true,
             "url": "https://audio.theruvial.com",
             "api_key": "",
+            "_api_key_note": "Leave api_key blank to use the ABS_API_KEY environment variable (the one absLogin uses).",
             "library_id": "",
             "interval_seconds": 120
         }

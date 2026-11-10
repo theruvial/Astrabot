@@ -149,7 +149,9 @@ run-book for the feature; the design document is the full spec.
   title word, author surname, not added long before the request, ambiguous
   matches left for Thea). Settings are in `config.json` under
   `audiobooks.library` (`enabled`, `dry_run`, `url`, `api_key`,
-  `library_id`, `interval_seconds`); the API key stays in `config.json`.
+  `library_id`, `interval_seconds`). Leave `api_key` blank to use the
+  `ABS_API_KEY` environment variable, the one absLogin already uses, so the key
+  is not copied into `config.json`.
   See what it would close, changing nothing:
   `py -3.14 scripts\check_library.py`. Turn `dry_run` off to let it act.
 - **Torrent matching (2026-11-09, off by default):** the cog can watch

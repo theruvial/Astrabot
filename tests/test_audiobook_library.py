@@ -8,6 +8,7 @@ import asyncio
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -138,7 +139,23 @@ class WatcherTests(unittest.TestCase):
         cog = FakeCog([])
         self.assertIsNone(build_library_watcher(cog))
         cog.config = {"library": {"enabled": True, "url": "http://x"}}
-        self.assertIsNone(build_library_watcher(cog))  # no api key
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(build_library_watcher(cog))  # no api key anywhere
+
+    def test_a_blank_api_key_falls_back_to_the_abs_environment_variable(self):
+        cog = FakeCog([])
+        cog.config = {"library": {"enabled": True, "url": "http://x", "api_key": ""}}
+        with mock.patch.dict(os.environ, {"ABS_API_KEY": "from-env"}, clear=True):
+            watcher = build_library_watcher(cog)
+        self.assertIsNotNone(watcher)
+        self.assertEqual(watcher.client._headers["Authorization"], "Bearer from-env")
+
+    def test_a_key_in_the_config_wins_over_the_environment(self):
+        cog = FakeCog([])
+        cog.config = {"library": {"enabled": True, "url": "http://x", "api_key": "from-config"}}
+        with mock.patch.dict(os.environ, {"ABS_API_KEY": "from-env"}, clear=True):
+            watcher = build_library_watcher(cog)
+        self.assertEqual(watcher.client._headers["Authorization"], "Bearer from-config")
 
 
 class ClientTests(unittest.IsolatedAsyncioTestCase):

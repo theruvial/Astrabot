@@ -8,7 +8,8 @@ Run from the Astrabot folder:
 
     py -3.14 scripts\\check_library.py
 
-It reads the address and API key from config.json (audiobooks.library).
+It reads the address from config.json (audiobooks.library) and the API
+key from there or, if blank, from the ABS_API_KEY environment variable.
 The key is never printed.
 """
 
@@ -32,10 +33,12 @@ from cogs.audiobooks_library import (  # noqa: E402
 async def main() -> int:
     with open("config.json", encoding="utf-8") as handle:
         cfg = (json.load(handle).get("audiobooks") or {}).get("library") or {}
-    if not cfg.get("url") or not cfg.get("api_key"):
-        print("audiobooks.library.url / api_key are blank in config.json. Fill them in first.")
+    api_key = cfg.get("api_key") or os.environ.get("ABS_API_KEY") or ""
+    if not cfg.get("url") or not api_key:
+        print("audiobooks.library.url is blank in config.json, or there is no api_key "
+              "there and no ABS_API_KEY environment variable.")
         return 1
-    client = AudiobookshelfClient(cfg["url"], cfg["api_key"], str(cfg.get("library_id") or ""))
+    client = AudiobookshelfClient(cfg["url"], api_key, str(cfg.get("library_id") or ""))
     try:
         items = await client.list_items()
     except AudiobookshelfError as exc:

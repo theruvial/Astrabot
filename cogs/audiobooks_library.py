@@ -26,9 +26,11 @@ Config, in ``config.json`` under ``audiobooks.library``::
         "interval_seconds": 120
     }
 
-``api_key`` is an Audiobookshelf API token (Settings > API Keys, or a
-user token). It lives in ``config.json`` only, which is never
-committed. Leave ``library_id`` blank to search every book library.
+``api_key`` is an Audiobookshelf API token. Leave it blank to use the
+``ABS_API_KEY`` environment variable, the same variable absLogin uses,
+so the key stays in one place and is never copied into ``config.json``
+(which sits on the Drive). Leave ``library_id`` blank to search every
+book library.
 ``dry_run`` defaults to true: matches are only logged.
 
 Matching reuses the strict torrent matcher: every word of the title
@@ -42,6 +44,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 
 import aiohttp
 
@@ -217,10 +220,11 @@ class LibraryWatcher:
 def build_library_watcher(cog) -> LibraryWatcher | None:
     """A watcher from ``audiobooks.library`` config, or None if off."""
     cfg = (cog.config or {}).get("library") or {}
-    if not cfg.get("enabled") or not cfg.get("url") or not cfg.get("api_key"):
+    api_key = str(cfg.get("api_key") or os.environ.get("ABS_API_KEY") or "")
+    if not cfg.get("enabled") or not cfg.get("url") or not api_key:
         return None
     client = AudiobookshelfClient(
-        str(cfg["url"]), str(cfg["api_key"]), str(cfg.get("library_id") or ""))
+        str(cfg["url"]), api_key, str(cfg.get("library_id") or ""))
     return LibraryWatcher(
         cog, client, dry_run=bool(cfg.get("dry_run", True)),
         interval_seconds=float(cfg.get("interval_seconds") or 120))

@@ -24,7 +24,7 @@ Press **Settings**, then **+ Add service**. For each one set:
 |---|---|
 | Name | The pane title. |
 | Run as | Program (path + arguments), PowerShell command, or batch file / cmd command. |
-| Command | What to run, for example `"D:\Servers\Dragonwilds\start.bat"`. Several lines run one after another. |
+| Command | What to run, for example `"C:\Servers\Dragonwilds\start.bat"`. Several lines run one after another. |
 | Working folder | Where it runs. |
 | Environment variables | `NAME=value`, one per line. |
 | Stop commands | Lines typed into the program to stop it cleanly (for example `/save`, `/quit`). Empty means it is simply ended. |

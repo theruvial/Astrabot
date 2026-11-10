@@ -165,7 +165,7 @@ The old live bot token was merged into `master` in PR #9 (it was in the pre-untr
 
 ### The backend (Aboard the Astra repo, NOT Astrabot)
 
-- Lives in the **Aboard the Astra Remake repo** (`SteveGinGames/Aboard-the-Astra---Remake`, branch `feature/wiki-mechanics-site`), under `Tools/wiki/backend/` — `server.py` (stdlib-only `http.server`), `generator.py`, `README.md`, `data/mechanics.snapshot.json`.
+- Lives in the **Aboard the Astra Remake repo** (`egamI-rorriM/Aboard-the-Astra---Remake`, branch `main`; it was developed on `feature/wiki-mechanics-site`, which was merged and deleted on GitHub), under `Tools/wiki/backend/` — `server.py` (stdlib-only `http.server`), `generator.py`, `README.md`, `data/mechanics.snapshot.json`.
 - **Final model (2026-11-05, commit `d8f0ba0b`): NO login.** The backend regenerates the wiki HTML from the repo; the API is **Astrabot-only** via shared-secret header `X-Astra-Wiki-Key: <WIKI_API_KEY>` (same value on bot host and backend host, never committed). No key → 401; **no key configured → 503 fail-closed**. Default bind `127.0.0.1` (loopback; both run on 192.168.4.80), port 13382. `/health` is public. Webhook keeps its own GitHub HMAC check. **The public `api.theruvial.com` proxy must NOT expose the API** — the repo copy of its nginx config was removed and untracked 2026-11-05, and the corrected full server nginx config (with both api blocks removed) is `~/workspace/nginx-theruvial-full.conf`.
 - **Superseded — do not revive:** the login build (was accidentally pushed in an earlier commit, then removed), the GitHub Action auto-update (workflow file exists only locally at `~/workspace/astra-wiki-staging/.github/workflows/wiki.yml`; org-level workflow permissions are greyed out), public GitHub Pages hosting, and the live-backend delivery route.
 - **Host setup still pending (as of 2026-11-05):** generate the secret on the host (`python -c "import secrets; print(secrets.token_hex(32))"` — never paste it in chat, never commit it); set `WIKI_API_KEY` on both hosts + `GITHUB_TOKEN` for the backend (read-only token for the private Astra repo — classic `repo` scope only, or fine-grained Contents: Read-only); run `python server.py` from `Tools/wiki/backend/` in a checkout on `feature/wiki-mechanics-site`; verify `curl http://127.0.0.1:13382/health` → 200 and `curl -H "X-Astra-Wiki-Key: <key>" http://127.0.0.1:13382/api/status` → 200 with `live: true`; pull Astrabot `master` + restart the bot.
@@ -272,6 +272,11 @@ Nginx host: Ubuntu, `thea-ubuntu-server`, all sites in `/etc/nginx/sites-availab
 ## 12. Change log
 
 Newest first. One dated entry per working day, by the agent that did the work.
+
+### 2026-11-09 — Claude Code (Sonnet 5.5), branch `docs/wiki-branch-note`
+
+- **Wiki checkout moved to `main`:** Pull + Restart was failing on the wiki step with "no such ref was fetched", because `feature/wiki-mechanics-site` had been merged and deleted on GitHub. `C:\codingShit\Aboard-the-Astra-Wiki` was switched to `main` and fast-forwarded (it had no commits `main` lacked, and `Tools/wiki` was unchanged). The old local branch was kept. If a console pull ever says "no such ref was fetched" for a repo, that repo's branch was deleted upstream: check `git ls-remote --heads origin` and switch to a branch that exists.
+- Corrected the wiki repo owner and branch in the wiki backend notes above.
 
 ### 2026-11-09 — Claude Code (Opus 5.5), branch `feature/audiobook-titles`
 

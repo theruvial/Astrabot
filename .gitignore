@@ -4,6 +4,8 @@ song.mp3
 audio.wav
 audio1.wav
 cogs/__pycache__
+__pycache__/
+nohup.out
 config.json
 logs/
 crash.log

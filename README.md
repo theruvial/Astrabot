@@ -4,8 +4,8 @@ A personal Discord bot (discord.py 2.x) for the Aboard the Astra team and Thea's
 
 Built and maintained by Thea since 2019, originally as a solo project written by hand before AI coding tools: reaction roles, a points economy and gambling system backed by PostgreSQL (later SQLite), a shop, a tasks system with reaction persistence across restarts, and Trello integration. The economy is an append-only ledger — every movement is recorded and balances are derived from it — and the role system uses parameterized SQL, including a window-function query to dedupe emoji-to-role mappings. The bot has since grown with newer features (audiobook requests, a local task classifier, and the Astra mechanics wiki); see below.
 
-- **Audiobook requests:** a Discord and web workflow for requesting audiobooks. See [AUDIOBOOKS.md](AUDIOBOOKS.md).
-- **Tasks:** reads #astra-feedback, classifies messages with a local model, sends unclear ones to #human-intervention, and posts tasks to #todo. See [README_tasks.md](README_tasks.md).
+- **Audiobook requests:** a Discord and web workflow for requesting audiobooks. See [docs/AUDIOBOOKS.md](docs/AUDIOBOOKS.md).
+- **Tasks:** reads #astra-feedback, classifies messages with a local model, sends unclear ones to #human-intervention, and posts tasks to #todo. See [docs/README_tasks.md](docs/README_tasks.md).
 - **Wiki:** `/wiki` sends the Aboard the Astra mechanics wiki.
 - **Moderation and self-update:** admin commands, and a watcher that hot-reloads changed cogs.
 

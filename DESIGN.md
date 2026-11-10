@@ -100,12 +100,12 @@ The old live bot token was merged into `master` in PR #9 (it was in the pre-untr
 
 ## 4. Audiobook request system (the main feature)
 
-**Design doc:** `~/workspace/your_files/audiobook-requests-design.md` (Thea's local copy; repo copy is `AUDIOBOOKS.md`).
+**Design doc:** `~/workspace/your_files/audiobook-requests-design.md` (Thea's local copy; repo copy is `docs/AUDIOBOOKS.md`).
 **Staging (local, not the repo):** `~/workspace/astrabot-audiobooks/`; test venv `~/workspace/astrabot-venv/` (discord.py 2.7.1 — run cog tests with this venv's Python; system Python 3.12 has no `discord` module).
 
 ### Files
 
-`cogs/audiobooks.py`, `audiobooks_db.py`, `audiobooks_providers.py`, `audiobooks_web.py`, `audiobooks_notify.py`, `bot.py` (adds `cogs.audiobooks`), `AUDIOBOOKS.md`, tests in `tests/test_audiobooks.py`.
+`cogs/audiobooks.py`, `audiobooks_db.py`, `audiobooks_providers.py`, `audiobooks_web.py`, `audiobooks_notify.py`, `bot.py` (adds `cogs.audiobooks`), `docs/AUDIOBOOKS.md`, tests in `tests/test_audiobooks.py`.
 
 ### How it works
 
@@ -175,7 +175,7 @@ The old live bot token was merged into `master` in PR #9 (it was in the pre-untr
 
 ## 5a. Tasks cog (`cogs/tasks.py`)
 
-Full behaviour is in `README_tasks.md`, and the classifier is documented in `README_classifier.md` in the private `theruvial/AstraThought` repo.
+Full behaviour is in `docs/README_tasks.md`, and the classifier is documented in `README_classifier.md` in the private `theruvial/AstraThought` repo.
 
 | Role | Channel (mcdungeons) | ID |
 |---|---|---|
@@ -274,6 +274,8 @@ Nginx host: Ubuntu, `thea-ubuntu-server`, all sites in `/etc/nginx/sites-availab
 Newest first. One dated entry per working day, by the agent that did the work.
 
 ### 2026-11-10 — Claude Code (Sonnet 5.5), branches `console/watchdog` and `master`
+
+- **Repo cleanup:** `AUDIOBOOKS.md` and `README_tasks.md` moved to `docs/` (links updated); removed the tracked root `__pycache__/`, the empty `nohup.out` and the unused `taskConfig.py` / `taskConfig.json`. Cogs, `bot.py`, `config.py` and `astra_console.py` stay where they are on purpose: moving them changes import paths, the launchers and the self-update watcher. `Saved/.keepfolder.txt` and `startBot.sh` were left alone.
 
 - **Decisions box fixed, watchdog default on (later the same day):** see section 5a. `/todo` (mcdungeons only) serves the live `TODO.md` privately to the requester.
 

@@ -138,6 +138,20 @@ run-book for the feature; the design document is the full spec.
   as collected editions. Omnibus/anthology extras are therefore not
   requested, and are not reported as "skipped" either — they were
   never candidates.
+- **Closing requests from Audiobookshelf (2026-11-10, off by default):**
+  the torrent watcher only moves a request to `In Progress` (the requester
+  is told it is being worked on). A second watcher
+  (`cogs/audiobooks_library.py`) asks Audiobookshelf for its newest books and,
+  when one matches an `In Progress` request, marks the request `Fulfilled`
+  (requester told, Discord post deleted) through the same path as the Mark
+  Fulfilled button. A finished download never closes a request, only the
+  library reporting the book does. Matching reuses the torrent rules (every
+  title word, author surname, not added long before the request, ambiguous
+  matches left for Thea). Settings are in `config.json` under
+  `audiobooks.library` (`enabled`, `dry_run`, `url`, `api_key`,
+  `library_id`, `interval_seconds`); the API key stays in `config.json`.
+  See what it would close, changing nothing:
+  `py -3.14 scripts\check_library.py`. Turn `dry_run` off to let it act.
 - **Torrent matching (2026-11-09, off by default):** the cog can watch
   Thea's Transmission client (RPC on the Ubuntu server, port 9092, with
   a login). When a torrent's name matches a request that is still

@@ -27,6 +27,14 @@
             "username": "",
             "password": "",
             "interval_seconds": 120
+        },
+        "library": {
+            "enabled": false,
+            "dry_run": true,
+            "url": "https://audio.theruvial.com",
+            "api_key": "",
+            "library_id": "",
+            "interval_seconds": 120
         }
     }
 }

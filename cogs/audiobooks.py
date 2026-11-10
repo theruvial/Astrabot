@@ -253,6 +253,7 @@ class Audiobooks(commands.Cog):
         self._web_runner = None
         self._web_site = None
         self.torrent_watcher = None
+        self.library_watcher = None
 
     # -- config helpers ------------------------------------------------
     @property
@@ -592,6 +593,18 @@ class Audiobooks(commands.Cog):
                          self.torrent_watcher.dry_run)
         except Exception as exc:  # noqa: BLE001 - must not kill the cog
             log.warning("Torrent watcher could not start: %s", exc)
+        # Optional Audiobookshelf watcher: closes In Progress requests once
+        # the book is in the library (off unless audiobooks.library is on).
+        try:
+            from .audiobooks_library import build_library_watcher
+
+            self.library_watcher = build_library_watcher(self)
+            if self.library_watcher is not None:
+                self.library_watcher.start()
+                log.info("Library watcher started (dry run: %s).",
+                         self.library_watcher.dry_run)
+        except Exception as exc:  # noqa: BLE001 - must not kill the cog
+            log.warning("Library watcher could not start: %s", exc)
 
     async def cog_unload(self) -> None:
         # Awaited by discord.py (via maybe_coroutine). Awaiting the
@@ -603,6 +616,9 @@ class Audiobooks(commands.Cog):
         if self.torrent_watcher is not None:
             self.torrent_watcher.stop()
             self.torrent_watcher = None
+        if self.library_watcher is not None:
+            self.library_watcher.stop()
+            self.library_watcher = None
         if self._web_runner is not None:
             try:
                 await self._web_runner.cleanup()

@@ -162,6 +162,29 @@ class DecisionLineTests(unittest.TestCase):
             self.assertFalse(astra_console.should_fetch_decisions(line), line)
 
 
+class RestartBudgetTests(unittest.TestCase):
+    def test_allows_three_restarts_an_hour_then_refuses(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "history.json"
+            for step in range(3):
+                self.assertTrue(astra_console.restart_allowed(path, now=1000 + step, record=True))
+            self.assertFalse(astra_console.restart_allowed(path, now=1010, record=True))
+
+    def test_old_restarts_stop_counting_after_an_hour(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "history.json"
+            for step in range(3):
+                astra_console.restart_allowed(path, now=1000 + step, record=True)
+            self.assertTrue(astra_console.restart_allowed(path, now=1000 + 3601, record=True))
+
+    def test_a_missing_or_broken_history_file_means_allowed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "history.json"
+            self.assertTrue(astra_console.restart_allowed(path, record=True))
+            path.write_text("not json", encoding="utf-8")
+            self.assertTrue(astra_console.restart_allowed(path, record=True))
+
+
 class WatchdogTests(unittest.TestCase):
     class Fake:
         def __init__(self, name, lost=False):

@@ -328,6 +328,10 @@ WATCH_INTERVAL_SECONDS = 15
 # Do not judge a console that only just opened.
 WATCH_GRACE_SECONDS = 120
 WATCH_STRIKES = 2
+# At most this many watchdog restarts per hour, so a fault that kills a
+# watcher every time cannot make the console restart forever.
+WATCH_MAX_RESTARTS = 3
+WATCH_WINDOW_SECONDS = 3600
 
 
 class Watchdog:
@@ -351,6 +355,30 @@ class Watchdog:
             self.tripped = True
             self.trip(lost)
         return lost
+
+
+def restart_allowed(history_path, now=None, limit=WATCH_MAX_RESTARTS,
+                    window=WATCH_WINDOW_SECONDS, record=False):
+    """True while fewer than ``limit`` watchdog restarts happened in ``window`` seconds.
+
+    The restart times live in a small JSON file so the budget survives
+    the restart itself. With record=True the current time is added.
+    """
+    now = time.time() if now is None else now
+    path = Path(history_path)
+    try:
+        times = [float(t) for t in json.loads(path.read_text(encoding="utf-8"))]
+    except (OSError, ValueError, TypeError):
+        times = []
+    times = [t for t in times if now - t < window]
+    allowed = len(times) < limit
+    if record and allowed:
+        times.append(now)
+    try:
+        path.write_text(json.dumps(times), encoding="utf-8")
+    except OSError:
+        pass
+    return allowed
 
 
 def listening_pids(netstat_output, ports):
@@ -839,6 +867,13 @@ def main():
     def restart_console(lost):
         """Stop whatever can still be found, close this window, open a new one."""
         names = ", ".join(lost)
+        if not restart_allowed(ROOT / "logs" / "watchdog_restarts.json", record=True):
+            lines.put(("bot", f"[{datetime.now():%H:%M:%S}] Watchdog: lost {names}, but it "
+                              f"already restarted the console {WATCH_MAX_RESTARTS} times in "
+                              "the last hour, so it is stopping here. Something keeps "
+                              "killing a service watcher: look at logs/crashes.log."))
+            root.after(0, lambda: watchdog_button.configure(text="Watchdog: gave up"))
+            return
         lines.put(("bot", f"[{datetime.now():%H:%M:%S}] Watchdog: lost {names}. "
                           "Stopping everything and restarting the console."))
         try:
@@ -903,7 +938,8 @@ def main():
     # console), in which case no "Starting" line will ever arrive.
     trigger_decisions_fetch()
     watch_tick()
-    if "--watchdog" in sys.argv:
+    # On by default. --no-watchdog starts with it off (for debugging).
+    if "--no-watchdog" not in sys.argv:
         toggle_watchdog()
     root.mainloop()
 

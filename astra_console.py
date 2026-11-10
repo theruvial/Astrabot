@@ -397,6 +397,22 @@ CLASSIFIER_URL = os.environ.get(
 DECISIONS_LIMIT = 50
 
 
+# The classifier logs with a timestamp and level in front:
+#   2026-11-10 00:02:07,325 INFO   #1 [review 0.76 model_regex_disagreement] text
+# The old pattern expected the line to start with "#1 [", which no real
+# line does, so the box was never refreshed by a decision.
+DECISION_LINE = re.compile(r"(?:^|\s)#\d+ \[(?:auto_task|auto_drop|review)\b")
+CLASSIFIER_READY_TEXT = "Classifier service listening"
+
+
+def should_fetch_decisions(line):
+    """True for a line that means the classifier's decision list changed
+    or the service just became reachable."""
+    return bool(DECISION_LINE.search(line)
+                or "Starting classifier" in line
+                or CLASSIFIER_READY_TEXT in line)
+
+
 def fetch_decisions(base_url=CLASSIFIER_URL, timeout=2):
     """GET /decisions from the classifier service.
 
@@ -759,7 +775,6 @@ def main():
     # pieces causes a single fetch. Retries cover the service still
     # binding after a start; a fetch that never succeeds leaves the
     # last snapshot alone.
-    DECISION_LINE = re.compile(r"^\s*#\d+ \[")
     fetch_state = {"pending": False, "last": 0.0}
 
     def trigger_decisions_fetch():
@@ -770,7 +785,9 @@ def main():
 
         def work():
             snapshot = None
-            for _ in range(5):
+            # The model takes a while to load after a start, so keep
+            # trying for about a minute.
+            for _ in range(40):
                 snapshot = fetch_decisions()
                 if snapshot is not None:
                     break
@@ -796,7 +813,7 @@ def main():
                 note.configure(text=line)
                 continue
             if stream == "classifier":
-                if DECISION_LINE.match(line) or "Starting classifier" in line:
+                if should_fetch_decisions(line):
                     trigger_decisions_fetch()
                 elif "stopped, exit code" in line or "not restarting" in line:
                     decisions_state["snapshot"] = None
@@ -882,6 +899,9 @@ def main():
         emit("classifier", f"Not found, so not started: {missing}")
     render_decisions()
     drain()
+    # The classifier may already be running (started by an earlier
+    # console), in which case no "Starting" line will ever arrive.
+    trigger_decisions_fetch()
     watch_tick()
     if "--watchdog" in sys.argv:
         toggle_watchdog()

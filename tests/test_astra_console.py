@@ -140,6 +140,28 @@ class AbsLoginSupervisorTests(unittest.TestCase):
         self.assertTrue(any("not found" in line for line in lines))
 
 
+class DecisionLineTests(unittest.TestCase):
+    def test_real_classifier_log_lines_trigger_a_fetch(self):
+        for line in (
+            "2026-11-10 00:02:07,325 INFO   #1 [review 0.76 model_regex_disagreement] Modules should have 2 to 3 hp -- leans task",
+            "2026-11-10 00:02:07,325 INFO   #12 [auto_task 0.99 none] Add HP bar",
+            "2026-11-10 00:02:07,325 INFO   #3 [auto_drop 0.01 below_review_floor] lol",
+            "  #4 [review 0.5 x] y",
+            "[11:57:33] Starting classifier.",
+            "2026-11-10 11:57:50,100 INFO Classifier service listening on 127.0.0.1:13383, model C:\\x, loaded=True",
+        ):
+            self.assertTrue(astra_console.should_fetch_decisions(line), line)
+
+    def test_other_lines_do_not(self):
+        for line in (
+            "2026-11-10 00:02:07,326 INFO     reason: model says task",
+            "2026-11-10 00:02:07,325 INFO classify: 'x' -> 1 piece(s)",
+            "127.0.0.1 - \"POST /classify HTTP/1.1\" 200 -",
+            "Batches: 100%|##########| 1/1 [00:00<00:00, 7.10it/s]",
+        ):
+            self.assertFalse(astra_console.should_fetch_decisions(line), line)
+
+
 class WatchdogTests(unittest.TestCase):
     class Fake:
         def __init__(self, name, lost=False):

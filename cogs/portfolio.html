@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thea — Portfolio</title>
+<style>
+/* Material dark theme, matching the audiobook requests UI. */
+* { box-sizing: border-box; color-scheme: dark; }
+body { margin: 0; font-family: Roboto, system-ui, -apple-system, "Segoe UI", Arial, sans-serif; background: #141218; color: #e6e0e9; line-height: 1.55; }
+a { color: #d0bcff; }
+a:hover { color: #e0d4ff; }
+.wrap { max-width: 880px; margin: 0 auto; padding: 32px 20px 64px; }
+header { padding: 16px 0 8px; border-bottom: 1px solid #49454f; margin-bottom: 24px; }
+header h1 { font-size: 32px; margin: 0; font-weight: 500; }
+header p.lede { font-size: 17px; color: #cac4d0; margin: 8px 0 0; }
+header p.meta { font-size: 14px; color: #938f99; margin: 8px 0 0; }
+h2 { font-size: 22px; font-weight: 500; margin: 36px 0 12px; }
+h3 { font-size: 17px; font-weight: 500; margin: 0 0 6px; }
+p { margin: 0 0 12px; }
+.tag { display: inline-block; padding: 2px 10px; border-radius: 12px; background: #4a4458; color: #e6e0e9; font-size: 12px; margin: 0 6px 6px 0; }
+.tag.hand { background: #274d27; }
+.tag.directed { background: #4a3a1e; }
+.tag.team { background: #373a5e; }
+.card { background: #1e1b24; border-radius: 16px; box-shadow: 0 2px 6px rgba(0,0,0,.5); padding: 20px 22px; margin: 0 0 16px; }
+.card p:last-child { margin-bottom: 0; }
+.card .stack { font-size: 13px; color: #cac4d0; }
+.card .note { font-size: 13px; color: #938f99; }
+ul { margin: 0 0 12px; padding-left: 22px; }
+li { margin-bottom: 4px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 8px 0 12px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #49454f; vertical-align: top; }
+th { color: #cac4d0; font-weight: 600; }
+footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #49454f; font-size: 13px; color: #938f99; }
+footer p { margin-bottom: 8px; }
+@media (max-width: 600px) { header h1 { font-size: 26px; } .wrap { padding: 24px 16px 48px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Thea</h1>
+  <p class="lede">Self-taught programmer. I build Discord bots and Unity games, and I like systems that work end to end: events in, state in a database, something useful out.</p>
+  <p class="meta">GitHub: <a href="https://github.com/theruvial">theruvial</a> &nbsp;·&nbsp; Python strongest, also C# / .NET and Unity &nbsp;·&nbsp; No degree, no professional software experience — all experience is personal projects plus a self-run homelab.</p>
+</header>
+
+<section>
+  <h2>About</h2>
+  <p>About six years of shipped personal projects, 2019 to now. Strongest in Python; also C#/.NET and Unity, SQL, Git, PowerShell and bash, nginx and Linux server administration. Currently an Amazon delivery station associate (about a year); previously an automotive service technician — mechanical and electrical diagnostics and repair.</p>
+  <p>Every project below is backed by a commit audit of the default branch, checked 2026-11-11: <strong>685 commits authored by me across 16 projects</strong> (656 as Thea Arcadia, 29 under my older timmay237 / Timothy Wojciechowski identity — that identity has no GitHub login, so counting by login alone misses those 29). Astrabot was rebuilt as a public repo on 2026-11-11 with a rewritten, secret-free history; the old private history lives on as theruvial/Astrabot-old and isn't double-counted. Non-default branches were not counted.</p>
+  <p>
+    <span class="tag">Python</span><span class="tag">C# / .NET</span><span class="tag">Unity</span><span class="tag">SQL — PostgreSQL / SQLite</span><span class="tag">Git</span><span class="tag">discord.py / Discord.NET</span><span class="tag">async / event-driven</span><span class="tag">nginx</span><span class="tag">Proxmox / ZFS</span>
+  </p>
+  <p><strong>Strengths:</strong> end-to-end systems (bot + database + web UI + hosting), async and event-driven code, SQL, data-driven design, persistent debugging across bot, server and network layers. Privacy and security instincts: loopback-only APIs, fail-closed auth, secrets never committed, HMAC webhook verification.</p>
+  <p><strong>Honest gaps:</strong> no tests anywhere yet and no CI — the biggest gap; no transactions/locking in the economy code; uneven null handling; no hardware, embedded or PLC code; no hands-on Microsoft 365 / Power Platform yet. I have not typed code myself since Rouge, about 18 months ago — the 2026 work below was directed by me, not typed by me.</p>
+</section>
+
+<section>
+  <h2>Hand-written work, 2019–2025</h2>
+  <p>Written by me, before AI assistance. This is the proof of ability — lead with it.</p>
+
+  <div class="card">
+    <h3>Astrabot — Discord bot, Python, 2019–2021</h3>
+    <p class="stack">Python · discord.py · PostgreSQL / SQLite · async, event-driven</p>
+    <p>Long-running personal Discord bot, shipped and run for years, still in active use and being extended in 2026. Append-only ledger economy — a real double-entry-style ledger for the bot's currency system. A window-function CTE in roles.py — non-trivial SQL, written by hand. <strong>123 of 128 commits</strong> on the default branch are mine: 39 hand-written pre-AI (2019–2021, last one 2021-04-18) and 84 directed AI-era commits from 2026-10-22 on. The other 5 are Steven Gin (3) and Justin Wong (2).</p>
+    <p><a href="https://github.com/theruvial/Astrabot">github.com/theruvial/Astrabot</a> — public, rebuilt 2026-11-11 with a rewritten, secret-free history. The old private history is kept as theruvial/Astrabot-old.</p>
+  </div>
+
+  <div class="card">
+    <h3>theaBot — Discord bot, C#, 2022</h3>
+    <p class="stack">C# · Discord.NET · PostgreSQL</p>
+    <p>Rebuilt Astrabot's features in .NET, back when discord.py's future was kind of up in the air. Dependency-injection bootstrap and a points/economy system. All <strong>11 of 11 commits</strong> are mine. Known flaw, disclosed: SQL string interpolation in Points.cs — values are system-generated so the risk is latent, not live — plus a MAX() NULL crash. Fixing that is first on my improvement plan.</p>
+    <p><a href="https://github.com/theruvial/theaBot">github.com/theruvial/theaBot</a></p>
+  </div>
+
+  <div class="card">
+    <h3>FTL combat system — Unity, C#, 2019</h3>
+    <p class="stack">C# · Unity · ScriptableObjects</p>
+    <p>ScriptableObject-based weapon system for a Faster Than Light-style combat prototype. <strong>27 of 31 commits</strong> are mine, all from 2019 under my old timmay237 identity.</p>
+    <p class="note">Private, archived repo — described here, code not linked.</p>
+  </div>
+
+  <div class="card">
+    <h3>Rouge — Unity game, 2023–2025</h3>
+    <p class="stack">C# · Unity</p>
+    <p>UI systems and trait/character systems for a team game project. <strong>381 commits — 24% of the repo</strong> — are mine, alongside Justin Wong (430), Aydin Ngo (380) and Steven Gin (115). <strong>Work in progress, not finished or shipped.</strong></p>
+    <p class="note">Team repo (SteveGinGames/Rouge) — my contribution only; this was the last code I wrote myself.</p>
+  </div>
+
+  <div class="card">
+    <h3>subscriptionParser — Python, 2023</h3>
+    <p class="stack">Python</p>
+    <p>Small script that transfers YouTube subscriptions from one account to another. All <strong>8 of 8 commits</strong> are mine.</p>
+    <p><a href="https://github.com/theruvial/subscriptionParser">github.com/theruvial/subscriptionParser</a></p>
+  </div>
+</section>
+
+<section>
+  <h2>Directed work, 2026</h2>
+  <p>I directed and designed this work and can explain every design decision, but the code was largely AI-generated under my direction, not typed by me. Presented as directed work, never as sole authorship.</p>
+
+  <div class="card">
+    <h3>AstraThought — local AI task classifier</h3>
+    <p class="stack">Python · SetFit (all-MiniLM-L6-v2) · PyTorch · runs locally on a GTX 1070 host</p>
+    <p>Small local classifier that decides whether a Discord message is a task. <strong>I trained the model myself.</strong> All <strong>36 of 36 commits</strong> in the repo are mine. Training data: 1,911 hand-labelled rows plus 1,000 synthetic rows; retraining is batched at 50 new human labels. Runs as a loopback-only service; a Discord cog posts triage embeds with approve/disagree buttons, and rulings feed back as training labels.</p>
+    <p>Final figures, both at the 0.5 line:</p>
+    <table>
+      <tr><th>Test set</th><th>Pieces</th><th>Precision</th><th>Recall</th></tr>
+      <tr><td>Real #astra-feedback (human rulings)</td><td>60</td><td>98% (46 of 47)</td><td>92% (46 of 50)</td></tr>
+      <tr><td>Stress set (reviewed by you)</td><td>100</td><td>94% (51 of 54)</td><td>98% (51 of 52)</td></tr>
+    </table>
+    <p>The real set is the headline — 60 messages from the channel with human rulings. The stress set is 100 AI-written rows I reviewed, a harder test of what the model rejects. Earlier held-out test (test.jsonl, 86 rows, model v2): 77% precision / 93% recall.</p>
+    <p class="note">Private repo — described here, code not linked. Files contain real team messages, so the repo stays private.</p>
+  </div>
+
+  <div class="card">
+    <h3>Aboard the Astra Remake — mechanics wiki + backend</h3>
+    <p class="stack">Python (stdlib-only HTTP server) · HTML · GitHub webhooks (HMAC)</p>
+    <p>19-page mechanics wiki for a Unity co-op remake (SteveGinGames/Aboard-the-Astra---Remake, private; I am an admin). My <strong>64 commits (7.8% of the repo)</strong> cover the wiki site and design docs; the wiki branch has since been merged into main. Backend: Astrabot-only API via shared-secret header, fail-closed (no key = 503), bound to loopback; GitHub webhook with HMAC signature check; tasks API with JSON storage. Astrabot's /wiki cog fetches the fresh page from the backend, falling back to a bundled copy.</p>
+    <p><a href="https://github.com/theruvial/astra-wiki">github.com/theruvial/astra-wiki</a> (wiki site repo, public — all 4 of its commits are mine)</p>
+  </div>
+
+  <div class="card">
+    <h3>Audiobook requests system — Discord cog + web UI</h3>
+    <p class="stack">Python · discord.py · SQLite · Material dark web UI · SMTP email</p>
+    <p>Discord cog plus a web UI for requesting audiobooks, with Fulfill / Reject / Request Fulfilled buttons. Notifications migrated from SMS to email (users keyed by email). Admin dashboard restricted to my account, including an admin-only email-a-user feature.</p>
+    <p class="note">Runs on the bot host; UI served by Astrabot, like this site.</p>
+  </div>
+
+  <div class="card">
+    <h3>absLogin — Audiobookshelf signup backend</h3>
+    <p class="stack">Python · Audiobookshelf API</p>
+    <p>Signup service for my Audiobookshelf instance: creates users with scoped permissions, plus a password-change page. Runs on the bot host behind nginx. All <strong>9 of 9 commits</strong> are mine.</p>
+    <p class="note">Private repo — described here, code not linked.</p>
+  </div>
+
+  <div class="card">
+    <h3>Astrabot operations</h3>
+    <p class="stack">Python · PowerShell / batch</p>
+    <p>Crash tracking with auto-restart, self-update watcher (polls git, reloads changed cogs), decisions panel for classifier rulings, per-guild command scoping.</p>
+  </div>
+
+  <div class="card">
+    <h3>Torrent mover</h3>
+    <p class="stack">Python · system tray</p>
+    <p>Small laptop app: watches Downloads for .torrent files and moves them to the Transmission folder.</p>
+  </div>
+
+  <div class="card">
+    <h3>Smaller utilities</h3>
+    <p class="stack">Python · Shell</p>
+    <p><strong>systemBackup</strong> — config restoration script, 5 of 5 commits mine. <strong>dotfiles</strong> — my shell/dotfile configs, 5 of 5 commits mine. <strong>Arcadium</strong> — one initial check-in commit, barely started.</p>
+    <p class="note">Left out on purpose: Android-Auto-Efficiency (empty repo, no commits by anyone) and astra-web (only 2 of its 11 commits are mine — the rest are Asbjørn Faurholt's).</p>
+  </div>
+</section>
+
+<section>
+  <h2>Infrastructure — self-run homelab</h2>
+  <p>Counts as direct infrastructure experience:</p>
+  <ul>
+    <li><strong>Proxmox VE 9.2</strong>, single node: TrueNAS VM and Ubuntu server VM, ZFS storage, host-side zvol snapshots. I did the 8 → 9 major upgrade myself, including repo repair and verification.</li>
+    <li><strong>Raspberry Pi</strong> running Pi-hole + Unbound as the DNS server for my home network.</li>
+    <li><strong>nginx reverse proxy</strong> with Let's Encrypt for multiple subdomains (Audiobookshelf, Jellyfin, Vaultwarden, signup, requests UI); I know the certbot ordering rule (HTTP block first, then certbot adds HTTPS).</li>
+    <li><strong>Backups:</strong> config-only by design; I understand the trade-off and the single-disk, no-redundancy constraint.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>What I am working toward</h2>
+  <p>Improvement plan, in order: (1) fix the SQL string interpolation in theaBot Points.cs; (2) add first pytest tests + a CI workflow; (3) make one economy operation atomic; (4) build a small ASP.NET Core Web API + EF Core project; (5) hygiene sweep and profile framing.</p>
+  <p>Best-fit target: Junior AI and Automation Engineer — my automation, API and classifier work maps directly; the gap to close is Microsoft 365 / Power Platform, via a documented Zapier automation and a Power Automate flow in a free M365 dev tenant.</p>
+</section>
+
+<footer>
+  <p>How to read this site: projects marked hand-written were written by me; projects marked directed were designed and directed by me with AI-generated code under my direction. Only work with commits authored by me (theruvial, and the older timmay237) is shown, with counts from a default-branch commit audit checked 2026-11-11. Private repos are described, not linked. Rouge is a work in progress, not a finished game. No degree and no professional software experience are claimed.</p>
+  <p>Served by Astrabot from the bot host — the same pattern as the audiobook requests UI — behind nginx at theruvial.com.</p>
+</footer>
+
+</div>
+</body>
+</html>

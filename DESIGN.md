@@ -5,7 +5,7 @@
 **Keeping this current (Thea's rule, 2026-11-05):** this file is how changes are tracked between AI agents. Update it each time an agent finishes work for the day, or whenever asked: correct anything that changed in place, and add a dated entry to the change log (§12). Never record credential values here.
 
 **Owner:** Thea (GitHub: `theruvial`, Discord admin user ID `151408413744693248`, email `theruvial237@gmail.com`)
-**Repo:** `theruvial/Astrabot` (private, Python, discord.py 2.x), default branch `master`
+**Repo:** `theruvial/Astrabot` (public since 2026-11-11, Python, discord.py 2.x), default branch `master`. The old history is in the private `theruvial/Astrabot-old`.
 **Bot application ID (public):** `622544371098845221`
 **Assistant note:** Thea's standing workflow rule (set 2026-11-05) — Muse/Claude no longer needs her input for every request, just keep working. Only ask first for merges, pull-request creation, or anything that could destroy/damage the main branch. If a change is one she would want to know about, tell her; otherwise proceed.
 
@@ -175,7 +175,7 @@ The old live bot token was merged into `master` in PR #9 (it was in the pre-untr
 
 ## 5a. Tasks cog (`cogs/tasks.py`)
 
-Full behaviour is in `docs/README_tasks.md`, and the classifier is documented in `README_classifier.md` in the private `theruvial/AstraThought` repo.
+Full behaviour is in `docs/README_tasks.md`, and the classifier is documented in `README_classifier.md` in the public `theruvial/AstraThought` repo (its data files and model are not in git and stay on Thea's machine).
 
 | Role | Channel (mcdungeons) | ID |
 |---|---|---|
@@ -278,6 +278,9 @@ Newest first. One dated entry per working day, by the agent that did the work.
 - **Rewrote the whole git history** with `git filter-repo` before making the repo public. Removed from every commit: `config.json`, `console.json`, `trelloConfig.json`, `taskConfig.json`, all `.db`, `.csv`, `.pyc` and notebook files, and `nohup.out`. Scrubbed any leftover copies of the old tokens, webhook URLs and API keys, and set all of Thea's older commits to `Thea Arcadia <theruvial237@gmail.com>`.
 - **Every commit ID changed.** Commit IDs in this file and the 2026-11-10 hand-off now point at the new commits. IDs from other repos or local stashes are unchanged. Any old clone must be deleted and cloned fresh; never push from an old clone.
 - **The current files are unchanged.** The Discord bot token that was in history must be reset in the Discord Developer Portal; the rewrite hides it but does not revoke it.
+- **Thea's local copy now follows the public history** (`master` at `b4a52a1`). Her databases, `config.json`, `console.json`, `logs/` and `data/` are untracked and were not touched. The 10 old worktrees, all old branches, the backup tag and 9 old stashes were deleted (the stashes were lost by mistake and Thea said they were not needed), and the old objects pruned.
+- **AstraThought got the same treatment:** its history was also rewritten, the repo made public, and `*.jsonl` gitignored, so training and eval data stay local (with a local backup copy). The model folder `tasks-AstraThought-v2` is gitignored too. The local clone was repointed with a mixed reset so the data files survived; a hard reset would have deleted them. Old history is in the private `AstraThought-old`.
+- **New held-out test set** `eval_stress.jsonl` in AstraThought: 100 AI-written rows, all reviewed by Thea. Final scores at the 0.5 line: real #astra-feedback set 98% precision and 92% recall (60 pieces), stress set 94% and 98%.
 
 ### 2026-11-10 — Claude Code (Sonnet 5.5), branches `console/watchdog` and `master`
 

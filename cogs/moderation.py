@@ -7,6 +7,7 @@ import asyncio
 import random
 from pathlib import Path
 from config import config
+from cogs.owner import fetch_owner, owner_id
 
 # astra_console.py writes a cog name here to reload it in the running
 # bot. A file rather than an HTTP route: the audiobook site binds
@@ -100,8 +101,15 @@ class Moderation(commands.Cog):
         ALERT_FLAG.unlink()
         if not text:
             return
-        owner = (await self.bot.application_info()).owner
-        await owner.send(text[:1900])
+        owner = await fetch_owner(self.bot, owner_id(config))
+        if owner is None:
+            print("Watchdog alert could not be sent: the owner could not be looked up")
+            return
+        try:
+            await owner.send(text[:1900])
+        except Exception as exc:  # noqa: BLE001 -- a closed DM must not kill the watcher
+            print(f"Watchdog alert could not be sent: {exc}")
+            return
         print("Watchdog alert sent to the bot owner")
 
     async def _check_reload_flag(self):

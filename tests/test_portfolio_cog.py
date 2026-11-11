@@ -31,9 +31,10 @@ def make_cv(extra: str = "") -> str:
 
 class FakeBot:
     def __init__(self, data_dir, **portfolio):
-        self.config = {"portfolio": {"data_dir": data_dir, "cv_watch": False, **portfolio}}
+        self.config = {"portfolio": {"data_dir": data_dir, "cv_watch": False,
+                                     "owner_id": 42, **portfolio}}
         self.owner = SimpleNamespace(id=42, send=AsyncMock())
-        self.application_info = AsyncMock(return_value=SimpleNamespace(owner=self.owner))
+        self.fetch_user = AsyncMock(return_value=self.owner)
 
 
 class CVRulesTests(unittest.TestCase):
@@ -134,6 +135,35 @@ class WatcherTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cog._html, before)
         self.assertEqual(await cog.check_once(self.fetching(200, text)), "already-asked")
         self.assertEqual(self.bot.owner.send.await_count, 1)
+
+    async def test_the_approval_goes_to_the_configured_person_not_the_app_owner(self):
+        cog = self.cog()
+        await cog.check_once(self.fetching(200, make_cv()))
+        self.bot.fetch_user.assert_awaited_with(42)
+        self.assertEqual(cog.owner_id, 42)
+
+    async def test_the_default_owner_is_thea_when_nothing_is_configured(self):
+        bot = FakeBot(self.tmp.name)
+        del bot.config["portfolio"]["owner_id"]
+        self.assertEqual(Portfolio(bot).owner_id, 151408413744693248)
+
+    async def test_a_closed_dm_is_logged_and_does_not_break_the_check(self):
+        cog = self.cog()
+        self.bot.owner.send.side_effect = RuntimeError("403 Forbidden (error code: 50007)")
+        self.assertEqual(await cog.check_once(self.fetching(200, make_cv())), "staged")
+
+    async def test_a_dm_that_failed_is_sent_again_on_the_next_check(self):
+        cog = self.cog()
+        self.bot.owner.send.side_effect = RuntimeError("403 Forbidden (error code: 50007)")
+        await cog.check_once(self.fetching(200, make_cv()))
+        self.assertFalse(cog._state.get("pending_sent"))
+        self.bot.owner.send.side_effect = None          # DMs work now
+        self.bot.owner.send.reset_mock()
+        self.assertEqual(await cog.check_once(self.fetching(304)), "unchanged")
+        self.bot.owner.send.assert_awaited_once()
+        self.assertTrue(cog._state.get("pending_sent"))
+        await cog.check_once(self.fetching(304))        # and not again after that
+        self.bot.owner.send.assert_awaited_once()
 
     async def test_an_out_of_date_button_changes_nothing(self):
         cog = self.cog()

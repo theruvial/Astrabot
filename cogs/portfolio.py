@@ -29,7 +29,8 @@ commented out) and the self-update watcher never reloads ``bot.py``.
 Configuration (no secrets in code or in a committed file):
 - If the bot's ``config.json`` has a ``"portfolio"`` object, its keys are
   used. The cog never reads or prints the rest of config.json and never
-  touches the bot token. Keys: ``web_host``, ``web_port``, ``cv_watch``,
+  touches the bot token. Keys: ``owner_id`` (who gets the approval DM;
+  defaults to Thea, see cogs/owner.py), ``web_host``, ``web_port``, ``cv_watch``,
   ``cv_repo``, ``cv_path``, ``cv_branch``, ``cv_poll_minutes``,
   ``cv_auto_publish``, ``data_dir``.
 - Environment variables override the web keys: PORTFOLIO_WEB_HOST,
@@ -60,6 +61,7 @@ from pathlib import Path
 import discord
 from discord.ext import commands
 
+from cogs.owner import fetch_owner, owner_id
 from cogs.portfolio_cv import (
     build_page,
     content_hash,
@@ -132,8 +134,7 @@ class CVApprovalView(discord.ui.View):
         self.cog = cog
 
     async def _owner_only(self, interaction: discord.Interaction) -> bool:
-        owner = await self.cog._owner()
-        if owner is None or interaction.user.id != owner.id:
+        if interaction.user.id != self.cog.owner_id:
             await interaction.response.send_message("Only the bot owner can do this.", ephemeral=True)
             return False
         return True
@@ -220,21 +221,45 @@ class Portfolio(commands.Cog):
         return "<h1>Portfolio</h1><p>Page not available.</p>"
 
     # -- owner messages --------------------------------------------------
-    async def _owner(self):
-        try:
-            return (await self.bot.application_info()).owner
-        except Exception as exc:  # noqa: BLE001
-            log.warning("Could not look up the bot owner: %s", exc)
-            return None
+    @property
+    def owner_id(self) -> int:
+        return owner_id(self.config)
 
-    async def _notify(self, text: str, view: discord.ui.View | None = None) -> None:
+    async def _owner(self):
+        return await fetch_owner(self.bot, self.owner_id)
+
+    async def _notify(self, text: str, view: discord.ui.View | None = None) -> bool:
+        """Send the owner a DM. True if it was delivered."""
         owner = await self._owner()
         if owner is None:
-            return
+            return False
         try:
-            await owner.send(text[:1900], view=view) if view else await owner.send(text[:1900])
+            if view:
+                await owner.send(text[:1900], view=view)
+            else:
+                await owner.send(text[:1900])
+            return True
         except Exception as exc:  # noqa: BLE001
             log.warning("Could not message the bot owner: %s", exc)
+            return False
+
+    @staticmethod
+    def _approval_text(version: str, approved: str, new: str) -> str:
+        diff = "\n".join(summarize_change(approved, new)) or "(first publish)"
+        return (f"CV change waiting for approval (id {version}). "
+                f"The site changes only if you press Approve.\n```diff\n{diff}\n```")
+
+    async def _resend_pending(self) -> None:
+        """A staged change whose DM never arrived is sent again on the next check."""
+        pending = self._state.get("pending")
+        if not pending or self._state.get("pending_sent"):
+            return
+        markdown = self._read(self._pending_path)
+        if not markdown.strip():
+            return
+        text = self._approval_text(pending, self._read(self._approved_path), markdown)
+        self._state["pending_sent"] = await self._notify(text, view=CVApprovalView(self))
+        self._save_state()
 
     # -- fetching and deciding -------------------------------------------
     async def _fetch_cv(self, etag: str | None):
@@ -261,6 +286,7 @@ class Portfolio(commands.Cog):
     async def check_once(self, fetch=None) -> str:
         """One look at the CV. Returns what happened: unchanged, error, skip,
         blocked, staged, already-asked or published."""
+        await self._resend_pending()
         status, text, etag = await (fetch or self._fetch_cv)(self._state.get("etag"))
         if status == 304:
             return "unchanged"
@@ -289,10 +315,9 @@ class Portfolio(commands.Cog):
         _atomic_write(self._pending_path, text)
         self._state["pending"] = version
         self._remember_answered(version)
-        diff = "\n".join(summarize_change(approved, text)) or "(first publish)"
-        await self._notify(
-            f"CV change waiting for approval (id {version}). The site changes only if you press Approve.\n"
-            f"```diff\n{diff}\n```", view=CVApprovalView(self))
+        self._state["pending_sent"] = await self._notify(
+            self._approval_text(version, approved, text), view=CVApprovalView(self))
+        self._save_state()
         return "staged"
 
     def _remember_answered(self, version: str) -> None:
@@ -313,6 +338,7 @@ class Portfolio(commands.Cog):
         _atomic_write(self._approved_path, markdown)
         self._html = page
         self._state.pop("pending", None)
+        self._state.pop("pending_sent", None)
         # A published version is no longer "already answered": reverting to it
         # later must be offered again, not ignored.
         version = content_hash(markdown)
@@ -330,6 +356,7 @@ class Portfolio(commands.Cog):
             return "The pending CV is missing on disk. Nothing changed."
         if not approve:
             self._state.pop("pending", None)
+            self._state.pop("pending_sent", None)
             self._save_state()
             return "Rejected. The site is unchanged."
         try:

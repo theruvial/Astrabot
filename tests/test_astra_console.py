@@ -181,17 +181,24 @@ class WatchdogAlertTests(unittest.IsolatedAsyncioTestCase):
                 sent.append(text)
 
         class Bot:
-            async def application_info(self):
-                return types.SimpleNamespace(owner=Owner())
+            def __init__(self):
+                self.asked = []
+
+            async def fetch_user(self, user_id):
+                self.asked.append(user_id)
+                return Owner()
 
         with tempfile.TemporaryDirectory() as tmp:
             flag = Path(tmp) / "watchdog_alert.flag"
             flag.write_text("the watchdog gave up", encoding="utf-8")
-            cog = moderation.Moderation(Bot())
+            bot = Bot()
+            cog = moderation.Moderation(bot)
             with mock.patch.object(moderation, "ALERT_FLAG", flag):
                 await cog._check_alert_flag()
                 await cog._check_alert_flag()
             self.assertEqual(sent, ["the watchdog gave up"])
+            # The configured person, never the application's (team) owner.
+            self.assertEqual(bot.asked, [151408413744693248])
             self.assertFalse(flag.exists())
 
 

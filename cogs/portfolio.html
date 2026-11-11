@@ -48,12 +48,12 @@ footer p { margin-bottom: 8px; }
 <section>
   <h2>About</h2>
   <p>About six years of shipped personal projects, 2019 to now. Strongest in Python; also C#/.NET and Unity, SQL, Git, PowerShell and bash, nginx and Linux server administration. Currently an Amazon delivery station associate (about a year); previously an automotive service technician — mechanical and electrical diagnostics and repair.</p>
-  <p>Every project below is backed by a commit audit of the default branch, checked 2026-11-11: <strong>685 commits authored by me across 16 projects</strong> (656 as Thea Arcadia, 29 under my older timmay237 / Timothy Wojciechowski identity — that identity has no GitHub login, so counting by login alone misses those 29). Astrabot was rebuilt as a public repo on 2026-11-11 with a rewritten, secret-free history; the old private history lives on as theruvial/Astrabot-old and isn't double-counted. Non-default branches were not counted.</p>
+  <p>Every project below is backed by a commit audit of the default branch, checked 2026-11-11: <strong>685 commits authored by me across 16 projects</strong> (656 as Thea Arcadia, 29 under my older timmay237 identity — that identity has no GitHub login, so counting by login alone misses those 29). Astrabot was rebuilt as a public repo on 2026-11-11 with a rewritten, secret-free history; the old private history lives on as theruvial/Astrabot-old and isn't double-counted. Non-default branches were not counted.</p>
   <p>
     <span class="tag">Python</span><span class="tag">C# / .NET</span><span class="tag">Unity</span><span class="tag">SQL — PostgreSQL / SQLite</span><span class="tag">Git</span><span class="tag">discord.py / Discord.NET</span><span class="tag">async / event-driven</span><span class="tag">nginx</span><span class="tag">Proxmox / ZFS</span>
   </p>
-  <p><strong>Strengths:</strong> end-to-end systems (bot + database + web UI + hosting), async and event-driven code, SQL, data-driven design, persistent debugging across bot, server and network layers. Privacy and security instincts: loopback-only APIs, fail-closed auth, secrets never committed, HMAC webhook verification.</p>
-  <p><strong>Honest gaps:</strong> no tests anywhere yet and no CI — the biggest gap; no transactions/locking in the economy code; uneven null handling; no hardware, embedded or PLC code; no hands-on Microsoft 365 / Power Platform yet. I have not typed code myself since Rouge, about 18 months ago — the 2026 work below was directed by me, not typed by me.</p>
+  <p><strong>Strengths:</strong> end-to-end systems (bot + database + web UI + hosting), async and event-driven code, SQL, data-driven design, persistent debugging across bot, server and network layers. Privacy and security instincts: loopback-only APIs, fail-closed auth, secrets kept out of git (I rewrote Astrabot's history to remove earlier mistakes), HMAC webhook verification.</p>
+  <p><strong>Honest gaps:</strong> no CI yet — my tests (about 190 in Astrabot and about 50 in AstraThought) only run when I run them, and that is the biggest gap; no transactions/locking in the economy code; uneven null handling; no hardware, embedded or PLC code; no hands-on Microsoft 365 / Power Platform yet. I have not typed code myself since Rouge, about 18 months ago — the 2026 work below was directed by me, not typed by me.</p>
 </section>
 
 <section>
@@ -63,7 +63,7 @@ footer p { margin-bottom: 8px; }
   <div class="card">
     <h3>Astrabot — Discord bot, Python, 2019–2021</h3>
     <p class="stack">Python · discord.py · PostgreSQL / SQLite · async, event-driven</p>
-    <p>Long-running personal Discord bot, shipped and run for years, still in active use and being extended in 2026. Append-only ledger economy — a real double-entry-style ledger for the bot's currency system. A window-function CTE in roles.py — non-trivial SQL, written by hand. <strong>123 of 128 commits</strong> on the default branch are mine: 39 hand-written pre-AI (2019–2021, last one 2021-04-18) and 84 directed AI-era commits from 2026-10-22 on. The other 5 are Steven Gin (3) and Justin Wong (2).</p>
+    <p>Long-running personal Discord bot, shipped and run for years, still in active use and being extended in 2026. Append-only ledger economy — every movement of currency is recorded, and balances are worked out from the ledger rather than stored and overwritten. A window-function CTE in roles.py — non-trivial SQL, written by hand. <strong>123 of 128 commits</strong> on the default branch (as of 2026-11-11) are mine: 39 hand-written pre-AI (2019–2021, last one 2021-04-18) and 84 directed AI-era commits from 2026-10-22 on. The other 5 are Steven Gin (3) and Justin Wong (2).</p>
     <p><a href="https://github.com/theruvial/Astrabot">github.com/theruvial/Astrabot</a> — public, rebuilt 2026-11-11 with a rewritten, secret-free history. The old private history is kept as theruvial/Astrabot-old.</p>
   </div>
 
@@ -103,22 +103,22 @@ footer p { margin-bottom: 8px; }
   <div class="card">
     <h3>AstraThought — local AI task classifier</h3>
     <p class="stack">Python · SetFit (all-MiniLM-L6-v2) · PyTorch · runs locally on a GTX 1070 host</p>
-    <p>Small local classifier that decides whether a Discord message is a task. <strong>I trained the model myself.</strong> All <strong>36 of 36 commits</strong> in the repo are mine. Training data: 1,911 hand-labelled rows plus 1,000 synthetic rows; retraining is batched at 50 new human labels. Runs as a loopback-only service; a Discord cog posts triage embeds with approve/disagree buttons, and rulings feed back as training labels.</p>
+    <p>Small local classifier that decides whether a Discord message is a task. <strong>I trained the model myself.</strong> All <strong>33 of 33 commits</strong> in the repo are mine. Training data: 1,911 hand-labelled rows plus 1,000 synthetic rows; retraining is batched at 50 new human labels. Runs as a loopback-only service; a Discord cog posts triage embeds with approve/disagree buttons, and rulings feed back as training labels.</p>
     <p>Final figures, both at the 0.5 line:</p>
     <table>
       <tr><th>Test set</th><th>Pieces</th><th>Precision</th><th>Recall</th></tr>
       <tr><td>Real #astra-feedback (human rulings)</td><td>60</td><td>98% (46 of 47)</td><td>92% (46 of 50)</td></tr>
-      <tr><td>Stress set (reviewed by you)</td><td>100</td><td>94% (51 of 54)</td><td>98% (51 of 52)</td></tr>
+      <tr><td>Stress set (reviewed by me)</td><td>100</td><td>94% (51 of 54)</td><td>98% (51 of 52)</td></tr>
     </table>
     <p>The real set is the headline — 60 messages from the channel with human rulings. The stress set is 100 AI-written rows I reviewed, a harder test of what the model rejects. Earlier held-out test (test.jsonl, 86 rows, model v2): 77% precision / 93% recall.</p>
-    <p class="note">Private repo — described here, code not linked. Files contain real team messages, so the repo stays private.</p>
+    <p><a href="https://github.com/theruvial/AstraThought">github.com/theruvial/AstraThought</a> — public: code, tests and docs. The training data and the model stay on my machine because they come from real team messages.</p>
   </div>
 
   <div class="card">
     <h3>Aboard the Astra Remake — mechanics wiki + backend</h3>
     <p class="stack">Python (stdlib-only HTTP server) · HTML · GitHub webhooks (HMAC)</p>
     <p>19-page mechanics wiki for a Unity co-op remake (SteveGinGames/Aboard-the-Astra---Remake, private; I am an admin). My <strong>64 commits (7.8% of the repo)</strong> cover the wiki site and design docs; the wiki branch has since been merged into main. Backend: Astrabot-only API via shared-secret header, fail-closed (no key = 503), bound to loopback; GitHub webhook with HMAC signature check; tasks API with JSON storage. Astrabot's /wiki cog fetches the fresh page from the backend, falling back to a bundled copy.</p>
-    <p><a href="https://github.com/theruvial/astra-wiki">github.com/theruvial/astra-wiki</a> (wiki site repo, public — all 4 of its commits are mine)</p>
+    <p class="note">The standalone wiki-site repo is no longer public, so there is no link here.</p>
   </div>
 
   <div class="card">
@@ -161,14 +161,14 @@ footer p { margin-bottom: 8px; }
   <ul>
     <li><strong>Proxmox VE 9.2</strong>, single node: TrueNAS VM and Ubuntu server VM, ZFS storage, host-side zvol snapshots. I did the 8 → 9 major upgrade myself, including repo repair and verification.</li>
     <li><strong>Raspberry Pi</strong> running Pi-hole + Unbound as the DNS server for my home network.</li>
-    <li><strong>nginx reverse proxy</strong> with Let's Encrypt for multiple subdomains (Audiobookshelf, Jellyfin, Vaultwarden, signup, requests UI); I know the certbot ordering rule (HTTP block first, then certbot adds HTTPS).</li>
+    <li><strong>nginx reverse proxy</strong> with Let's Encrypt for multiple subdomains (Audiobookshelf, Jellyfin, signup, requests UI); I know the certbot ordering rule (HTTP block first, then certbot adds HTTPS).</li>
     <li><strong>Backups:</strong> config-only by design; I understand the trade-off and the single-disk, no-redundancy constraint.</li>
   </ul>
 </section>
 
 <section>
   <h2>What I am working toward</h2>
-  <p>Improvement plan, in order: (1) fix the SQL string interpolation in theaBot Points.cs; (2) add first pytest tests + a CI workflow; (3) make one economy operation atomic; (4) build a small ASP.NET Core Web API + EF Core project; (5) hygiene sweep and profile framing.</p>
+  <p>Improvement plan, in order: (1) fix the SQL string interpolation in theaBot Points.cs; (2) add a CI workflow that runs the existing tests on every push; (3) make one economy operation atomic; (4) build a small ASP.NET Core Web API + EF Core project; (5) hygiene sweep and profile framing.</p>
   <p>Best-fit target: Junior AI and Automation Engineer — my automation, API and classifier work maps directly; the gap to close is Microsoft 365 / Power Platform, via a documented Zapier automation and a Power Automate flow in a free M365 dev tenant.</p>
 </section>
 

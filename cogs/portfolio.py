@@ -48,7 +48,6 @@ import logging
 import os
 from pathlib import Path
 
-import discord
 from discord.ext import commands
 
 log = logging.getLogger("portfolio")

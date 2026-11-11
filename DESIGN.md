@@ -89,7 +89,7 @@ The old live bot token was merged into `master` in PR #9 (it was in the pre-untr
   (`/wiki` variant uses `permissions=125954`.)
 - **Not needed:** Ban Members (no `.ban(` anywhere), Timeout, Manage Channels, role creation (only add/remove roles).
 
-### Command scope (replaces the `0a913b57` per-guild filter, 2026-11-05)
+### Command scope (replaces the `97ece6c3` per-guild filter, 2026-11-05)
 
 - **Cogs declare scope.** Commands are global unless a cog limits them with `app_commands.guilds(...)`. Every audiobooks command (just `/email_user` today) is limited to Thea's private guild **`454792201633792001`**, read from `audiobooks.guild_id` in `config.json`. If that key is missing, `setup()` in `cogs/audiobooks.py` falls back to `DEFAULT_GUILD_ID`, the same guild, never to global.
 - **Behaviour change Thea accepted by proposing this design:** the private guild now also sees the global commands (`/kick`, `/purge`, `/wiki`, etc.); it used to get only the audiobooks commands.
@@ -138,7 +138,7 @@ The old live bot token was merged into `master` in PR #9 (it was in the pre-untr
 - **Admin web dashboard:** `/admin`, **only for logged-in `theruvial237@gmail.com`**; everyone else gets 403. Manages users (edit email cascading to requests/sessions, edit name, create, delete with their requests) and requests (edit book/link, Fulfill, Request Fulfilled, Reject with reason, Delete) with the same emails/embeds as Discord. Admins land on `/admin` → `/admin/users`; no admin button is shown on the regular page. Admin is split into `/admin/users` and `/admin/requests` with a fixed **72px icon sidebar**.
 - **Topbar buttons:** "Create account" → `https://audio.theruvial.com/signup` and "Sign in to Audiobookshelf" → `https://audio.theruvial.com/login`, next to "New Request +". She has not said whether she wants only one.
 
-### Custom email feature (added 2026-11-01, commit `8d817116`)
+### Custom email feature (added 2026-11-01, commit `b270df59`)
 
 - Discord: admin-only **`/email_user`** — inputs `requester` (autocomplete "FirstName (email)", value is the email), `message`, optional `subject` (default **"A message from Thea"**). Body is sent **exactly as typed**, not tied to a request. A first name shared by several users is **refused as ambiguous**; non-admins get no autocomplete and cannot use the command.
 - Also an Email section at `/admin/email`. `config.json` was NOT pushed with this change. Tested: 25 tests passed.
@@ -146,7 +146,7 @@ The old live bot token was merged into `master` in PR #9 (it was in the pre-untr
 ### History
 
 - Originally (2026-10-29) design-only on branch `aiTestBranch`; Thea reversed the no-build instruction the same day and asked for a full build.
-- Built on branch `audiobook-requests`, merged to `master` via **PR #9** (2026-11-05, merge commit `2c065464`; 29 commits, 30 files). That merge also brought in the discord.py 2.x port, the self-update watcher, `/email_user`, and the `/wiki` cog.
+- Built on branch `audiobook-requests`, merged to `master` via **PR #9** (2026-11-05, merge commit `0b6744c0`; 29 commits, 30 files). That merge also brought in the discord.py 2.x port, the self-update watcher, `/email_user`, and the `/wiki` cog.
 - Project was marked "completed for now" by Thea on 2026-10-29, then re-raised repeatedly — do not assume it is closed.
 - **Unconfirmed live-test set:** admin login landing, Audible link and Amazon example link live, Fulfill → Request Fulfilled email on a fresh request.
 
@@ -157,9 +157,9 @@ The old live bot token was merged into `master` in PR #9 (it was in the pre-untr
 ### The cog
 
 - `cogs/wiki.py` — slash command `/wiki` sends the wiki as a Discord attachment named `astra-wiki.html`; ephemeral error if the file is missing.
-- **Current behaviour (commit `10ad72d0`):** when `WIKI_API_KEY` env is set, the cog fetches the fresh standalone from the backend (`WIKI_API_URL` env, default `http://127.0.0.1:13382`, path `/wiki/astra-wiki.html`) via aiohttp with the `X-Astra-Wiki-Key` header (15 s timeout) and sends those bytes. On any fetch failure, or with no key set, it falls back to the bundled `cogs/wiki.html`.
-- Bundled file: `cogs/wiki.html` — the split standalone (18 pages, hash routing `#/story` etc.), updated 2026-11-05 (commit `af4ad791`).
-- Enabled in `startup_extensions` 2026-11-05 (commit `9031deff`).
+- **Current behaviour (commit `0c69c5ff`):** when `WIKI_API_KEY` env is set, the cog fetches the fresh standalone from the backend (`WIKI_API_URL` env, default `http://127.0.0.1:13382`, path `/wiki/astra-wiki.html`) via aiohttp with the `X-Astra-Wiki-Key` header (15 s timeout) and sends those bytes. On any fetch failure, or with no key set, it falls back to the bundled `cogs/wiki.html`.
+- Bundled file: `cogs/wiki.html` — the split standalone (18 pages, hash routing `#/story` etc.), updated 2026-11-05 (commit `09d19968`).
+- Enabled in `startup_extensions` 2026-11-05 (commit `7d05519c`).
 - Tests: `tests/test_wiki.py` (backend success, fallback on failure, api_config defaults) — full suite passes.
 - **Note:** the self-update watcher does NOT reload non-`.py` files — a new `cogs/wiki.html` alone won't trigger a wiki cog reload.
 
@@ -195,7 +195,7 @@ Full behaviour is in `docs/README_tasks.md`, and the classifier is documented in
 
 ## 6. Self-update watcher (`cogs/selfupdate.py`)
 
-- Added 2026-11-01 (commit `7cd0d7d63fcdc4f386163f55e1ee446deb6f7b1f`); **enabled 2026-11-05** (commit `be44fbec`, `"cogs.selfupdate"` added to `startup_extensions`). Host still needs pull + restart to run it.
+- Added 2026-11-01 (commit `5e80a23e2e7a248ad0fabd5865612a0e39447dfc`); **enabled 2026-11-05** (commit `48b0a58c`, `"cogs.selfupdate"` added to `startup_extensions`). Host still needs pull + restart to run it.
 - Every **15 minutes**: `git fetch` on the host checkout's current branch, diff, map changed paths to loaded extensions (an extension's own `.py` plus `cogs/<name>_*.py` helpers only); a dirty local edit to an upstream-changed file → skip (`conflict_skip`); otherwise `git pull --ff-only`, then `bot.reload_extension()` per affected extension.
 - `bot.py` / `config.json` **never** trigger it. Also admin-only **`/check_updates`** runs the same check manually.
 - Tested: 30 tests passed at build.
@@ -239,7 +239,7 @@ Full behaviour is in `docs/README_tasks.md`, and the classifier is documented in
 - `get_file_contents` returns file content in `result.content[1].resource.text`; directory listings come as a JSON string in `content[0].text`.
 - `search_code` searches **all of GitHub**, not one repo — do not use bare terms for repo-scoped queries.
 - **Tests:** run with the venv Python (`~/workspace/astrabot-venv/`), not system Python 3.12 (no `discord` module); on the Windows host use `py -3.14 -m unittest discover -s tests`. Suites: `tests/test_audiobooks.py`, `tests/test_selfupdate.py`, `tests/test_guild_commands.py`, `tests/test_wiki.py`, `tests/test_astra_console.py`. Modules importing `config` need a `config.json` in the working directory (copy `config.example.json` in a fresh worktree; it is gitignored, do not commit it).
-- **Known failing on Windows, also on clean `10ad72d`:** `test_wiki_file_is_the_standalone_file` (reads `cogs/wiki.html` without `encoding="utf-8"`) and `test_cog_change_pulls_and_reloads_only_that_cog` (status `no_cog_changes`, cause not investigated).
+- **Known failing on Windows, also on clean `0c69c5f`:** `test_wiki_file_is_the_standalone_file` (reads `cogs/wiki.html` without `encoding="utf-8"`) and `test_cog_change_pulls_and_reloads_only_that_cog` (status `no_cog_changes`, cause not investigated).
 - **Commit message trailer** used on the Astra repo (not necessarily Astrabot): `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
 - **Thea's preferences that apply here:** military time in all responses; implementation instructions presented as PowerShell commands in code blocks (with a copy button); future projects default to dark mode for their web interface.
 - **Never store, echo, or commit credentials** she pastes (bot tokens, API keys). A bot token in a fetched Astrabot `config.json`, an ABS API key, and a new bot token visible in a Developer Portal screenshot have all been seen and **none of their values is recorded anywhere** — do not repeat them.
@@ -272,6 +272,12 @@ Nginx host: Ubuntu, `thea-ubuntu-server`, all sites in `/etc/nginx/sites-availab
 ## 12. Change log
 
 Newest first. One dated entry per working day, by the agent that did the work.
+
+### 2026-11-11 — Claude Code (Opus 5.5), history rewrite
+
+- **Rewrote the whole git history** with `git filter-repo` before making the repo public. Removed from every commit: `config.json`, `console.json`, `trelloConfig.json`, `taskConfig.json`, all `.db`, `.csv`, `.pyc` and notebook files, and `nohup.out`. Scrubbed any leftover copies of the old tokens, webhook URLs and API keys, and set all of Thea's older commits to `Thea Arcadia <theruvial237@gmail.com>`.
+- **Every commit ID changed.** Commit IDs in this file and the 2026-11-10 hand-off now point at the new commits. IDs from other repos or local stashes are unchanged. Any old clone must be deleted and cloned fresh; never push from an old clone.
+- **The current files are unchanged.** The Discord bot token that was in history must be reset in the Discord Developer Portal; the rewrite hides it but does not revoke it.
 
 ### 2026-11-10 — Claude Code (Sonnet 5.5), branches `console/watchdog` and `master`
 

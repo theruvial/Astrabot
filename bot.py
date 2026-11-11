@@ -20,6 +20,7 @@ startup_extensions = [
     "cogs.clip",
     "cogs.audiobooks",
     "cogs.wiki",
+    "cogs.portfolio",
     "cogs.selfupdate",
 ]
 

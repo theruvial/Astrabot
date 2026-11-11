@@ -104,6 +104,13 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(cv.render_cv("  \n\n"), "")
 
 
+class TemplateTests(unittest.TestCase):
+    def test_pronouns_under_the_name_are_styled_as_a_line_of_their_own(self):
+        template = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                     "cogs", "portfolio_page.html"), encoding="utf-8").read()
+        self.assertIn("h1 sub { display: block;", template)
+
+
 class StructureTests(unittest.TestCase):
     def test_section_titles_and_missing_sections(self):
         self.assertEqual(cv.section_titles(SAMPLE), ["Summary", "Experience", "Education"])

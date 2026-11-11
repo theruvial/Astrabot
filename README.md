@@ -1,32 +1,76 @@
 # Astrabot
 
-A personal Discord bot (discord.py 2.x) for the Aboard the Astra team and Thea's audiobook server.
+My Discord bot, running since 2019. It started as a points-and-roles bot for my friends' server and grew into the thing that runs my team's to-do list, my audiobook server's request queue and our game's mechanics wiki.
 
-Built and maintained by Thea since 2019, originally as a solo project written by hand before AI coding tools: reaction roles, a points economy and gambling system backed by PostgreSQL (later SQLite), a shop, a tasks system with reaction persistence across restarts, and Trello integration. The economy is an append-only ledger — every movement is recorded and balances are derived from it — and the role system uses parameterized SQL, including a window-function query to dedupe emoji-to-role mappings. The bot has since grown with newer features (audiobook requests, a local task classifier, and the Astra mechanics wiki); see below.
+Built with Python and discord.py 2.x, with SQLite for storage (PostgreSQL until 2026).
 
-- **Audiobook requests:** a Discord and web workflow for requesting audiobooks. See [docs/AUDIOBOOKS.md](docs/AUDIOBOOKS.md).
-- **Tasks:** reads #astra-feedback, classifies messages with a local model, sends unclear ones to #human-intervention, and posts tasks to #todo. See [docs/README_tasks.md](docs/README_tasks.md).
-- **Wiki:** `/wiki` sends the Aboard the Astra mechanics wiki.
-- **Moderation and self-update:** admin commands, and a watcher that hot-reloads changed cogs.
+## A bit of history
 
-Run it with `startConsole.bat`, which opens the Golurk Console ([docs/CONSOLE.md](docs/CONSOLE.md)). The console runs the bot, audiobook site, absLogin, wiki backend and task classifier in one collapsible Astrabot group, plus any other programs you add in Settings, with output panes and restart buttons.
+- **2019–2021: written by hand.** I wrote the original bot myself, before AI coding tools existed. It had reaction roles, a points economy with gambling and a shop, a tasks system and Trello integration. The economy is an append-only ledger: every movement of currency is recorded, and balances are worked out from the ledger rather than stored and overwritten. The role system uses parameterized SQL, including a window-function query that dedupes emoji-to-role mappings.
+- **2026: designed by me, built with AI help.** I came back to the bot in 2026, ported it to discord.py 2.x slash commands, moved it from PostgreSQL to SQLite and added everything in the "What it does now" section. I designed those features and directed AI coding tools to build them.
 
-Project notes for people and agents are in [DESIGN.md](DESIGN.md). `config.json` holds live secrets and is never committed; start from `config.example.json`.
+## What it does now
 
-## Old music commands
-## Command List
-<!-- - Play command takes a url as an input and plays a song into a voice channel: 
-**!play url**
+### Team tasks with a local classifier
+- Watches #astra-feedback and decides whether each message is a task, using **AstraThought**, a small SetFit model I trained myself that runs locally on my own machine.
+- Posts clear tasks to #todo, and sends unsure ones to #human-intervention, where approve/disagree buttons decide. Every ruling is saved as a new training label.
+- Slash commands manage the team's to-do list: `/task_add`, `/task_list`, `/task_start`, `/task_done`, `/task_edit`, `/task_delete`, `/todo` (the whole list as a markdown file) and `/task_stats` (classifier and label counts).
+- Details: [docs/README_tasks.md](docs/README_tasks.md).
 
-- Leave command make the bot leave the voice channel: 
-**!leave**
+### Audiobook requests
+- A website (Material dark theme, email login) where people request audiobooks by pasting a link from Audible, Spotify, Apple Books, Google Books or Goodreads.
+- Each request becomes a Discord post with **Fulfill**, **Request Fulfilled** and **Reject** buttons, and the requester gets an email at each step.
+- Watches my torrent client and Audiobookshelf library, so requests move to In Progress and Fulfilled on their own when the book shows up.
+- An admin-only dashboard, and `/email_user` for messaging a user.
+- Details: [docs/AUDIOBOOKS.md](docs/AUDIOBOOKS.md).
 
-- Clip command take a url and 2 timestamps as inputs and takes a clip of an audio file to play into the voice channel: 
-**!clip url timestamp_1 timestamp_2**
+### Audio clips
+- `/clip` streams a section of a track into your voice channel.
+- `/sclip` saves a clip and posts it to the saved-clips channel, and `/cplay` plays a saved clip.
 
-- SClip command takes a url, 2 timestamps and a filename as inputs and saves a clip of an audio file for later playing:
-**!sclip url timestamp_1 timestamp_2 filename**
+### Aboard the Astra wiki
+- `/wiki` sends the mechanics wiki for the game my team is making, as a single HTML file. It fetches a fresh copy from the wiki backend using a shared secret, and falls back to a bundled copy if the backend is down.
 
-- CPlay command plays audio files out of the ./Saved Folder:
-**!cplay filename** -->
+### Self-update
+- Every 15 minutes the bot fetches from GitHub and hot-reloads only the cogs whose files changed, so most updates don't need a restart. `/check_updates` runs the check on demand.
 
+### Moderation and admin
+- `/kick`, `/purge`, `/speak`, `/reloadcog`, and `/streamlive` / `/streamended` for setting the bot's status during streams.
+
+### Golurk Console
+- A desktop control panel (`startConsole.bat`) that runs the bot, the audiobook site, absLogin, the wiki backend and the classifier, each with its own live output pane and restart button. Any other program can be added in Settings.
+- Includes a decisions panel for reviewing the classifier's recent calls.
+- Details: [docs/CONSOLE.md](docs/CONSOLE.md).
+
+## Still in the code, currently switched off
+
+These are mostly the original hand-written features. They're still in the repo but not loaded in `bot.py` right now:
+
+- **Reaction roles:** `/maprole`, `/roles`, `/roleall`.
+- **Points and economy:** XP and Astrabucks per message, `/exp` and `/award`.
+- **Gambling:** `/slots`, `/jackpot`, `/pool` and `/giftbucks`.
+- **Role shop:** buy roles with Astrabucks; `/addpaidrole` adds them.
+- **Music player:** `/play`, `/skip` and `/queue`, streaming from YouTube, YouTube Music, SoundCloud or Spotify.
+- **Pets:** a pet that gains XP and HP as you chat (never finished).
+
+## Running it
+
+Astrabot is built for my own servers and home network, so it isn't plug-and-play, but here's how it runs:
+
+1. Install Python 3 and discord.py 2.x. There's no requirements file yet, so other cogs may ask for a package or two.
+2. Copy `config.example.json` to `config.json` and fill in your bot token and channel IDs. `config.json` holds live secrets and is never committed.
+3. Start everything with `startConsole.bat`, or just the bot with `startBot.bat` / `startBot.sh`.
+
+Secrets that aren't in `config.json` (SMTP, the wiki key, the Audiobookshelf key) are read from environment variables.
+
+## Tests
+
+```bash
+python -m unittest discover -s tests
+```
+
+The tests cover the tasks cog, audiobooks, the library and torrent watchers, self-update, the wiki command, command scoping and the console.
+
+## Project notes
+
+[DESIGN.md](DESIGN.md) is the running record of how everything fits together, for me and for the AI agents that work on the bot.

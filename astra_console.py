@@ -1,7 +1,7 @@
-"""Golurk Console (the Astrabot console): run the bot, site, wiki, absLogin and
-classifier, plus any services you add, and watch their output.
+"""Golurk Console (the Astrabot console): run the bot, site, wiki, absLogin,
+classifier and portfolio, plus any services you add, and watch their output.
 
-Every window has an arrow on its header that collapses it. The five
+Every window has an arrow on its header that collapses it. The six
 built-in windows can never be removed. Settings adds your own services
 (a program, a PowerShell command or a batch file); those get a pane of
 their own with Start, Restart, Stop and Remove, and are saved in console.json
@@ -18,7 +18,9 @@ The audiobook site is hosted by the audiobooks cog, so it only runs
 while the bot does: "Restart Bot" restarts it too. "Restart Site"
 reloads that cog in the running bot (through logs/reload_cog.flag, see
 cogs/moderation.py) and, like any load of that cog, rebuilds the
-requests channel.
+requests channel. The portfolio site (13384) is hosted by the portfolio cog
+the same way: its pane shows that cog's log lines, and "Restart Portfolio"
+reloads just that cog.
 
 The right-hand Decisions panel lists the classifier service's final
 decisions (most recent first, up to 50), with a search box and an
@@ -81,6 +83,7 @@ SITE_PORT = 13380
 ABSLOGIN_PORT = 13381
 WIKI_PORT = 13382
 CLASSIFIER_PORT = 13383
+PORTFOLIO_PORT = 13384
 
 MAX_CRASHES = 5
 RESTART_DELAY = 10
@@ -95,6 +98,7 @@ CRASH_LOG_LOCK = threading.Lock()
 
 LOG_LINE = re.compile(r"^\[[^\]]*\] \[[A-Z]+\s*\] ")
 SITE_LINE = re.compile(r"^\[[^\]]*\] \[[A-Z]+\s*\] (aiohttp|audiobooks)\b")
+PORTFOLIO_LINE = re.compile(r"^\[[^\]]*\] \[[A-Z]+\s*\] portfolio\b")
 CONTINUATION = re.compile(r"^(\s|Traceback |\w+(\.\w+)*(Error|Exception)\b)")
 
 
@@ -102,6 +106,8 @@ def route_line(line, previous="bot"):
     """Pick the pane for a line. Tracebacks follow the line above them."""
     if SITE_LINE.match(line):
         return "site"
+    if PORTFOLIO_LINE.match(line):
+        return "portfolio"
     if LOG_LINE.match(line):
         return "bot"
     return previous if CONTINUATION.match(line) else "bot"
@@ -311,7 +317,7 @@ class BotSupervisor(Supervisor):
 
     def __init__(self, emit, root=ROOT, command=None, **kwargs):
         if command is None:  # a custom command (the tests) never clears the real site port
-            kwargs.setdefault("ports", (SITE_PORT,))
+            kwargs.setdefault("ports", (SITE_PORT, PORTFOLIO_PORT))
         super().__init__(emit, "bot", root, command or [python_exe(), "-u", "bot.py"],
                          Path(root) / "logs", **kwargs)
         self.flag = self.log_dir / "reload_cog.flag"
@@ -322,16 +328,23 @@ class BotSupervisor(Supervisor):
     def _route(self, line, previous):
         return route_line(line, previous)
 
-    def reload_site(self):
+    def _reload_cog(self, cog, pane, what):
+        """Ask the running bot to reload one cog, through the flag file."""
         if self._proc is None:
-            self._say("site", "Bot is not running, so there is no site to reload.")
+            self._say(pane, f"Bot is not running, so there is no {what} to reload.")
             return False
         # Written then renamed so the bot can never read a half-made flag.
         pending = self.flag.with_suffix(".tmp")
-        pending.write_text("audiobooks", encoding="utf-8")
+        pending.write_text(cog, encoding="utf-8")
         pending.replace(self.flag)
-        self._say("site", "Site reload requested.")
+        self._say(pane, f"{what.capitalize()} reload requested.")
         return True
+
+    def reload_site(self):
+        return self._reload_cog("audiobooks", "site", "site")
+
+    def reload_portfolio(self):
+        return self._reload_cog("portfolio", "portfolio", "portfolio")
 
     def pull_latest(self):
         """Fast-forward every repo. Never merges, so it cannot make a mess."""
@@ -706,6 +719,7 @@ def main():
 
     button("Restart Bot", lambda: in_background(supervisor.restart))
     button("Restart Site", supervisor.reload_site)
+    button("Restart Portfolio", supervisor.reload_portfolio)
     button("Restart absLogin", lambda: in_background(abs_login.restart))
     button("Restart Wiki", lambda: in_background(wiki.restart))
     button("Restart Classifier", lambda: in_background(classifier.restart))

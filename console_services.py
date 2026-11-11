@@ -36,15 +36,16 @@ STARTUP_NAME = "Golurk Console.bat"
 IS_WINDOWS = os.name == "nt"
 
 # The windows that are part of the console and cannot be removed.
-BUILTIN_PANES = ("bot", "site", "absLogin", "wiki", "classifier")
+BUILTIN_PANES = ("bot", "site", "absLogin", "wiki", "classifier", "portfolio")
 BUILTIN_TITLES = {"bot": "Bot", "site": "Site (13380)", "absLogin": "absLogin (13381)",
-                  "wiki": "Wiki (13382)", "classifier": "Classifier (13383)"}
-# The five built-in windows live together in one collapsible group.
+                  "wiki": "Wiki (13382)", "classifier": "Classifier (13383)",
+                  "portfolio": "Portfolio (13384)"}
+# The six built-in windows live together in one collapsible group.
 GROUP_KEY = "astrabot"
 GROUP_TITLE = "Astrabot"
 # Where a built-in pane sits inside that group's grid: (row, column, columnspan).
 BUILTIN_CELLS = {"bot": (0, 0, 1), "site": (0, 1, 1), "absLogin": (1, 0, 1),
-                 "wiki": (1, 1, 1), "classifier": (2, 0, 2)}
+                 "wiki": (1, 1, 1), "classifier": (2, 0, 1), "portfolio": (2, 1, 1)}
 # Added services sit in the outer grid under the group (row 0 is the group).
 FIRST_CUSTOM_ROW = 1
 

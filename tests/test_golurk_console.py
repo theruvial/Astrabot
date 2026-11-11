@@ -104,7 +104,8 @@ class LayoutTests(unittest.TestCase):
     def test_built_in_panes_keep_their_places(self):
         cells = cs.pane_cells([])
         self.assertEqual(cells["bot"], (0, 0, 1))
-        self.assertEqual(cells["classifier"], (2, 0, 2))
+        self.assertEqual(cells["classifier"], (2, 0, 1))
+        self.assertEqual(cells["portfolio"], (2, 1, 1))
 
     def test_added_services_fill_two_per_row_underneath(self):
         cells = cs.pane_cells(["a", "b", "c"])
@@ -129,9 +130,9 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(weights, {0: 8, 1: 0, 2: 3})
         self.assertEqual(cs.outer_row_weights(["a"], {"astrabot": True}), {0: 0, 1: 3})
 
-    def test_the_built_in_windows_are_the_five_we_ship(self):
+    def test_the_built_in_windows_are_the_six_we_ship(self):
         self.assertEqual(set(cs.BUILTIN_PANES),
-                         {"bot", "site", "absLogin", "wiki", "classifier"})
+                         {"bot", "site", "absLogin", "wiki", "classifier", "portfolio"})
 
 class CustomSupervisorTests(unittest.TestCase):
     def setUp(self):

@@ -345,7 +345,7 @@ class Portfolio(commands.Cog):
         minutes = max(1, int(self.config.get("cv_poll_minutes", 10)))
         while True:
             try:
-                await self.check_once()
+                log.info("CV check: %s", await self.check_once())
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 -- the watcher must outlive any one bad check

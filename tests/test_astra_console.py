@@ -24,6 +24,7 @@ class RouteLineTests(unittest.TestCase):
     def test_site_loggers_go_to_site(self):
         self.assertEqual(route_line("[2026-11-05 21:00:00] [INFO    ] aiohttp.access: GET /"), "site")
         self.assertEqual(route_line("[2026-11-05 21:00:00] [WARNING ] audiobooks.web: x"), "site")
+        self.assertEqual(route_line("[2026-11-05 21:00:00] [INFO    ] portfolio: CV check: unchanged"), "portfolio")
 
     def test_other_loggers_and_prints_go_to_bot(self):
         self.assertEqual(route_line("[2026-11-05 21:00:00] [INFO    ] discord.client: x", "site"), "bot")
@@ -317,7 +318,7 @@ class PortClearingTests(unittest.TestCase):
         self.assertEqual(astra_console.classifier_supervisor(emit).ports, (13383,))
         self.assertEqual(astra_console.wiki_supervisor(emit).ports, (13382,))
         self.assertEqual(astra_console.abslogin_supervisor(emit).ports, (13381,))
-        self.assertEqual(BotSupervisor(emit).ports, (13380,))
+        self.assertEqual(BotSupervisor(emit).ports, (13380, 13384))
 
 
 class PullTests(unittest.TestCase):

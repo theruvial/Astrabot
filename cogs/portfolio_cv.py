@@ -12,6 +12,7 @@ into the live site.
 from __future__ import annotations
 
 import difflib
+import hashlib
 import html
 import re
 
@@ -118,6 +119,12 @@ def summarize_change(old: str, new: str, limit: int = 12) -> list[str]:
     return out
 
 
+_FORBIDDEN_TAGS = re.compile(r"<\s*(script|iframe|object|embed|style|link|meta|form)\b", re.IGNORECASE)
+_CONFLICT_MARKERS = re.compile(r"^(<<<<<<<|=======|>>>>>>>)", re.MULTILINE)
+MIN_CHARS = 800          # a real CV is longer than this
+MAX_SHRINK = 0.5         # refuse a change that drops more than half the text
+
+
 def looks_safe_to_publish(old: str, new: str) -> tuple[bool, str]:
     """Decide whether a changed CV may go on the site at all.
 
@@ -125,10 +132,45 @@ def looks_safe_to_publish(old: str, new: str) -> tuple[bool, str]:
     and tells Thea the reason, so a broken edit never replaces the live site.
     `old` is the CV behind the live page ("" the first time); `new` is the
     change under review.
-
-    TODO(human): write the rules. Until they are written this refuses
-    everything, which is the safe default. Candidates are a CV with no text,
-    required sections gone (use `missing_sections(new)`), a big shrink
-    against `old`, and raw HTML or script tags appearing in the Markdown.
     """
-    return False, "publish rules are not written yet"
+    if len(new.strip()) < MIN_CHARS:
+        return False, "the CV is nearly empty"
+    missing = missing_sections(new)
+    if missing:
+        return False, "sections missing: " + ", ".join(missing)
+    if _CONFLICT_MARKERS.search(new):
+        return False, "it still has git merge-conflict markers"
+    if _FORBIDDEN_TAGS.search(new):
+        return False, "it contains HTML tags that are not allowed"
+    if old.strip() and len(new.strip()) < len(old.strip()) * MAX_SHRINK:
+        return False, "it is less than half the length of the live CV"
+    return True, ""
+
+
+def normalize(markdown: str) -> str:
+    """Line endings and trailing spaces never count as a change."""
+    lines = markdown.replace("\r\n", "\n").split("\n")
+    return "\n".join(line.rstrip() for line in lines).strip()
+
+
+def content_hash(markdown: str) -> str:
+    """Short id for one version of the CV."""
+    return hashlib.sha256(normalize(markdown).encode("utf-8")).hexdigest()[:12]
+
+
+def decide_action(approved: str, new: str, auto_publish: bool) -> tuple[str, str]:
+    """What to do with a freshly fetched CV: 'skip' (nothing changed),
+    'blocked' (fails the publish rules, with a reason), 'stage' (ask Thea) or
+    'publish' (auto-publish is on)."""
+    if normalize(new) == normalize(approved):
+        return "skip", ""
+    ok, reason = looks_safe_to_publish(approved, new)
+    if not ok:
+        return "blocked", reason
+    return ("publish" if auto_publish else "stage"), ""
+
+
+def build_page(template: str, cv_html: str, updated: str) -> str:
+    """Put the rendered CV into the page template. The CV goes in last so
+    placeholder text inside the CV is never replaced."""
+    return template.replace("{{UPDATED}}", updated).replace("{{CV}}", cv_html)

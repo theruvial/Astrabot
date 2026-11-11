@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thea Arcadia - Portfolio</title>
+<style>
+/* Material dark theme, matching the audiobook requests UI. */
+* { box-sizing: border-box; color-scheme: dark; }
+body { margin: 0; font-family: Roboto, system-ui, -apple-system, "Segoe UI", Arial, sans-serif; background: #141218; color: #e6e0e9; line-height: 1.55; }
+a { color: #d0bcff; }
+a:hover { color: #e0d4ff; }
+.wrap { max-width: 880px; margin: 0 auto; padding: 32px 20px 64px; }
+h1 { font-size: 32px; margin: 0 0 4px; font-weight: 500; }
+h2 { font-size: 22px; font-weight: 500; margin: 0 0 12px; padding-top: 4px; }
+h3 { font-size: 17px; font-weight: 500; margin: 20px 0 8px; color: #cac4d0; }
+p { margin: 0 0 12px; }
+section { background: #1e1b24; border-radius: 16px; box-shadow: 0 2px 6px rgba(0,0,0,.5); padding: 20px 22px; margin: 0 0 16px; }
+section p:last-child, section ul:last-child { margin-bottom: 0; }
+ul { margin: 0 0 12px; padding-left: 22px; }
+li { margin-bottom: 4px; }
+em { color: #cac4d0; }
+footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #49454f; font-size: 13px; color: #938f99; }
+footer p { margin-bottom: 8px; }
+@media (max-width: 600px) { h1 { font-size: 26px; } .wrap { padding: 24px 16px 48px; } section { padding: 16px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+{{CV}}
+<footer>
+  <p>This page is built from the CV in <a href="https://github.com/theruvial/theruvial/tree/main/cv">github.com/theruvial/theruvial</a>, last updated {{UPDATED}}. Work marked hand-written was written by me. Work marked directed was designed and directed by me, with the code largely written by AI coding tools.</p>
+  <p>Served by Astrabot from my own server.</p>
+</footer>
+</div>
+</body>
+</html>

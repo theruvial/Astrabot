@@ -126,6 +126,21 @@ class WatcherTests(unittest.IsolatedAsyncioTestCase):
         again = self.cog()
         self.assertIn("<h1>Thea Arcadia</h1>", again._html)
 
+    async def test_a_restart_rebuilds_the_page_from_the_approved_cv(self):
+        cog = self.cog(cv_auto_publish=True)
+        await cog.check_once(self.fetching(200, make_cv()))
+        self.data("portfolio_live.html").write_text("STALE PAGE", encoding="utf-8")
+        again = self.cog()
+        self.assertIn("<h1>Thea Arcadia</h1>", again._html)
+        self.assertNotIn("STALE", again._html)
+        self.assertNotIn("STALE", self.data("portfolio_live.html").read_text(encoding="utf-8"))
+
+    async def test_the_pronouns_line_renders_as_small_text_on_the_page(self):
+        cog = self.cog(cv_auto_publish=True)
+        await cog.check_once(self.fetching(200, make_cv().replace(
+            "# Thea Arcadia", "# Thea Arcadia <sub>(she/her)</sub>")))
+        self.assertIn("<h1>Thea Arcadia <sub>(she/her)</sub></h1>", cog._html)
+
     async def test_reject_keeps_the_site_and_the_same_version_is_not_asked_again(self):
         cog = self.cog()
         text = make_cv()

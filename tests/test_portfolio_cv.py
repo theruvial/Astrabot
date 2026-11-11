@@ -61,6 +61,21 @@ class InlineTests(unittest.TestCase):
         self.assertNotIn('"onmouseover', out.replace("&quot;", ""))
         self.assertNotIn("<script", out)
 
+    def test_a_sub_pair_is_allowed_for_the_pronouns_line(self):
+        self.assertEqual(cv.inline("Thea Arcadia <sub>(she/her)</sub>"),
+                         "Thea Arcadia <sub>(she/her)</sub>")
+        self.assertEqual(cv.inline("x<sup>2</sup>"), "x<sup>2</sup>")
+
+    def test_no_other_html_and_no_loose_sub_tags_get_through(self):
+        for text in ("<sub>never closed", "<sub onclick=x>a</sub>", "<SUB>a</SUB>",
+                     "<sub><script>x</script></sub>", "</sub>stray<sub>"):
+            out = cv.inline(text)
+            self.assertNotIn("<script", out)
+            self.assertNotIn("onclick=x>", out.replace("&lt;sub onclick=x&gt;", ""))
+        self.assertEqual(cv.inline("<sub>never closed"), "&lt;sub&gt;never closed")
+        self.assertIn("&lt;sub onclick=x&gt;", cv.inline("<sub onclick=x>a</sub>"))
+        self.assertIn("&lt;script&gt;", cv.inline("<sub><script>x</script></sub>"))
+
     def test_asterisks_inside_words_are_left_alone(self):
         self.assertEqual(cv.inline("2*3*4"), "2*3*4")
 

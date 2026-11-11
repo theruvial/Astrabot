@@ -24,11 +24,17 @@ _LINK = re.compile(r"\[([^\]]+)\]\(([^()\s]*(?:\([^()\s]*\)[^()\s]*)*)\)")
 _BOLD = re.compile(r"\*\*(.+?)\*\*")
 _ITALIC = re.compile(r"(?<![*\w])\*(?!\s)(.+?)(?<!\s)\*(?![*\w])")
 _SAFE_URL = re.compile(r"^(https?://|mailto:)", re.IGNORECASE)
+# The only HTML the CV may use: a matched <sub>...</sub> or <sup>...</sup>
+# pair, lowercase, no attributes (for example "Thea <sub>(she/her)</sub>").
+# It is matched on the already-escaped text, so nothing else gets through,
+# and an unmatched tag stays visible as text instead of breaking the page.
+_SMALL_TAG = re.compile(r"&lt;(sub|sup)&gt;(.*?)&lt;/\1&gt;")
 
 
 def inline(text: str) -> str:
-    """Escape first, then apply bold, italics and safe links."""
+    """Escape first, then apply sub/sup pairs, bold, italics and safe links."""
     out = html.escape(text.strip(), quote=True)
+    out = _SMALL_TAG.sub(r"<\1>\2</\1>", out)
 
     def link(match: re.Match) -> str:
         label, url = match.group(1), html.unescape(match.group(2))

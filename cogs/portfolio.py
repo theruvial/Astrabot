@@ -211,6 +211,18 @@ class Portfolio(commands.Cog):
             return ""
 
     def _initial_html(self) -> str:
+        # Rebuild from the approved CV on every start, so an improved renderer
+        # or template reaches the live page without waiting for a CV change.
+        approved = self._read(self._approved_path)
+        template = self._read(_TEMPLATE_PATH)
+        if approved.strip() and template.strip():
+            try:
+                updated = self._state.get("published_on") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                page = build_page(template, render_cv(approved), updated)
+                _atomic_write(self._live_path, page)
+                return page
+            except Exception as exc:  # noqa: BLE001 -- fall back to the saved page
+                log.warning("Could not rebuild the page from the approved CV: %s", exc)
         live = self._read(self._live_path)
         if live.strip():
             return live
@@ -333,6 +345,7 @@ class Portfolio(commands.Cog):
         if not template.strip():
             raise RuntimeError("page template is missing")
         updated = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        self._state["published_on"] = updated
         page = build_page(template, render_cv(markdown), updated)
         _atomic_write(self._live_path, page)
         _atomic_write(self._approved_path, markdown)

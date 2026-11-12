@@ -4,36 +4,218 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Thea Arcadia - Portfolio</title>
+<meta name="description" content="Portfolio of Thea Arcadia, a junior software developer: projects, skills and experience.">
+<meta name="theme-color" content="#0b0614">
+<script>document.documentElement.classList.add('js');</script>
 <style>
-/* Material dark theme, matching the audiobook requests UI. */
-* { box-sizing: border-box; color-scheme: dark; }
-body { margin: 0; font-family: Roboto, system-ui, -apple-system, "Segoe UI", Arial, sans-serif; background: #141218; color: #e6e0e9; line-height: 1.55; }
-a { color: #d0bcff; }
-a:hover { color: #e0d4ff; }
-.wrap { max-width: 880px; margin: 0 auto; padding: 32px 20px 64px; }
-h1 { font-size: 32px; margin: 0 0 4px; font-weight: 500; }
-/* A <sub> inside the name, like the pronouns, becomes a small line under it. */
-h1 sub { display: block; font-size: 16px; font-weight: 400; color: #cac4d0; vertical-align: baseline; margin-top: 2px; }
-h2 { font-size: 22px; font-weight: 500; margin: 0 0 12px; padding-top: 4px; }
-h3 { font-size: 17px; font-weight: 500; margin: 20px 0 8px; color: #cac4d0; }
-p { margin: 0 0 12px; }
-section { background: #1e1b24; border-radius: 16px; box-shadow: 0 2px 6px rgba(0,0,0,.5); padding: 20px 22px; margin: 0 0 16px; }
-section p:last-child, section ul:last-child { margin-bottom: 0; }
-ul { margin: 0 0 12px; padding-left: 22px; }
-li { margin-bottom: 4px; }
-em { color: #cac4d0; }
-footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #49454f; font-size: 13px; color: #938f99; }
-footer p { margin-bottom: 8px; }
-@media (max-width: 600px) { h1 { font-size: 26px; } .wrap { padding: 24px 16px 48px; } section { padding: 16px; } }
+:root {
+  --bg: #0b0614; --text: #ece6f7; --muted: #b3a8c9; --line: rgba(150,100,255,.16);
+  --lav: #b48cff; --gold: #f4c85a; --card: rgba(110,50,220,.10);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; color-scheme: dark; }
+body {
+  margin: 0; color: var(--text); background: var(--bg); line-height: 1.6;
+  font-family: Roboto, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  background-image: radial-gradient(rgba(150,100,255,.07) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+a { color: var(--lav); }
+a:hover { color: #fff0c2; }
+h1, h2, h3, h4, p { margin: 0; }
+ul { margin: 12px 0 0; padding-left: 20px; }
+li { margin-bottom: 6px; }
+em { color: var(--muted); }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+
+/* ---- top bar ---- */
+nav.top {
+  position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 18px;
+  padding: 10px max(16px, calc((100% - 1040px) / 2 + 20px));
+  background: rgba(11,6,20,.72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+nav.top .brand {
+  display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; flex: none;
+  font-weight: 700; font-size: 13px; text-decoration: none; color: #f6ecd0;
+  background: #5b21b6; box-shadow: 0 0 0 1.5px var(--gold);
+}
+nav.top .links { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+nav.top .links a {
+  padding: 6px 14px; border-radius: 999px; font-size: 14px; text-decoration: none; white-space: nowrap;
+  color: var(--muted); transition: background .2s, color .2s;
+}
+nav.top .links a:hover { background: rgba(150,100,255,.12); color: var(--text); }
+
+/* ---- hero ---- */
+.hero { position: relative; overflow: hidden; padding: 72px 20px 64px; }
+.aurora { position: absolute; inset: 0; pointer-events: none; }
+.aurora i { position: absolute; width: 460px; height: 460px; border-radius: 50%; filter: blur(100px); opacity: .26; animation: drift 18s ease-in-out infinite alternate; }
+.aurora i:nth-child(1) { background: #4c1d95; top: -160px; left: -80px; }
+.aurora i:nth-child(2) { background: #7e22ce; top: -60px; right: -120px; animation-delay: -6s; }
+.aurora i:nth-child(3) { background: #c99a1d; bottom: -260px; left: 35%; animation-delay: -12s; opacity: .1; }
+@keyframes drift { to { transform: translate(60px, 40px) scale(1.15); } }
+.hero-in { position: relative; max-width: 1040px; margin: 0 auto; }
+.mono {
+  display: grid; place-items: center; width: 68px; height: 68px; border-radius: 50%; margin-bottom: 22px;
+  font-size: 24px; font-weight: 700; letter-spacing: .02em; color: #f6ecd0;
+  background: #5b21b6;
+  box-shadow: 0 0 0 2px var(--gold), 0 0 0 7px rgba(150,100,255,.14);
+}
+.role { text-transform: uppercase; letter-spacing: .18em; font-size: 13px; font-weight: 500; color: var(--gold); margin-bottom: 10px; }
+h1 {
+  font-size: clamp(42px, 9vw, 84px); line-height: 1.02; letter-spacing: -.03em; font-weight: 700; padding-bottom: 6px;
+  background: linear-gradient(100deg, #fff 35%, #d8c6ff 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent;
+}
+/* A <sub> inside the name (like pronouns) becomes a small line under it. */
+h1 sub { display: block; font-size: 16px; font-weight: 400; letter-spacing: 0; margin-top: 4px; -webkit-text-fill-color: var(--muted); color: var(--muted); }
+.hero .chips { margin-top: 16px; }
+.lede { max-width: 66ch; margin-top: 24px; font-size: clamp(17px, 2.1vw, 20px); color: #dcd6e3; }
+.cta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 30px; }
+
+/* ---- buttons and chips ---- */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 9px 18px; border-radius: 999px;
+  font-size: 14px; text-decoration: none; color: var(--text); background: var(--card);
+  border: 1px solid var(--line); transition: transform .2s, border-color .2s, background .2s;
+}
+.btn:hover { transform: translateY(-2px); border-color: var(--lav); background: rgba(150,100,255,.12); color: var(--text); }
+.btn.primary { color: #241040; font-weight: 500; border: 0; background: #e9bf55; }
+.btn.primary:hover { color: #241040; filter: brightness(1.08); }
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip {
+  padding: 3px 12px; border-radius: 999px; font-size: 13px; color: #e8ddff;
+  background: rgba(150,100,255,.1); border: 1px solid rgba(150,100,255,.2);
+}
+.chip.ai { color: #ffeab0; background: rgba(244,200,90,.1); border-color: rgba(244,200,90,.32); }
+
+/* ---- sections ---- */
+.block { padding: 56px 0 8px; scroll-margin-top: 56px; }
+h2 { font-size: clamp(26px, 4vw, 34px); font-weight: 700; letter-spacing: -.01em; margin-bottom: 26px; display: flex; align-items: center; gap: 16px; }
+h2::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--line), transparent); }
+h3 { font-size: 15px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--lav); margin: 30px 0 14px; display: flex; align-items: center; gap: 10px; }
+h3::before { content: ""; width: 22px; height: 3px; border-radius: 2px; background: var(--lav); }
+.group.ai h3 { color: var(--gold); }
+.group.ai h3::before { background: var(--gold); }
+
+/* ---- project cards ---- */
+.grid { display: grid; gap: 18px; grid-template-columns: 1fr; }
+.card {
+  position: relative; overflow: hidden; padding: 24px 24px 22px; border-radius: 20px;
+  background: var(--card); border: 1px solid var(--line);
+  transition: transform .3s ease, border-color .25s, box-shadow .25s;
+}
+.card::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: linear-gradient(90deg, #7c3aed, #a78bfa); }
+.group.ai .card::before { background: linear-gradient(90deg, #e9bf55, rgba(233,191,85,.2)); }
+.card:hover { transform: translateY(-4px); border-color: rgba(150,100,255,.45); box-shadow: 0 16px 44px rgba(0,0,0,.5); }
+.card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 12px; }
+h4 { font-size: 19px; font-weight: 600; letter-spacing: -.005em; }
+.sub { color: var(--muted); font-size: 15px; margin-top: 2px; }
+.when { flex: none; font-size: 13px; color: var(--muted); padding-top: 4px; white-space: nowrap; }
+.when em { font-style: normal; }
+.card .chips { margin-bottom: 4px; }
+.card ul { color: #d6d0dd; }
+.card p + ul, .card .chips + ul { margin-top: 14px; }
+.links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.links .btn { padding: 7px 14px; }
+.links .btn::after { content: "\2197"; font-size: 13px; }
+
+/* ---- skills ---- */
+.skills { display: grid; gap: 14px; grid-template-columns: 1fr; }
+.skill { padding: 16px 20px 18px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); }
+.skill h4 { font-size: 13px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+
+/* ---- timeline (experience, education) ---- */
+.timeline { position: relative; margin-left: 8px; padding-left: 30px; border-left: 2px solid transparent; border-image: linear-gradient(180deg, rgba(244,200,90,.7), rgba(150,100,255,.35) 50%, transparent) 1; }
+.step { position: relative; margin-bottom: 22px; }
+.step::before {
+  content: ""; position: absolute; left: -41px; top: 22px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--gold); box-shadow: 0 0 0 4px var(--bg);
+}
+.step-card { padding: 20px 24px; border-radius: 18px; background: var(--card); border: 1px solid var(--line); transition: border-color .25s; }
+.step-card:hover { border-color: rgba(244,200,90,.4); }
+.step-head { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.step-head .when { padding: 3px 12px; border-radius: 999px; font-size: 13px; color: #ffeab0; background: rgba(244,200,90,.1); border: 1px solid rgba(244,200,90,.3); }
+.step-head .when em { color: inherit; }
+.step .meta { color: var(--muted); font-size: 14px; margin-top: 4px; }
+.step .meta em { font-style: normal; color: var(--gold); }
+.step ul { color: #ddd5ee; }
+
+/* ---- closing call to action ---- */
+.closing { margin-top: 64px; }
+.closing-in {
+  text-align: center; padding: 48px 24px; border-radius: 28px; position: relative; overflow: hidden;
+  background: linear-gradient(135deg, rgba(76,29,149,.38), rgba(30,10,70,.5));
+  border: 1px solid rgba(244,200,90,.22);
+}
+.closing-in h2 { justify-content: center; margin-bottom: 22px; color: #f6ecd0; }
+.closing-in h2::after { display: none; }
+.closing-in .cta { justify-content: center; margin-top: 0; }
+
+/* ---- footer ---- */
+footer { margin-top: 40px; padding-top: 22px; padding-bottom: 56px; border-top: 1px solid var(--line); font-size: 13px; color: #938f99; }
+footer p + p { margin-top: 8px; }
+
+/* ---- plain fallback layout (only if the CV could not be laid out) ---- */
+.plain { padding-top: 32px; }
+.plain section { background: var(--card); border-radius: 16px; padding: 20px 22px; margin: 0 0 16px; }
+
+/* ---- reveal on scroll (only when JavaScript is on) ---- */
+.js .reveal { opacity: 0; transform: translateY(18px); transition: opacity .6s ease, transform .6s ease; }
+.js .reveal.in { opacity: 1; transform: none; }
+.js .card.reveal { transition: opacity .6s ease, transform .3s ease, border-color .25s, box-shadow .25s; }
+.js .card.reveal.in:hover { transform: translateY(-4px); }
+
+@media (min-width: 820px) {
+  .grid { grid-template-columns: 1fr 1fr; }
+  .grid .card:first-child { grid-column: 1 / -1; }
+  .skills { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 600px) {
+  .hero { padding: 48px 16px 44px; }
+  .wrap { padding: 0 16px; }
+  .card { padding: 20px 18px; }
+  .card-head { flex-direction: column; gap: 4px; }
+  .when { padding-top: 0; }
+  nav.top { padding: 8px 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .aurora i { animation: none; }
+  .js .reveal { opacity: 1; transform: none; transition: none; }
+  .card, .btn { transition: none; }
+}
+@media print {
+  nav.top, .aurora { display: none; }
+  body { background: #fff; color: #000; }
+  .js .reveal { opacity: 1; transform: none; }
+}
 </style>
 </head>
 <body>
-<div class="wrap">
 {{CV}}
-<footer>
-  <p>This page is built from the CV in <a href="https://github.com/theruvial/theruvial/tree/main/cv">github.com/theruvial/theruvial</a>, last updated {{UPDATED}}. Work marked hand-written was written by me. Work marked directed was designed and directed by me, with the code largely written by AI coding tools.</p>
-  <p>Served by Astrabot from my own server.</p>
+<footer class="wrap">
+  <p>Everything on this page comes from the CV in <a href="https://github.com/theruvial/theruvial/tree/main/cv">github.com/theruvial/theruvial</a> and updates when it changes. Last updated {{UPDATED}}.</p>
+  <p>Projects listed as hand-written were written by Thea. Projects marked as built with AI coding tools were designed and directed by Thea, with most of the code written by the tools.</p>
+  <p>Served by Astrabot from a home server.</p>
 </footer>
-</div>
+<script>
+(function () {
+  var items = document.querySelectorAll('.reveal');
+  var show = function (el) { el.classList.add('in'); };
+  if (!('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    items.forEach(show);
+    return;
+  }
+  var seen = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (entry.isIntersecting) { show(entry.target); seen.unobserve(entry.target); }
+    });
+  }, { threshold: 0.12, rootMargin: '0px 0px -6% 0px' });
+  items.forEach(function (el) { seen.observe(el); });
+  setTimeout(function () { items.forEach(show); }, 4000); // never leave content hidden
+})();
+</script>
 </body>
 </html>

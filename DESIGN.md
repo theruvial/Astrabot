@@ -224,6 +224,7 @@ Full behaviour is in `docs/README_tasks.md`, and the classifier is documented in
 | `cogs.moderation` | Loaded | `/kick`, `/streamlive`, `/streamended`, `/speak`, `/reloadcog`, `/purge` |
 | `cogs.wiki` | Loaded (2026-11-05) | `/wiki` (§5) |
 | `cogs.selfupdate` | Loaded (2026-11-05) | `/check_updates` (§6) |
+| `cogs.portfolio` | Loaded | Serves theruvial.com on port 13384 from the CV in the `theruvial/theruvial` repo (`cv/Thea_Arcadia_CV_full.md`). Polls every 10 minutes, checks the safety rules in `cogs/portfolio_cv.py`, DMs the owner (`cogs/owner.py`) an Approve/Reject preview, and rebuilds the page from the approved CV on every start. Layout (hero, project cards, skill chips, timeline) is `cogs/portfolio_render.py` plus the template `cogs/portfolio_page.html`; CV text is always escaped first. Live files are untracked: `data/portfolio_*`. Config keys are in the cog's docstring |
 | `cogs.music` | Removed from `startup_extensions` | Streaming music/clip code exists in repo history; host `bot.py` has clip commented out |
 | `cogs.clip` | Commented out on host | See host divergence (§2) |
 | `cogs.tasks` | Loaded on the host only (local `bot.py` line) | Reads #astra-feedback, posts to #todo and #human-intervention (§5a) |
@@ -272,6 +273,13 @@ Nginx host: Ubuntu, `thea-ubuntu-server`, all sites in `/etc/nginx/sites-availab
 ## 12. Change log
 
 Newest first. One dated entry per working day, by the agent that did the work.
+
+### 2026-11-11 — Claude Code (Sonnet 5.5), portfolio redesign
+
+- **Redesigned theruvial.com** so it reads as a portfolio: a hero (monogram, role, location, summary, contact buttons), project cards in a grid with tech chips, dates and link buttons, skills as chips, and a timeline for experience and education. Projects come first on the page whatever order the CV uses. AI-assisted groups and chips are tinted differently from hand-written work so the honesty rules stay visible.
+- **New module `cogs/portfolio_render.py`** reads the CV's shape (`##` sections, `###` groups, `**Title** — details` entries) and lays it out; all text still goes through `portfolio_cv.inline` (escape first). If the layout code ever fails, the page falls back to the old plain layout. The cog now calls `render_portfolio`; `render_cv` stays as the fallback.
+- **Template rewritten** (`cogs/portfolio_page.html`): sticky blurred nav, animated gradient background, scroll-reveal, mobile and reduced-motion handling, new footer wording. The page works without JavaScript.
+- **Tests:** `tests/test_portfolio_render.py` (new) plus the full suite, 252 tests passing. A local preview built from the real CV was checked in the browser pane. **Not tested:** the live site after deploy and phone screens on real devices. The change goes live when the host pulls it and the portfolio cog reloads.
 
 ### 2026-11-11 — Claude Code (Opus 5.5), history rewrite
 

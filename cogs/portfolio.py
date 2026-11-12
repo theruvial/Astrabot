@@ -62,11 +62,11 @@ import discord
 from discord.ext import commands
 
 from cogs.owner import fetch_owner, owner_id
+from cogs.portfolio_render import render_portfolio
 from cogs.portfolio_cv import (
     build_page,
     content_hash,
     decide_action,
-    render_cv,
     summarize_change,
 )
 
@@ -218,7 +218,7 @@ class Portfolio(commands.Cog):
         if approved.strip() and template.strip():
             try:
                 updated = self._state.get("published_on") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                page = build_page(template, render_cv(approved), updated)
+                page = build_page(template, render_portfolio(approved), updated)
                 _atomic_write(self._live_path, page)
                 return page
             except Exception as exc:  # noqa: BLE001 -- fall back to the saved page
@@ -346,7 +346,7 @@ class Portfolio(commands.Cog):
             raise RuntimeError("page template is missing")
         updated = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         self._state["published_on"] = updated
-        page = build_page(template, render_cv(markdown), updated)
+        page = build_page(template, render_portfolio(markdown), updated)
         _atomic_write(self._live_path, page)
         _atomic_write(self._approved_path, markdown)
         self._html = page

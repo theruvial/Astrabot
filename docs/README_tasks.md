@@ -1,6 +1,6 @@
 # Astrabot tasks cog
 
-Watches mcdungeons #astra-feedback, asks the local AstraThought classifier
+Watches mcdungeons #astra-feedback, asks the local [AstraThought](https://github.com/theruvial/AstraThought) classifier
 whether each message is a task, and posts tasks to #todo
 where the team can claim them. Borderline messages go to human
 review in a thread in #human-intervention instead of being auto-posted.
@@ -139,7 +139,7 @@ crashes the bot and never retries in a loop.
 ## Enable on the host
 
 The classifier service must be running first (see the
-AstraThought repo, `classifier_service.py`). Then, in PowerShell
+[AstraThought repo](https://github.com/theruvial/AstraThought), `classifier_service.py`). Then, in PowerShell
 on the bot host:
 
 This branch is `feature/tasks-local-model`. It is not merged.

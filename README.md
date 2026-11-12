@@ -12,7 +12,7 @@ Built with Python and discord.py 2.x, with SQLite for storage (PostgreSQL until 
 ## What it does now
 
 ### Team tasks with a local classifier
-- Watches #astra-feedback and decides whether each message is a task, using **AstraThought**, a small SetFit model I trained myself that runs locally on my own machine.
+- Watches #astra-feedback and decides whether each message is a task, using [**AstraThought**](https://github.com/theruvial/AstraThought), a small SetFit model I trained myself that runs locally on my own machine.
 - Posts clear tasks to #todo, and sends unsure ones to #human-intervention, where approve/disagree buttons decide. Every ruling is saved as a new training label.
 - Slash commands manage the team's to-do list: `/task_add`, `/task_list`, `/task_start`, `/task_done`, `/task_edit`, `/task_delete`, `/todo` (the whole list as a markdown file) and `/task_stats` (classifier and label counts).
 - Details: [docs/README_tasks.md](docs/README_tasks.md).

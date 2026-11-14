@@ -28,6 +28,7 @@ from urllib.parse import parse_qs, urlparse
 
 from aiohttp import web
 
+from .audiobooks_access import client_ip, invite_status, is_local, parse_networks, parse_proxies
 from .audiobooks_db import book_label, normalize_email
 from .audiobooks_providers import check_link
 
@@ -98,6 +99,8 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   msg.textContent = ''; msg.className = 'msg error';
   const res = await fetch('/api/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: email})});
   if (res.status === 400) { msg.textContent = 'Invalid email address entered.'; return; }
+  if (res.status === 403) { msg.textContent = 'Admin sign-in is only available from the home network.'; return; }
+  if (res.status === 429) { msg.textContent = 'Too many attempts. Please wait a minute.'; return; }
   if (res.status === 404) {
     msg.textContent = "An account doesn't exist yet.";
     btn.textContent = 'Create Account'; mode = 'create'; return;
@@ -122,6 +125,8 @@ def create_page(email: str) -> web.Response:
 <input type="email" id="email" autocomplete="email" placeholder="Email Address" value="{html.escape(email)}">
 <label for="firstName">First Name</label>
 <input type="text" id="firstName" autocomplete="given-name" placeholder="First Name" autofocus>
+<label for="inviteCode">Invite Code</label>
+<input type="text" id="inviteCode" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Invite Code">
 <div class="btn-row"><button type="submit">Create Account</button></div>
 </form></div></div>"""
     script = """
@@ -130,7 +135,7 @@ const msg = document.getElementById('msg');
 document.getElementById('createForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   msg.textContent = '';
-  const res = await fetch('/api/users', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: emailEl.value, firstName: document.getElementById('firstName').value})});
+  const res = await fetch('/api/users', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: emailEl.value, firstName: document.getElementById('firstName').value, inviteCode: document.getElementById('inviteCode').value})});
   if (!res.ok) { const d = await res.json().catch(() => ({})); msg.textContent = d.error || 'Could not create the account. Please check the details and try again.'; return; }
   const d = await res.json().catch(() => ({}));
   window.location = d.isAdmin ? '/admin' : '/requests';
@@ -379,10 +384,6 @@ loadRequests();
     return shell("Admin Dashboard — Audiobook Requests", body, script)
 
 
-def _client_ip(request: web.Request) -> str:
-    return request.remote or "unknown"
-
-
 class AudiobooksWeb:
     """aiohttp app bound to a cog (duck-typed: .db, .send_request_embed,
     .update_embed_for_request, .config)."""
@@ -403,8 +404,29 @@ class AudiobooksWeb:
         self._rate[key] = hits
         return True
 
+    def _cfg(self, key: str, default=None):
+        return (getattr(self.cog, "config", None) or {}).get(key, default)
+
+    def _visitor(self, request: web.Request):
+        """The visitor's address (an ip_address) or None if it can not be known.
+        See cogs/audiobooks_access.py for how the proxy header is trusted."""
+        return client_ip(request.remote, request.headers, parse_proxies(self._cfg("trusted_proxies")))
+
+    def _client_ip(self, request: web.Request) -> str:
+        ip = self._visitor(request)
+        return str(ip) if ip is not None else (request.remote or "unknown")
+
+    def _is_local(self, request: web.Request) -> bool:
+        """True only for visitors on the configured home network(s)."""
+        return is_local(self._visitor(request), parse_networks(self._cfg("admin_networks")))
+
     def _session_email(self, request: web.Request) -> str | None:
-        return self.db.session_email(request.cookies.get(COOKIE))
+        email = self.db.session_email(request.cookies.get(COOKIE))
+        # The admin account only works from the home network: a session cookie
+        # for it is worthless anywhere else, even a stolen one.
+        if email and self.cog.is_dashboard_admin(email) and not self._is_local(request):
+            return None
+        return email
 
     def _require_session(self, request: web.Request) -> str | None:
         return self._session_email(request)
@@ -439,7 +461,7 @@ class AudiobooksWeb:
 
     # -- API -----------------------------------------------------------
     async def api_login(self, request: web.Request) -> web.Response:
-        if not self._rate_ok(f"login:{_client_ip(request)}", 10):
+        if not self._rate_ok(f"login:{self._client_ip(request)}", 10):
             return web.json_response({"error": "Too many attempts. Please wait a minute."}, status=429)
         try:
             data = await request.json()
@@ -448,6 +470,9 @@ class AudiobooksWeb:
         email = normalize_email(data.get("email"))
         if email is None:
             return web.json_response({"error": "invalid"}, status=400)
+        if self.cog.is_dashboard_admin(email) and not self._is_local(request):
+            log.warning("Admin sign-in refused from %s: not on the home network", self._client_ip(request))
+            return web.json_response({"error": "admin_lan_only"}, status=403)
         if self.db.get_user(email) is None:
             return web.json_response({"error": "not_found"}, status=404)
         resp = web.json_response({"ok": True, "isAdmin": self.cog.is_dashboard_admin(email)})
@@ -455,16 +480,30 @@ class AudiobooksWeb:
         return resp
 
     async def api_create_user(self, request: web.Request) -> web.Response:
+        ip = self._client_ip(request)
+        # Per visitor, and overall so guesses spread over many addresses add up.
+        if not (self._rate_ok(f"signup:{ip}", 5) and self._rate_ok("signup:all", 40, window=600.0)):
+            return web.json_response({"error": "Too many attempts. Please wait a minute."}, status=429)
         try:
             data = await request.json()
         except Exception:
             return web.json_response({"error": "Invalid details."}, status=400)
+        if not isinstance(data, dict):
+            return web.json_response({"error": "Invalid details."}, status=400)
+        invite = invite_status(self._cfg("invite_code"), data.get("inviteCode"))
+        if invite == "closed":
+            return web.json_response({"error": "Sign-ups are closed right now."}, status=403)
+        if invite == "wrong":
+            log.warning("Sign-up refused from %s: wrong invite code", ip)
+            return web.json_response({"error": "That invite code is not valid."}, status=403)
         email = normalize_email(data.get("email"))
         first_name = (data.get("firstName") or "").strip()
         if email is None:
             return web.json_response({"error": "Invalid email address entered."}, status=400)
         if not first_name:
             return web.json_response({"error": "First name is required."}, status=400)
+        if self.cog.is_dashboard_admin(email) and not self._is_local(request):
+            return web.json_response({"error": "admin_lan_only"}, status=403)
         self.db.get_or_create_user(email, first_name)
         resp = web.json_response({"ok": True, "isAdmin": self.cog.is_dashboard_admin(email)})
         self._set_session(resp, email)

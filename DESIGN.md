@@ -135,6 +135,7 @@ The old live bot token was merged into `master` in PR #9 (it was in the pre-untr
 - **Website cancel = hard delete:** cancelling from the website deletes the DB row, deletes its Discord message, and emails the requester *"Your audiobook request for {book} has been cancelled."*
 - **Admin Reject (different from cancel):** edits the embed to Rejected; the row is hard-deleted. Reject opens a **modal with an optional reason** (max 500 chars); the requester is emailed the **original wording verbatim first** (*"Request Rejected for {book} Speak to Thea for more information"*) plus `"\n\nReason: {reason}"` if given, also shown on the embed. Blank reason keeps the original wording exactly.
 - **Fulfilled-email bug fix:** the fulfilled email is sent **before** the embed edit, and embed-edit failures are logged, not raised.
+- **Public-site security (2026-11-14):** the domain is public, so (1) the admin account only works from the home network and (2) creating an account needs an invite code. Rules are in `cogs/audiobooks_access.py`, wired in `cogs/audiobooks_web.py`; settings are in the `audiobooks` object of `config.json` (never in code, env or docs): `invite_code` (the only source of the code; empty or missing means sign-ups are closed), `trusted_proxies` (the nginx host, `192.168.4.74`) and `admin_networks` (the home subnet; empty means this machine only). Behind nginx the bot sees nginx's address, so the visitor's address is read from `X-Forwarded-For` (last entry) or `X-Real-IP`, but only when the connection is from a trusted proxy. Proxy headers from any other address, or a trusted proxy that names no visitor, count as "not home" (fails closed). The admin email can not sign in or be created from outside, and an admin session cookie is ignored outside the home network. Invite-code guesses are limited to 5 a minute per visitor and 40 per 10 minutes overall. nginx must send `proxy_set_header X-Forwarded-For $remote_addr;` for requests.theruvial.com. The same code gates the Audiobookshelf signup (absLogin, `config.json` there, see its README). Login for ordinary accounts is still email-only with no password, so anyone who knows a user's email can sign in as them.
 - **Admin web dashboard:** `/admin`, **only for logged-in `theruvial237@gmail.com`**; everyone else gets 403. Manages users (edit email cascading to requests/sessions, edit name, create, delete with their requests) and requests (edit book/link, Fulfill, Request Fulfilled, Reject with reason, Delete) with the same emails/embeds as Discord. Admins land on `/admin` → `/admin/users`; no admin button is shown on the regular page. Admin is split into `/admin/users` and `/admin/requests` with a fixed **72px icon sidebar**.
 - **Topbar buttons:** "Create account" → `https://audio.theruvial.com/signup` and "Sign in to Audiobookshelf" → `https://audio.theruvial.com/login`, next to "New Request +". She has not said whether she wants only one.
 
@@ -273,6 +274,12 @@ Nginx host: Ubuntu, `thea-ubuntu-server`, all sites in `/etc/nginx/sites-availab
 ## 12. Change log
 
 Newest first. One dated entry per working day, by the agent that did the work.
+
+### 2026-11-14 — Claude Code (Sonnet 5.5), requests site security
+
+- **Admin only from the home network** and **invite code to create an account** on the requests site (see §4, "Public-site security"). New `cogs/audiobooks_access.py` (pure rules), changes in `cogs/audiobooks_web.py`, new keys in `config.example.json`. The invite code is read only from `config.json`; nothing in the repo contains it.
+- **Same invite code on the Audiobookshelf signup** in the separate absLogin repo (branch `feature/invite-code`).
+- **Tests:** `tests/test_audiobooks_security.py` (19 tests); full suite 271 passing. **Not tested:** behind the real nginx. Check that nginx sends `X-Forwarded-For`, then try the admin page from a phone on mobile data (should be refused) and from home (should work).
 
 ### 2026-11-11 — Claude Code (Sonnet 5.5), portfolio redesign
 

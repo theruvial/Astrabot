@@ -19,6 +19,9 @@
         "web_host": "0.0.0.0",
         "web_port": 13380,
         "db_path": "audiobooks.db",
+        "invite_code": "",
+        "trusted_proxies": [],
+        "admin_networks": [],
         "admin_user_ids": [],
         "torrents": {
             "enabled": false,

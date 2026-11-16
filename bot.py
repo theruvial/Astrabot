@@ -6,23 +6,13 @@ import os
 import sqlite3
 import certifi
 from config import config
+from startup_cogs import extensions_from_config
 
 os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 
-startup_extensions = [
-    # "cogs.roles",
-    # "cogs.points",
-    "cogs.moderation",
-    # "cogs.gambling",
-    # "cogs.shop",
-    # "cogs.pet",
-    "cogs.tasks",
-    "cogs.clip",
-    "cogs.audiobooks",
-    "cogs.wiki",
-    "cogs.portfolio",
-    "cogs.selfupdate",
-]
+# Which cogs load is decided by the "cogs" list in config.json (see
+# startup_cogs.py), so enabling one never needs a code change.
+startup_extensions = extensions_from_config(config)
 
 class Astrabot(commands.Bot):
     def __init__(self):

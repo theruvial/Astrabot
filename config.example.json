@@ -10,6 +10,7 @@
     "savedClipsChannel": 0,
     "cookiesFile": "cookies.txt",
     "db": "thi.db",
+    "cogs": ["moderation", "tasks", "clip", "audiobooks", "wiki", "portfolio", "selfupdate"],
     "updates": 0,
     "rolesMessageID": 0,
     "updatesEmojiID": 0,

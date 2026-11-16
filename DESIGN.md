@@ -219,6 +219,8 @@ Full behaviour is in `docs/README_tasks.md`, and the classifier is documented in
 
 ## 8. Cogs inventory
 
+**Which cogs load is decided by the `"cogs"` list in `config.json`** (2026-11-16), e.g. `"cogs": ["moderation", "tasks", "audiobooks"]`. Short (`tasks`) and full (`cogs.tasks`) names both work. No `"cogs"` key means the defaults in `startup_cogs.py`; an empty list loads nothing; bad entries are skipped with a warning. `bot.py` no longer has a cog list, so the host never needs a local `bot.py` edit again and the self-updater's pull never conflicts over it. The Status column below describes the host's own config, not the repo. Changing the list needs a bot restart (or `/reloadcog` for a cog that is already loaded).
+
 | Cog | Status | Notes |
 |---|---|---|
 | `cogs.audiobooks` | Loaded | Main feature (§4). Only slash command: `/email_user` |
@@ -227,9 +229,9 @@ Full behaviour is in `docs/README_tasks.md`, and the classifier is documented in
 | `cogs.selfupdate` | Loaded (2026-11-05) | `/check_updates` (§6) |
 | `cogs.portfolio` | Loaded | Serves theruvial.com on port 13384 from the CV in the `theruvial/theruvial` repo (`cv/Thea_Arcadia_CV_full.md`). Polls every 10 minutes, checks the safety rules in `cogs/portfolio_cv.py`, DMs the owner (`cogs/owner.py`) an Approve/Reject preview, and rebuilds the page from the approved CV on every start. Layout (hero, project cards, skill chips, timeline) is `cogs/portfolio_render.py` plus the template `cogs/portfolio_page.html`; CV text is always escaped first. Live files are untracked: `data/portfolio_*`. Config keys are in the cog's docstring |
 | `cogs.music` | Removed from `startup_extensions` | Streaming music/clip code exists in repo history; host `bot.py` has clip commented out |
-| `cogs.clip` | Commented out on host | See host divergence (§2) |
-| `cogs.tasks` | Loaded on the host only (local `bot.py` line) | Reads #astra-feedback, posts to #todo and #human-intervention (§5a) |
-| `cogs.roles`, `points`, `gambling`, `shop`, `pet` | Commented out in repo `bot.py` | Legacy 2021 cogs, not loaded |
+| `cogs.clip` | Off on host (not in its `"cogs"` list) | See host divergence (§2) |
+| `cogs.tasks` | Loaded when listed in `"cogs"` | Reads #astra-feedback, posts to #todo and #human-intervention (§5a) |
+| `cogs.roles`, `points`, `gambling`, `shop`, `pet` | Off unless listed in `"cogs"` | Legacy 2021 cogs, not loaded |
 
 ---
 
@@ -274,6 +276,11 @@ Nginx host: Ubuntu, `thea-ubuntu-server`, all sites in `/etc/nginx/sites-availab
 ## 12. Change log
 
 Newest first. One dated entry per working day, by the agent that did the work.
+
+### 2026-11-16 — Claude Code (Sonnet 5.5), cogs chosen by config
+
+- **Loaded cogs now come from `config.json`** (`"cogs"` list) via new `startup_cogs.py`; the hard-coded `startup_extensions` list in `bot.py` is gone. Turning a cog on or off is a config edit, not a commit. New key in `config.example.json`; tests in `tests/test_startup_cogs.py`; full suite 279 passing.
+- **Host needs:** add a `"cogs"` list to its `config.json` (without one it gets the repo defaults, which include `clip`, currently off on the host), then restart. After that, the host's local `bot.py` edit can be discarded (`git checkout bot.py`) so the self-updater can pull it.
 
 ### 2026-11-14 — Claude Code (Sonnet 5.5), requests site security
 

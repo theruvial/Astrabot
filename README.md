@@ -7,7 +7,7 @@ Built with Python and discord.py 2.x, with SQLite for storage (PostgreSQL until 
 ## A bit of history
 
 - **2019–2021: written by hand.** I wrote the original bot myself, before AI coding tools existed. It had reaction roles, a points economy with gambling and a shop, a tasks system and Trello integration. The economy is an append-only ledger: every movement of currency is recorded, and balances are worked out from the ledger rather than stored and overwritten. The role system uses parameterized SQL, including a window-function query that dedupes emoji-to-role mappings.
-- **2026: designed by me, built with AI help.** I came back to the bot in 2026, ported it to discord.py 2.x slash commands, moved it from PostgreSQL to SQLite and added everything in the "What it does now" section. I designed those features and directed AI coding tools to build them.
+- **2026: designed by me, built with AI help.** I came back to the bot in 2026, ported it to discord.py 2.x slash commands, moved it from PostgreSQL to SQLite and added everything in the "What it does now" section. I designed those features and orchestrated AI coding tools to build them.
 
 ## What it does now
 
@@ -24,9 +24,11 @@ Built with Python and discord.py 2.x, with SQLite for storage (PostgreSQL until 
 - An admin-only dashboard, and `/email_user` for messaging a user.
 - Details: [docs/AUDIOBOOKS.md](docs/AUDIOBOOKS.md).
 
-### Audio clips
+### Music and audio clips
+- `/play` queues music from YouTube, YouTube Music, SoundCloud or Spotify, with `/skip`, `/queue`, `/nowplaying`, `/volume`, `/pause`, `/resume`, `/stop` and `/leave`.
 - `/clip` streams a section of a track into your voice channel.
 - `/sclip` saves a clip and posts it to the saved-clips channel, and `/cplay` plays a saved clip.
+- Age-restricted videos need YouTube cookies: see [docs/YOUTUBE_COOKIES.md](docs/YOUTUBE_COOKIES.md).
 
 ### Aboard the Astra wiki
 - `/wiki` sends the mechanics wiki for the game my team is making, as a single HTML file. It fetches a fresh copy from the wiki backend using a shared secret, and falls back to a bundled copy if the backend is down.
@@ -44,14 +46,14 @@ Built with Python and discord.py 2.x, with SQLite for storage (PostgreSQL until 
 
 ## Still in the code, currently switched off
 
-These are mostly the original hand-written features. They're still in the repo but not loaded in `bot.py` right now:
+These are mostly the original hand-written features. They're still in the repo but not loaded right now. Which cogs load is set by the `"cogs"` list in `config.json`:
 
 - **Reaction roles:** `/maprole`, `/roles`, `/roleall`.
 - **Points and economy:** XP and Astrabucks per message, `/exp` and `/award`.
 - **Gambling:** `/slots`, `/jackpot`, `/pool` and `/giftbucks`.
 - **Role shop:** buy roles with Astrabucks; `/addpaidrole` adds them.
-- **Music player:** `/play`, `/skip` and `/queue`, streaming from YouTube, YouTube Music, SoundCloud or Spotify.
 - **Pets:** a pet that gains XP and HP as you chat (never finished).
+- **Houses:** Fire Emblem house roles, `/assign`, `/apply` and `/broadcast`.
 
 ## Running it
 
@@ -73,4 +75,4 @@ The tests cover the tasks cog, audiobooks, the library and torrent watchers, sel
 
 ## Project notes
 
-[DESIGN.md](DESIGN.md) is the running record of how everything fits together, for me and for the AI agents that work on the bot.
+[DESIGN.md](DESIGN.md) is the running record of how everything fits together, for me and for the AI agents that work on the bot. Agents start there ([AGENTS.md](AGENTS.md), [CLAUDE.md](CLAUDE.md)).

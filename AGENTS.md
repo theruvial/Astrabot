@@ -9,7 +9,8 @@ This file is for any model or coding tool (Claude, Codex, Copilot, Gemini, Curso
    direction. Treat it as your own earlier work.
 3. Follow the rules in DESIGN.md section 0 (ask before merges, pushes and pull
    requests; never record or commit secrets; keep the git-ignored files ignored).
-4. When you finish work for the day, update DESIGN.md: fix sections 0-13 in place and
-   add a dated entry at the top of section 14 (change log).
+4. Update DESIGN.md after every change, finished or still in progress (not at the end
+   of the day): fix sections 0-13 in place and add a dated entry at the top of
+   section 14 (change log) saying what changed, its state and its branch.
 
 Claude-specific notes are in [CLAUDE.md](CLAUDE.md); they say the same thing.

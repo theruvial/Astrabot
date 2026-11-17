@@ -20,7 +20,7 @@ See §1.3 for a file-by-file authorship table.
 - **Branches:** do work in a worktree on a feature branch (`git worktree add -b feature/x .claude/worktrees/x master`), fast-forward merge into `master` only after Thea says so, push only after Thea says so, then delete the branch and worktree.
 - **Never record or repeat credentials** (bot token, API keys, SMTP password, invite code, cookies). Their *names* and *where they live* are fine; values never. The invite code and every secret are read from config or env, never hard-coded.
 - **Never commit** `config.json`, `console.json`, `cookies.txt`, `*.db`, `logs/`, `data/`. All are git-ignored; keep it that way.
-- **Keep this file current.** At the end of each working day, or when asked: fix anything that changed in place in §1–13, and add a dated entry at the top of §14 (date, agent and model, what changed, what was tested and what was not). The same rule is in `CLAUDE.md` and `AGENTS.md`.
+- **Keep this file current **after every change, finished or still in progress**, not at the end of the day. A change that is half done, on a branch, unmerged or abandoned still gets recorded, with its state (Thea, 2026-11-17).** Each time: fix anything that changed in place in §1–13, and add a dated entry at the top of §14 (date, agent and model, what changed, what was tested and what was not). The same rule is in `CLAUDE.md` and `AGENTS.md`.
 - **Thea's preferences:** military time in replies; shell instructions as copyable code blocks (PowerShell on the host); web UIs dark by default; plain, direct wording.
 - **Python on the host is `py -3.14`.** Plain `python` is a different install without discord.py. Never suggest `pip install` into the wrong one.
 - **Repo files use CRLF line endings.** Preserve them when editing.
@@ -401,13 +401,14 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 ## 14. Change log
 
-Newest first. One dated entry per working day, by the agent that did the work.
+Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
 
 ### 2026-11-17 — Claude Code (Opus 5.5), full design review
 
 - **Rewrote §0–13 of this file after reading every file in the repo.** New: an agents' read-me-first section with the authorship note (agents wrote most code since 2026-10-29, so treat it as your own), a file-by-file authorship table, a repo map, the startup sequence, a full config and env reference, a data-store table, a section for every cog including music, clip and each legacy cog, and current open items. Removed stale Muse-era notes (the `~/workspace` staging paths, the snapshot-push GitHub flow, the host `bot.py` divergence, the old known-failing tests, which now pass). Section numbers changed: the change log is now §14.
 - Added `AGENTS.md` (for non-Claude tools) pointing at this file, updated `CLAUDE.md` to match, and corrected the README's cog list (music and clip are loaded; cogs are chosen in `config.json`).
 - Tests: 282 passing. No code changed.
+- **Update rule changed (Thea):** this file is now updated after every change, finished or in progress, instead of at the end of each day (§0, `CLAUDE.md`, `AGENTS.md`).
 
 ### 2026-11-17 — Claude Code (Sonnet 5.5), YouTube cookies for music/clip
 

@@ -229,7 +229,7 @@ Full behaviour is in `docs/README_tasks.md`, and the classifier is documented in
 | `cogs.selfupdate` | Loaded (2026-11-05) | `/check_updates` (§6) |
 | `cogs.portfolio` | Loaded | Serves theruvial.com on port 13384 from the CV in the `theruvial/theruvial` repo (`cv/Thea_Arcadia_CV_full.md`). Polls every 10 minutes, checks the safety rules in `cogs/portfolio_cv.py`, DMs the owner (`cogs/owner.py`) an Approve/Reject preview, and rebuilds the page from the approved CV on every start. Layout (hero, project cards, skill chips, timeline) is `cogs/portfolio_render.py` plus the template `cogs/portfolio_page.html`; CV text is always escaped first. Live files are untracked: `data/portfolio_*`. Config keys are in the cog's docstring |
 | `cogs.music` | Removed from `startup_extensions` | Streaming music/clip code exists in repo history; host `bot.py` has clip commented out |
-| `cogs.clip` | Off on host (not in its `"cogs"` list) | See host divergence (§2) |
+| `cogs.clip` | Loaded when listed in `"cogs"` | `/clip`, `/sclip`, `/cplay`. Uses `cogs.music` helpers. YouTube login cookies: `docs/YOUTUBE_COOKIES.md` |
 | `cogs.tasks` | Loaded when listed in `"cogs"` | Reads #astra-feedback, posts to #todo and #human-intervention (§5a) |
 | `cogs.roles`, `points`, `gambling`, `shop`, `pet` | Off unless listed in `"cogs"` | Legacy 2021 cogs, not loaded |
 
@@ -276,6 +276,12 @@ Nginx host: Ubuntu, `thea-ubuntu-server`, all sites in `/etc/nginx/sites-availab
 ## 12. Change log
 
 Newest first. One dated entry per working day, by the agent that did the work.
+
+### 2026-11-17 — Claude Code (Sonnet 5.5), YouTube cookies for music/clip
+
+- **`scripts/export_youtube_cookies.py`** copies only the YouTube and Google cookies from a signed-in browser (Firefox by default) into `cookies.txt` (`cookiesFile` in `config.json`), then does a test lookup. Guide: `docs/YOUTUBE_COOKIES.md`. `cookies.txt` is now git-ignored (it was not before). The music cog reads it fresh on every lookup, so no restart is needed after a refresh.
+- `cogs/music.py` now falls back to Node when Deno is not installed (this host has Node, no Deno).
+- Checked 2026-11-17: normal videos already resolved without cookies from the host's IP; cookies matter for age-restricted videos and bot checks. Not tested: playing audio in a voice channel.
 
 ### 2026-11-16 — Claude Code (Sonnet 5.5), cogs chosen by config
 

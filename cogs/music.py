@@ -221,6 +221,9 @@ def get_js_runtimes() -> Optional[dict]:
             deno_path = None
     if deno_path:
         return {"deno": {"path": deno_path}}
+    node_path = shutil.which("node")        # yt-dlp can solve YouTube's challenge with Node too
+    if node_path:
+        return {"node": {"path": node_path}}
     return None
 
 
@@ -395,7 +398,7 @@ YTDL_PLAYLIST_OPTS = {
 }
 
 if resolve_cookies_file():
-    log(f"Found YouTube cookies at {resolve_cookies_file()} (JS runtime: {'Deno' if JS_RUNTIMES else 'none'})")
+    log(f"Found YouTube cookies at {resolve_cookies_file()} (JS runtime: {next(iter(JS_RUNTIMES)) if JS_RUNTIMES else 'none'})")
 
 SPOTIFY_URL_REGEX = re.compile(
     r"(?:https?://open\.spotify\.com/(?:intl-[a-zA-Z-]+/)?|spotify:)(track|album|playlist)[:/]([a-zA-Z0-9]+)"

@@ -230,7 +230,7 @@ Full user-facing spec: `docs/AUDIOBOOKS.md`.
 **Request lifecycle:** `Requested` → (Fulfill, torrent match, or watcher intake) → `In Progress` → (Request Fulfilled, or library match) → `Fulfilled`. The library match also closes a row still `Requested` straight to `Fulfilled` (one email). Reject and cancel hard-delete the row. Every step emails the requester, except the watcher intake's move to In Progress (no email, by Thea's choice) (SMTP, `audiobooks_notify.py`; Gmail needs an app password). If email fails, the admin is told; it never pretends it was sent.
 
 **Discord side (`audiobooks.py`):**
-- Requests post as embeds in the dedicated channel `request_channel_id`. **On every cog load the channel is cleared and one embed per non-fulfilled row is re-posted, oldest first.** Nothing else belongs in that channel.
+- Requests post as embeds in the dedicated channel `request_channel_id`. **On every cog load the channel is reconciled in place (since 2026-11-20; it used to be wiped and re-posted):** posts of open requests stay and are edited only if they differ from the row, missing ones are posted, everything else is deleted (`plan_resync`, `resync_channel`). Buttons survive restarts as persistent views routed by message ID. Nothing else belongs in that channel.
 - Persistent views: `Fulfill Request` + `Reject Request`; after Fulfill, `Request Fulfilled` + `Reject`. Fulfilled deletes the post. Reject opens a modal with an optional reason (≤500 chars); the email uses the original wording verbatim ("Request Rejected for {book} Speak to Thea for more information") plus "\n\nReason: ..." if given.
 - Admin = `admin_user_ids`, or guild owner, or `Bot.is_owner()`.
 - `/email_user` (admin, private guild only): requester autocomplete "FirstName (email)", message sent exactly as typed, subject default "A message from Thea"; an ambiguous first name is refused.
@@ -407,6 +407,13 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 ## 14. Change log
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
+
+### 2026-11-20 — Claude Code (Opus 5.5), requests channel synced in place (branch `feature/resync-in-place`)
+
+- **Why:** Thea asked why the audiobook channel was still wiped and re-posted on every cog load (including self-update hot reloads) when the buttons already survive restarts. Now it works like the tasks board: posts stay.
+- `cogs/audiobooks.py`: pure `plan_resync(message_ids, rows, channel_id)` → (delete, check, post); `embed_signature`, `message_buttons`, `view_buttons` to skip edits when nothing changed; `resync_channel` rewritten to keep, edit, post and delete. `docs/AUDIOBOOKS.md` updated.
+- Tests: new `tests/test_audiobook_resync.py`. Not tested against real Discord yet (first real run is the next restart; its log line gives kept/updated/posted/deleted counts).
+- State: on branch `feature/resync-in-place`, not merged.
 
 ### 2026-11-20 — Claude Code (Opus 5.5), retroactive request check, ASIN titles, camelCase authors (branch `fix/camelcase-authors`)
 

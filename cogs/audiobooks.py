@@ -138,6 +138,59 @@ def build_embed(row: dict) -> discord.Embed:
     return embed
 
 
+OPEN_STATUSES = ("Requested", "In Progress")
+
+
+def plan_resync(message_ids: list[int], rows: list[dict], channel_id: int):
+    """Decide what the restart resync does, without touching Discord.
+
+    ``message_ids`` are the messages now in the requests channel, ``rows``
+    the database rows (newest first, as ``list_requests`` returns them).
+    Returns ``(delete, check, post)``:
+
+    - ``delete``: message IDs that belong to no open request (fulfilled,
+      rejected, cancelled, deleted rows, or anything else in the channel);
+    - ``check``: ``(message_id, row)`` pairs whose post is still there and
+      only needs editing if it no longer matches the row;
+    - ``post``: open rows, oldest first, whose post is missing.
+    """
+    open_rows = [r for r in reversed(rows) if r.get("status") in OPEN_STATUSES]
+    owned: dict[int, dict] = {}
+    for row in open_rows:
+        mid, cid = row.get("discordMessageId"), row.get("discordChannelId")
+        if mid and str(cid) == str(channel_id) and str(mid).isdigit():
+            owned[int(mid)] = row
+
+    delete = [m for m in message_ids if m not in owned]
+    check = [(m, owned[m]) for m in message_ids if m in owned]
+    kept = {id(row) for _, row in check}
+    post = [row for row in open_rows if id(row) not in kept]
+    return delete, check, post
+
+
+def embed_signature(embed: dict | None):
+    """The parts of an embed the resync compares (title, colour, fields, footer)."""
+    if not embed:
+        return None
+    return (embed.get("title"), embed.get("color"),
+            tuple((f.get("name"), f.get("value")) for f in embed.get("fields") or []),
+            (embed.get("footer") or {}).get("text"))
+
+
+def message_buttons(message) -> list[tuple]:
+    """(custom_id, disabled) of every button on a posted message."""
+    out = []
+    for row in getattr(message, "components", None) or []:
+        for child in getattr(row, "children", None) or []:
+            out.append((getattr(child, "custom_id", None), bool(getattr(child, "disabled", False))))
+    return out
+
+
+def view_buttons(view) -> list[tuple]:
+    return [(getattr(item, "custom_id", None), bool(getattr(item, "disabled", False)))
+            for item in view.children]
+
+
 class _RequestView(discord.ui.View):
     """Buttons shown while a request is still Requested."""
 
@@ -527,60 +580,67 @@ class Audiobooks(commands.Cog):
         return False
 
     async def resync_channel(self) -> None:
-        """Clear the requests channel and re-post every DB request.
+        """Bring the requests channel in line with the database, in place.
 
-        Runs on every bot start (see ``cog_load``). The channel is
-        treated as dedicated to audiobook requests: every message in
-        it is deleted first, then one embed per database row is posted
-        oldest-first, with buttons matching its current status:
+        Runs on every cog load (bot start and hot reloads). Since
+        2026-11-20 it no longer wipes and re-posts the channel; like the
+        tasks board, posts stay put and keep working (the buttons are
+        persistent views, routed by message ID):
 
-        - ``Requested``   -> Fulfill Request + Reject Request, enabled
-        - ``In Progress`` -> Request Fulfilled + Reject Request, enabled
-        - ``Fulfilled``   -> not re-posted: fulfilling deletes the message
-        - ``Cancelled``   -> Fulfill Request + Reject Request, disabled
+        - a post whose request is still open (Requested or In Progress)
+          is kept, and edited only if its embed or buttons no longer
+          match the row (for example a title fixed in the database, or a
+          status changed while the bot was down);
+        - an open request with no post in the channel gets a new one,
+          oldest first, and the new message ID is stored on the row;
+        - any other message (fulfilled, rejected or cancelled requests,
+          anything else) is deleted. The channel is still dedicated to
+          these posts.
 
-        Each new message ID is stored back on its row, so button clicks
-        on the re-posted embeds route to the right request. If the
-        channel is not configured or cannot be reached, this logs and
-        returns -- it must never stop the bot or the web UI starting.
+        If the channel is not configured or cannot be reached, this logs
+        and returns. It must never stop the bot or the web UI starting.
         """
         channel = await self._get_channel()
         if channel is None:
             return
-        # Clear: delete one by one (bulk purge fails on messages older
-        # than 14 days, and this channel is expected to be small).
         try:
-            async for message in channel.history(limit=None):
-                try:
-                    await message.delete()
-                except Exception as exc:  # noqa: BLE001
-                    log.warning("Could not delete channel message %s: %s",
-                                getattr(message, "id", "?"), exc)
+            messages = [m async for m in channel.history(limit=None)]
         except Exception as exc:  # noqa: BLE001
-            log.warning("Could not clear audiobook channel: %s", exc)
+            log.warning("Could not read the audiobook channel: %s", exc)
             return
-        rows = self.db.list_requests()
-        # list_requests is newest-first; post oldest-first so the
-        # channel reads chronologically. Cancelled rows are never
-        # re-posted: a cancelled request is deleted (see the website
-        # cancel flow), and any legacy Cancelled rows are simply gone
-        # from the channel after a restart, since it is cleared first.
-        count = 0
-        for row in reversed(rows):
-            status = row["status"]
-            if status in ("Cancelled", "Fulfilled"):
-                continue
-            if status == "In Progress":
-                view = view_for_status(self, "In Progress")
-            else:
-                view = view_for_status(self, "Requested")
+        by_id = {m.id: m for m in messages}
+        delete, check, post = plan_resync(list(by_id), self.db.list_requests(), channel.id)
+        deleted = edited = posted = 0
+        # Delete one by one: bulk purge fails on messages older than 14 days.
+        for message_id in delete:
             try:
-                message = await channel.send(embed=build_embed(row), view=view)
-                self.db.set_discord_message(row["id"], message.id, channel.id)
-                count += 1
+                await by_id[message_id].delete()
+                deleted += 1
             except Exception as exc:  # noqa: BLE001
-                log.warning("Could not re-post request %s: %s", row["id"], exc)
-        log.info("Audiobook channel resynced: %s request(s) re-posted.", count)
+                log.warning("Could not delete channel message %s: %s", message_id, exc)
+        for message_id, row in check:
+            message = by_id[message_id]
+            embed = build_embed(row)
+            view = view_for_status(self, row["status"])
+            have_embed = message.embeds[0].to_dict() if getattr(message, "embeds", None) else None
+            if (embed_signature(have_embed) == embed_signature(embed.to_dict())
+                    and message_buttons(message) == view_buttons(view)):
+                continue
+            try:
+                await message.edit(embed=embed, view=view)
+                edited += 1
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Could not update the post for request %s: %s", row["id"], exc)
+        for row in post:
+            try:
+                message = await channel.send(embed=build_embed(row),
+                                             view=view_for_status(self, row["status"]))
+                self.db.set_discord_message(row["id"], message.id, channel.id)
+                posted += 1
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Could not post request %s: %s", row["id"], exc)
+        log.info("Audiobook channel resynced: %s kept, %s updated, %s posted, %s deleted.",
+                 len(check) - edited, edited, posted, deleted)
 
     async def cog_load(self) -> None:
         # Persistent views: register before any interaction is dispatched.

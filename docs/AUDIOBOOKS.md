@@ -184,18 +184,19 @@ run-book for the feature; the design document is the full spec.
   that backs the database up first (`audiobooks.db.pre-author-*.bak`).
   `scripts/backfill_audiobook_titles.py` fixes older rows: dry run by
   default, `--apply` backs up and saves.
-- **Restart resync (2026-10-29):** every time the bot starts, the cog
-  clears the requests channel completely and re-posts one embed per
-  database row, oldest first, with buttons matching its status
-  (Requested: Fulfill + Reject enabled; In Progress: Request
-  Fulfilled + Reject enabled). Fulfilled and Cancelled requests are
-  not re-posted (Fulfilled since 2026-11-09). New message IDs
-  are stored back on each row, so clicks on the re-posted embeds work.
-  Treat that channel as dedicated to these embeds — anything else in
-  it is deleted on restart. The bot needs permission to read, send,
-  and manage messages in that channel. If the channel cannot be
-  reached at startup, the resync logs a warning and the bot and web
-  UI still start; the next restart will resync.
+- **Restart resync (2026-10-29, in place since 2026-11-20):** every time
+  the cog loads (bot start or hot reload) it brings the requests channel
+  in line with the database without wiping it, like the tasks board.
+  A post whose request is still Requested or In Progress stays and is
+  edited only if its embed or buttons no longer match (a corrected title,
+  a status changed while the bot was down). An open request with no post
+  gets one, oldest first, and its message ID is stored on the row.
+  Everything else in the channel (fulfilled, rejected or cancelled posts,
+  stray messages) is deleted, so treat the channel as dedicated to these
+  embeds. Buttons keep working across restarts because they are
+  persistent views routed by message ID. The bot needs permission to
+  read, send and manage messages there. If the channel cannot be reached,
+  the resync logs a warning and the bot and web UI still start.
 
 ## Files
 

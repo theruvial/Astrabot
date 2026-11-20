@@ -69,6 +69,18 @@ class MatchTests(unittest.TestCase):
 
     def test_bare_audible_id_never_matches(self):
         self.assertFalse(match_torrent(req(1, "B0CLD8MBT6"), tor(1, "B0CLD8MBT6")))
+        # Publisher ASINs look like ISBN-10s.
+        self.assertFalse(match_torrent(req(1, "0062977776"), tor(1, "0062977776")))
+        self.assertFalse(match_torrent(req(1, "006295637X"), tor(1, "006295637X")))
+
+    def test_camelcase_author_folder_counts_as_the_author(self):
+        # The watcher's author folders, shown by Audiobookshelf before its metadata match.
+        self.assertTrue(match_torrent(req(1, "Twice", "Lynsay Sands"),
+                                      tor(1, "Twice lynsaySands")))
+        self.assertTrue(match_torrent(req(1, "Outland", "Dennis E. Taylor"),
+                                      tor(1, "Outland dennisETaylor")))
+        self.assertFalse(match_torrent(req(1, "Twice", "Lynsay Sands"),
+                                       tor(1, "Twice janeDoeWriter")))
 
     def test_torrent_added_long_before_request_is_ignored(self):
         old = T_NOW - 7 * 86400

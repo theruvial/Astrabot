@@ -42,6 +42,11 @@ class MatchTests(unittest.TestCase):
             req(1, "The Ever King", "LJ Andrews"),
             item("a", "The Ever King", "L.J. Andrews")))
 
+    def test_a_camelcase_folder_author_still_matches(self):
+        # One-word title: only the surname check can match it.
+        self.assertTrue(match_library_item(
+            req(1, "Hungry", "Lynsay Sands"), item("a", "Hungry", "lynsaySands")))
+
     def test_a_different_book_does_not(self):
         self.assertFalse(match_library_item(
             req(1, "The Ever King", "LJ Andrews"),

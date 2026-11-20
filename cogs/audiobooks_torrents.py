@@ -103,9 +103,19 @@ class TransmissionClient:
 _SERIES_NUMBER_RE = re.compile(r"\b(book|vol|volume|part)\.?\s*#?\d+\b", re.IGNORECASE)
 
 
+# camelCase boundaries: "lynsaySands" -> "lynsay Sands", "dennisETaylor" ->
+# "dennis E Taylor". The watcher names author folders this way, and
+# Audiobookshelf shows the folder name as the author until it has matched
+# the book's metadata (2026-11-20).
+_CAMEL_RE = re.compile(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+# A bare Audible ID: "B0..." or an ISBN-10-shaped one ("0062977776").
+_ASIN_RE = re.compile(r"b[0-9a-z]{9}|[0-9]{9}[0-9x]")
+
+
 def tokens(text: str) -> list[str]:
-    """Lowercase words, punctuation removed, accents left alone."""
-    return re.findall(r"[a-z0-9]+", str(text or "").lower().replace("'", ""))
+    """Lowercase words, punctuation removed, camelCase split, accents left alone."""
+    spaced = _CAMEL_RE.sub(" ", str(text or ""))
+    return re.findall(r"[a-z0-9]+", spaced.lower().replace("'", ""))
 
 
 def _title_tokens(title: str) -> list[str]:
@@ -142,7 +152,7 @@ def match_torrent(row: dict, torrent: dict) -> bool:
     if not want:
         return False
     # A bare Audible ID is not a title. Wait for a real one.
-    if re.fullmatch(r"b[0-9a-z]{9}", "".join(want)):
+    if _ASIN_RE.fullmatch("".join(want)):
         return False
     name_text = _SERIES_NUMBER_RE.sub(" ", str(torrent.get("name") or ""))
     name = [w for w in tokens(name_text) if w not in NOISE]

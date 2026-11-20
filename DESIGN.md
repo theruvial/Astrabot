@@ -399,7 +399,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 7. Possible cleanups: tighten intents; add tests for music/clip/moderation; a `requirements.txt`; the old fallback `cogs/portfolio.html` still says "directed".
 8. Two bot "web UI listening" lines 16 s apart were seen in `logs/bot.log` on 2026-11-17 09:58; not investigated (possible double start or reload).
 9. Dragonwilds server build choice (newer 26419371 vs old 26161880) is open (see `docs/HANDOFF-2026-11-10.md`).
-10. **Watcher intake (branch `feature/watcher-intake`, 2026-11-20):** bot side built, tested and merged; not deployed. Still to do: the watcher on the Ubuntu server must send `POST /intake/books` (contract in `docs/WATCHER_INTAKE.md`; that work belongs to the server session); set `AUDIOBOOKS_INTAKE_SECRET` on the PC and the watcher; allow inbound TCP 13385 from 192.168.4.74 in Windows Firewall; enable `audiobooks.intake` with dry run first.
+10. **Watcher intake (branch `feature/watcher-intake`, 2026-11-20):** bot side built, tested and merged. **Host setup 2026-11-20:** `AUDIOBOOKS_INTAKE_SECRET` set as a Windows user environment variable (random 64 hex chars); the same value is in `codingShit/intakeSecret.txt` on the Drive (next to `absAPIKey.txt`, outside the repo) for the watcher to read; host `config.json` has `audiobooks.intake` enabled with `dry_run: true`. Still to do: Thea adds the Windows Firewall rule (inbound TCP 13385 from 192.168.4.74 only); restart the console so the bot sees the new variable; the watcher on the Ubuntu server must send `POST /intake/books` with that secret (contract in `docs/WATCHER_INTAKE.md`; server session's job); then turn dry run off.
 11. **Request-time matching (decided 2026-11-20, not built):** when a request is made, look the book up in canonical metadata to fix title/author/series, and warn if it is already in Audiobookshelf or already requested. Series requests stay website-only: Thea said the Discord side is for her, so no Discord request command.
 
 ---
@@ -407,6 +407,11 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 ## 14. Change log
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
+
+### 2026-11-20 — Claude Code (Opus 5.5), intake secret on the host
+
+- Generated the watcher intake secret and stored it as the user environment variable `AUDIOBOOKS_INTAKE_SECRET` and in `codingShit/intakeSecret.txt` on the Drive for the Ubuntu watcher (value never printed or recorded). Added `audiobooks.intake` (enabled, dry run) to the host `config.json` (backup `config.json.bak`). Firewall rule and console restart left to Thea (§13 item 10).
+- State: doc change on branch `docs/intake-setup`.
 
 ### 2026-11-20 — Claude Code (Opus 5.5), watcher intake (branch `feature/watcher-intake`)
 

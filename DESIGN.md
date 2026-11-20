@@ -413,7 +413,7 @@ Newest first. One dated entry per change (finished or in progress; say which, an
 - **Why:** Thea asked why the audiobook channel was still wiped and re-posted on every cog load (including self-update hot reloads) when the buttons already survive restarts. Now it works like the tasks board: posts stay.
 - `cogs/audiobooks.py`: pure `plan_resync(message_ids, rows, channel_id)` → (delete, check, post); `embed_signature`, `message_buttons`, `view_buttons` to skip edits when nothing changed; `resync_channel` rewritten to keep, edit, post and delete. `docs/AUDIOBOOKS.md` updated.
 - Tests: new `tests/test_audiobook_resync.py`. Not tested against real Discord yet (first real run is the next restart; its log line gives kept/updated/posted/deleted counts).
-- State: on branch `feature/resync-in-place`, not merged.
+- State: merged into master and pushed (2026-11-20). Live after the next console restart.
 
 ### 2026-11-20 — Claude Code (Opus 5.5), retroactive request check, ASIN titles, camelCase authors (branch `fix/camelcase-authors`)
 

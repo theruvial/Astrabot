@@ -53,7 +53,7 @@ import os
 from typing import Mapping
 
 from .audiobooks_access import PROXY_HEADERS, parse_ip
-from .audiobooks_torrents import match_torrent
+from .audiobooks_torrents import match_title_exact
 
 log = logging.getLogger("audiobooks.intake")
 
@@ -127,11 +127,11 @@ def parse_payload(raw: object) -> tuple[dict | None, str | None]:
 def match_book(row: dict, book: dict) -> bool:
     """True when this filed book is the one the request asked for.
 
-    Same strict rule as torrents and the library: every title word of
-    the request is in the book's title, and the author agrees. The date
-    check is skipped (the watcher only sends books it is filing now).
+    Same exact rule as the library (``match_title_exact``): the titles
+    have the same words and the author agrees. No date check (the watcher
+    only sends books it is filing now).
     """
-    return match_torrent(row, {"name": f"{book.get('title') or ''} {book.get('author') or ''}"})
+    return match_title_exact(row, book.get("title") or "", book.get("author") or "")
 
 
 def plan_links(requests: list[dict], books: list[dict], torrent_hash: str) -> list[dict]:

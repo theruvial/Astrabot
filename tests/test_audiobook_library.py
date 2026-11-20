@@ -47,6 +47,24 @@ class MatchTests(unittest.TestCase):
         self.assertTrue(match_library_item(
             req(1, "Hungry", "Lynsay Sands"), item("a", "Hungry", "lynsaySands")))
 
+    def test_a_longer_title_by_the_same_author_does_not(self):
+        self.assertFalse(match_library_item(
+            req(1, "Twice", "Lynsay Sands"), item("a", "Twice Bitten", "lynsaySands")))
+        self.assertFalse(match_library_item(
+            req(1, "Dune", "Frank Herbert"), item("a", "Dune Messiah", "Frank Herbert")))
+
+    def test_series_brackets_and_book_numbers_are_ignored(self):
+        self.assertTrue(match_library_item(
+            req(1, "The Ever King (The Ever Seas, #1)", "LJ Andrews"),
+            item("a", "The Ever King", "L.J. Andrews")))
+        self.assertTrue(match_library_item(
+            req(1, "Love Bites", "Lynsay Sands"),
+            item("a", "Love Bites [Unabridged]", "Lynsay Sands")))
+
+    def test_same_title_by_someone_else_does_not(self):
+        self.assertFalse(match_library_item(
+            req(1, "The Gift", "Lynsay Sands"), item("a", "The Gift", "Cecelia Ahern")))
+
     def test_a_different_book_does_not(self):
         self.assertFalse(match_library_item(
             req(1, "The Ever King", "LJ Andrews"),

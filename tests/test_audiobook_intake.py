@@ -113,6 +113,11 @@ class PlanTests(unittest.TestCase):
         self.assertEqual([r["status"] for r in plan_links(
             [req(1, "Love Bites", "Lynsay Sands")], two_books, HASH)], ["ambiguous", "ambiguous"])
 
+    def test_a_longer_title_in_the_pack_does_not_link(self):
+        results = plan_links([req(1, "Twice", "Lynsay Sands")],
+                             [book("Twice Bitten", "Lynsay Sands")], HASH)
+        self.assertEqual(results[0]["status"], "no_request")
+
     def test_a_different_author_does_not_link(self):
         results = plan_links([req(1, "Love Bites", "Lynsay Sands")],
                              [book("Love Bites", "Someone Else Entirely")], HASH)

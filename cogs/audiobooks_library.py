@@ -53,7 +53,7 @@ import os
 
 import aiohttp
 
-from .audiobooks_torrents import match_torrent
+from .audiobooks_torrents import match_title_exact
 
 log = logging.getLogger("audiobooks.library")
 
@@ -124,11 +124,13 @@ class AudiobookshelfClient:
 
 
 def match_library_item(row: dict, item: dict) -> bool:
-    """True when this library book is the one the request asked for."""
-    return match_torrent(row, {
-        "name": f"{item.get('title') or ''} {item.get('author') or ''}",
-        "addedDate": item.get("addedDate"),
-    })
+    """True when this library book is the one the request asked for.
+
+    Exact title words (``match_title_exact``), because the library gives a
+    clean title: closing a request sends the requester an email.
+    """
+    return match_title_exact(row, item.get("title") or "", item.get("author") or "",
+                             item.get("addedDate"))
 
 
 OPEN_STATUSES = ("Requested", "In Progress")

@@ -140,6 +140,52 @@ def _created_ts(row: dict) -> float | None:
     return stamp.timestamp()
 
 
+_PARENS_RE = re.compile(r"\([^)]*\)|\[[^\]]*\]")
+
+
+def title_words(title: str) -> set[str]:
+    """The words that identify a title, for comparing two clean titles.
+
+    Bracketed parts ("(The Ever Seas, #1)", "[Unabridged]") and series
+    numbers ("Book 3") are dropped, then the usual noise and stop words.
+    """
+    text = _SERIES_NUMBER_RE.sub(" ", _PARENS_RE.sub(" ", str(title or "")))
+    return set(_title_tokens(text))
+
+
+def _added_too_early(row: dict, added) -> bool:
+    created = _created_ts(row)
+    return (created is not None and isinstance(added, (int, float)) and added > 0
+            and added < created - ADDED_SLACK_SECONDS)
+
+
+def match_title_exact(row: dict, title: str, author: str = "", added=None) -> bool:
+    """True when a clean title and author are exactly the requested book.
+
+    For sources that give the title and author separately (the
+    Audiobookshelf library, the watcher intake), so it can be stricter
+    than ``match_torrent``: the two titles must have the **same** words,
+    not just the request's words somewhere in the name. "Twice" no longer
+    matches "Twice Bitten" by the same author (2026-11-20).
+
+    Author: when both sides name one, the request's surname must be in
+    the other's author (camelCase folders like ``lynsaySands`` count).
+    When either side has no author, the exact title is enough.
+    """
+    want = title_words(row.get("bookName") or "")
+    if not want or _ASIN_RE.fullmatch("".join(sorted(want))):
+        return False
+    if title_words(title) != want:
+        return False
+    if _added_too_early(row, added):
+        return False
+    surname = _author_surname(row.get("author") or "")
+    have_author = set(tokens(author))
+    if surname and have_author:
+        return surname in have_author
+    return True
+
+
 def match_torrent(row: dict, torrent: dict) -> bool:
     """True if this torrent is very likely the book in this request.
 
@@ -159,11 +205,8 @@ def match_torrent(row: dict, torrent: dict) -> bool:
     have = set(name)
     if not all(w in have for w in want):
         return False
-    created = _created_ts(row)
-    added = torrent.get("addedDate")
-    if created is not None and isinstance(added, (int, float)) and added > 0:
-        if added < created - ADDED_SLACK_SECONDS:
-            return False
+    if _added_too_early(row, torrent.get("addedDate")):
+        return False
     surname = _author_surname(row.get("author") or "")
     if surname and surname in have:
         return True

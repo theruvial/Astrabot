@@ -10,6 +10,11 @@ Second half of the torrent flow:
    marked ``Fulfilled`` (the requester is told the book is on the
    server, and the Discord post is deleted).
 
+A request still ``Requested`` is closed the same way (since 2026-11-20):
+one book of a multi-book pack never matches the pack's torrent name, so
+it can reach the library without passing through In Progress. The
+requester then gets just the one Fulfilled email (Thea's choice).
+
 A request is never closed because a download finished, only because
 Audiobookshelf itself reports the book in its library.
 
@@ -126,9 +131,12 @@ def match_library_item(row: dict, item: dict) -> bool:
     })
 
 
+OPEN_STATUSES = ("Requested", "In Progress")
+
+
 def find_library_matches(requests: list[dict], items: list[dict]) -> list[tuple[dict, dict]]:
-    """(request, library item) pairs for requests that are ``In Progress``."""
-    waiting = [r for r in requests if r.get("status") == "In Progress"]
+    """(request, library item) pairs for requests not yet Fulfilled."""
+    waiting = [r for r in requests if r.get("status") in OPEN_STATUSES]
     pairs: dict[int, list[dict]] = {}
     for row in waiting:
         hits = [i for i in items if match_library_item(row, i)]
@@ -147,7 +155,7 @@ def find_library_matches(requests: list[dict], items: list[dict]) -> list[tuple[
 
 
 class LibraryWatcher:
-    """Polls Audiobookshelf and marks matching In Progress requests Fulfilled.
+    """Polls Audiobookshelf and marks matching open requests Fulfilled.
 
     ``cog`` needs ``db`` (with ``list_requests``) and ``admin_fulfilled``,
     the same path the Mark Fulfilled button uses. In dry-run mode it
@@ -183,8 +191,8 @@ class LibraryWatcher:
             log.warning("Library check failed: %s", exc)
 
     async def run_once(self) -> list[tuple[dict, dict]]:
-        # Nothing In Progress: no reason to ask Audiobookshelf anything.
-        if not any(r.get("status") == "In Progress" for r in self.cog.db.list_requests()):
+        # Nothing open: no reason to ask Audiobookshelf anything.
+        if not any(r.get("status") in OPEN_STATUSES for r in self.cog.db.list_requests()):
             return []
         try:
             items = await self.client.list_items()
@@ -206,7 +214,7 @@ class LibraryWatcher:
                              "Not changing anything.", row["id"],
                              row.get("bookName"), item.get("title"))
                 continue
-            _, sent, error = await self.cog.admin_fulfilled(row["id"])
+            _, sent, error = await self.cog.admin_fulfilled(row["id"], allow_requested=True)
             if error:
                 log.info("Request %s is in the library but was not closed: %s",
                          row["id"], error)

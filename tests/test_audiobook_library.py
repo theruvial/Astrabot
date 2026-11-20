@@ -52,13 +52,13 @@ class MatchTests(unittest.TestCase):
             req(1, "The Ever King", "LJ Andrews"),
             item("a", "The Ever King", "LJ Andrews", added=T_NOW - 86400)))
 
-    def test_only_in_progress_requests_are_closed(self):
+    def test_requested_and_in_progress_requests_are_closed_fulfilled_ones_are_not(self):
         items = [item("a", "The Ever King", "LJ Andrews")]
-        for status in ("Requested", "Fulfilled"):
-            self.assertEqual(find_library_matches(
-                [req(1, "The Ever King", "LJ Andrews", status=status)], items), [])
-        self.assertEqual(len(find_library_matches(
-            [req(1, "The Ever King", "LJ Andrews")], items)), 1)
+        self.assertEqual(find_library_matches(
+            [req(1, "The Ever King", "LJ Andrews", status="Fulfilled")], items), [])
+        for status in ("Requested", "In Progress"):
+            self.assertEqual(len(find_library_matches(
+                [req(1, "The Ever King", "LJ Andrews", status=status)], items)), 1)
 
     def test_ambiguous_matches_are_left_alone(self):
         items = [item("a", "Sample Story", "A Writer"), item("b", "Sample Story", "A Writer")]
@@ -82,8 +82,9 @@ class FakeCog:
         self.closed = []
         self.config = {}
 
-    async def admin_fulfilled(self, request_id):
+    async def admin_fulfilled(self, request_id, allow_requested=False):
         self.closed.append(request_id)
+        self.allow_requested = allow_requested
         return {"id": request_id}, True, None
 
 
@@ -121,13 +122,21 @@ class WatcherTests(unittest.TestCase):
         run(watcher.run_once())
         self.assertEqual(cog.closed, [1])
 
-    def test_no_in_progress_requests_means_no_library_call(self):
+    def test_no_open_requests_means_no_library_call(self):
         client = FakeClient([item("a", "Sample Story", "A Writer")])
-        cog, watcher = self.make([req(1, "Sample Story", "A Writer", status="Requested")],
+        cog, watcher = self.make([req(1, "Sample Story", "A Writer", status="Fulfilled")],
                                  client, False)
         run(watcher.run_once())
         self.assertEqual(client.calls, 0)
         self.assertEqual(cog.closed, [])
+
+    def test_a_requested_book_in_the_library_is_closed_straight_to_fulfilled(self):
+        # One book of a pack: never In Progress, but now in the library.
+        cog, watcher = self.make([req(1, "Sample Story", "A Writer", status="Requested")],
+                                 FakeClient([item("a", "Sample Story", "A Writer")]), False)
+        run(watcher.run_once())
+        self.assertEqual(cog.closed, [1])
+        self.assertTrue(cog.allow_requested)
 
     def test_an_unreachable_library_closes_nothing_and_does_not_raise(self):
         cog, watcher = self.make([req(1, "Sample Story", "A Writer")],

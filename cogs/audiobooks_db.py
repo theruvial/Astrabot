@@ -121,6 +121,7 @@ class AudiobooksDB:
                 """
             )
             self._add_author_column()
+            self._add_torrent_hash_column()
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_requests_requester "
                 "ON requests(requester)"
@@ -160,6 +161,22 @@ class AudiobooksDB:
         self.conn.execute(
             "ALTER TABLE requests ADD COLUMN author TEXT NOT NULL DEFAULT ''"
         )
+
+    def _add_torrent_hash_column(self) -> None:
+        """Add requests.torrentHash (the watcher's link), backing up first.
+
+        Caller holds the lock. Same pattern as ``_add_author_column``.
+        """
+        if "torrentHash" in self._table_columns("requests"):
+            return
+        if self.path != ":memory:" and Path(self.path).exists():
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            backup = sqlite3.connect(f"{self.path}.pre-torrenthash-{stamp}.bak")
+            try:
+                self.conn.backup(backup)
+            finally:
+                backup.close()
+        self.conn.execute("ALTER TABLE requests ADD COLUMN torrentHash TEXT")
 
     # -- users ---------------------------------------------------------
     def get_user(self, email: str) -> dict | None:
@@ -254,7 +271,7 @@ class AudiobooksDB:
             rows = self.conn.execute(
                 "SELECT r.id, r.requester, r.bookName, r.author, r.linkToBook, "
                 "r.status, r.discordMessageId, r.discordChannelId, "
-                "r.createdAt, r.updatedAt, u.firstName AS requesterName "
+                "r.createdAt, r.updatedAt, r.torrentHash, u.firstName AS requesterName "
                 "FROM requests r LEFT JOIN users u "
                 "ON u.email = r.requester WHERE r.requester = ?",
                 (email,),
@@ -333,6 +350,7 @@ class AudiobooksDB:
                         "discordChannelId": None,
                         "createdAt": now,
                         "updatedAt": now,
+                        "torrentHash": None,
                     }
                 )
             self.conn.commit()
@@ -344,7 +362,7 @@ class AudiobooksDB:
             rows = self.conn.execute(
                 "SELECT r.id, r.requester, r.bookName, r.author, r.linkToBook, "
                 "r.status, r.discordMessageId, r.discordChannelId, "
-                "r.createdAt, r.updatedAt, u.firstName AS requesterName "
+                "r.createdAt, r.updatedAt, r.torrentHash, u.firstName AS requesterName "
                 "FROM requests r LEFT JOIN users u "
                 "ON u.email = r.requester "
                 "ORDER BY r.id DESC"
@@ -356,7 +374,7 @@ class AudiobooksDB:
             row = self.conn.execute(
                 "SELECT r.id, r.requester, r.bookName, r.author, r.linkToBook, "
                 "r.status, r.discordMessageId, r.discordChannelId, "
-                "r.createdAt, r.updatedAt, u.firstName AS requesterName "
+                "r.createdAt, r.updatedAt, r.torrentHash, u.firstName AS requesterName "
                 "FROM requests r LEFT JOIN users u "
                 "ON u.email = r.requester WHERE r.id = ?",
                 (request_id,),
@@ -368,7 +386,7 @@ class AudiobooksDB:
             row = self.conn.execute(
                 "SELECT r.id, r.requester, r.bookName, r.author, r.linkToBook, "
                 "r.status, r.discordMessageId, r.discordChannelId, "
-                "r.createdAt, r.updatedAt, u.firstName AS requesterName "
+                "r.createdAt, r.updatedAt, r.torrentHash, u.firstName AS requesterName "
                 "FROM requests r LEFT JOIN users u "
                 "ON u.email = r.requester "
                 "WHERE r.discordMessageId = ?",
@@ -405,6 +423,17 @@ class AudiobooksDB:
             self.conn.execute(
                 "UPDATE requests SET status = ?, updatedAt = ? WHERE id = ?",
                 (status, utcnow_iso(), request_id),
+            )
+            self.conn.commit()
+        return self.get_request(request_id)
+
+    def link_torrent(self, request_id: int, torrent_hash: str) -> dict | None:
+        """Mark a request In Progress and tie it to a torrent (watcher intake)."""
+        with self._lock:
+            self.conn.execute(
+                "UPDATE requests SET status = 'In Progress', torrentHash = ?, "
+                "updatedAt = ? WHERE id = ?",
+                (torrent_hash, utcnow_iso(), request_id),
             )
             self.conn.commit()
         return self.get_request(request_id)

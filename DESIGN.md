@@ -52,7 +52,8 @@ startConsole.bat ──> astra_console.py (Golurk Console, tkinter)
                        ├─ bot.py  (py -3.14 -u)            Discord gateway
                        │    ├─ cogs.audiobooks ── aiohttp web UI :13380 (requests.theruvial.com)
                        │    │     ├─ TorrentWatcher  → Transmission RPC 192.168.4.74:9092
-                       │    │     └─ LibraryWatcher  → Audiobookshelf audio.theruvial.com
+                       │    │     ├─ LibraryWatcher  → Audiobookshelf audio.theruvial.com
+                       │    │     └─ intake :13385   ← audiobook watcher on 192.168.4.74 (private, secret)
                        │    ├─ cogs.portfolio  ── aiohttp :13384 (theruvial.com), polls GitHub CV
                        │    ├─ cogs.tasks      → classifier :13383, wiki backend :13382
                        │    ├─ cogs.wiki       → wiki backend :13382
@@ -164,7 +165,7 @@ All settings are in the host's `config.json` (untracked; `config.example.json` s
 | `spotifyClientId`, `spotifyClientSecret` | music | optional; Spotify links need them and the `spotipy` package |
 | `maxClipSeconds` | clip | default 300 |
 | `savedClipsChannel` | clip | channel id; falls back to a channel named `saved-clips` |
-| `audiobooks` | audiobooks* | object: `guild_id`, `request_channel_id`, `web_host`, `web_port` (13380), `db_path`, `admin_user_ids`, `admin_email`, `invite_code`, `trusted_proxies`, `admin_networks`, `email` (SMTP), `torrents` {enabled, dry_run, url, username, password, interval_seconds}, `library` {enabled, dry_run, url, api_key, library_id, interval_seconds} |
+| `audiobooks` | audiobooks* | object: `guild_id`, `request_channel_id`, `web_host`, `web_port` (13380), `db_path`, `admin_user_ids`, `admin_email`, `invite_code`, `trusted_proxies`, `admin_networks`, `email` (SMTP), `torrents` {enabled, dry_run, url, username, password, interval_seconds}, `library` {enabled, dry_run, url, api_key, library_id, interval_seconds}, `intake` {enabled, dry_run, host, port (13385), secret, allowed_ips} |
 | `portfolio` | portfolio | object: `web_host` (0.0.0.0), `web_port` (13384), `cv_watch`, `cv_repo`, `cv_path`, `cv_branch`, `cv_poll_minutes` (10), `cv_auto_publish` (false), `data_dir`, `owner_id` |
 | `tasks` | tasks | optional object overriding classifier/wiki URLs and paths |
 | `selfupdate` | selfupdate | object: `enabled`, `interval_minutes` |
@@ -182,6 +183,7 @@ Known non-secret host values: guild `454792201633792001`, requests channel `1565
 | `WIKI_API_KEY`, `WIKI_API_URL` | wiki, tasks (shared secret header `X-Astra-Wiki-Key`; default URL `http://127.0.0.1:13382`) |
 | `TASKS_CLASSIFIER_URL`, `TASKS_LABELS_PATH`, `TASKS_OVERRIDES_PATH`, `TASKS_STATE_PATH`, `TASKS_TODO_MARKDOWN_PATH`, `TASKS_RETRAIN_MARKER_PATH` | tasks (defaults under `data/`) |
 | `ABS_API_KEY` | absLogin; audiobooks library watcher when `library.api_key` is blank |
+| `AUDIOBOOKS_INTAKE_SECRET` | audiobooks watcher intake when `intake.secret` is blank (shared with the watcher on the Ubuntu server) |
 | `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_USER`, `EMAIL_SMTP_PASSWORD`, `EMAIL_FROM_ADDRESS` | audiobooks_notify (override `audiobooks.email`) |
 | `AUDIOBOOKS_CHANNEL_ID`, `AUDIOBOOKS_WEB_HOST`, `AUDIOBOOKS_WEB_PORT`, `AUDIOBOOKS_DB_PATH`, `AUDIOBOOKS_ADMIN_IDS`, `AUDIOBOOKS_ADMIN_EMAIL` | audiobooks overrides |
 | `PORTFOLIO_WEB_HOST`, `PORTFOLIO_WEB_PORT` | portfolio overrides |
@@ -225,7 +227,7 @@ Known non-secret host values: guild `454792201633792001`, requests channel `1565
 
 Full user-facing spec: `docs/AUDIOBOOKS.md`.
 
-**Request lifecycle:** `Requested` → (Fulfill, or torrent match) → `In Progress` → (Request Fulfilled, or library match) → `Fulfilled`. Reject and cancel hard-delete the row. Every step emails the requester (SMTP, `audiobooks_notify.py`; Gmail needs an app password). If email fails, the admin is told; it never pretends it was sent.
+**Request lifecycle:** `Requested` → (Fulfill, torrent match, or watcher intake) → `In Progress` → (Request Fulfilled, or library match) → `Fulfilled`. The library match also closes a row still `Requested` straight to `Fulfilled` (one email). Reject and cancel hard-delete the row. Every step emails the requester, except the watcher intake's move to In Progress (no email, by Thea's choice) (SMTP, `audiobooks_notify.py`; Gmail needs an app password). If email fails, the admin is told; it never pretends it was sent.
 
 **Discord side (`audiobooks.py`):**
 - Requests post as embeds in the dedicated channel `request_channel_id`. **On every cog load the channel is cleared and one embed per non-fulfilled row is re-posted, oldest first.** Nothing else belongs in that channel.
@@ -248,11 +250,12 @@ Full user-facing spec: `docs/AUDIOBOOKS.md`.
 
 **Link validation (`audiobooks_providers.py`):** accepts Audible, Amazon, Spotify, Apple Books, Google Books, Goodreads. Each book needs positive audiobook evidence (format label, narrator, or listening length). Audible links are not scraped: the ASIN is looked up on Audnexus for title/author, falling back to the URL slug. Amazon is scraped (must be `/dp/` or `/gp/product/` and show audiobook evidence; Amazon may block it). Goodreads series: capped at the "X primary works" count, collected editions ("Book 1-3") dropped, decimals kept; series are partial, never all-or-nothing.
 
-**Automation (both off by default, `dry_run` true by default; on 2026-11-17 the host log showed both running with dry run off):**
+**Automation (all off by default, `dry_run` true by default; on 2026-11-17 the host log showed the torrent and library watchers running with dry run off):**
 - `audiobooks_torrents.py`: polls Transmission RPC (desktop app on the Ubuntu server, port 9092, basic auth) and marks matching `Requested` rows In Progress. Strict matcher: all title words, author surname, torrent added after the request; ambiguous matches are left for Thea. Preview with `scripts/check_torrents.py`.
-- `audiobooks_library.py`: polls Audiobookshelf's recent items and marks matching `In Progress` rows Fulfilled, using the same matcher. A download finishing never closes a request; only ABS reporting the book does. Preview with `scripts/check_library.py`.
+- `audiobooks_library.py`: polls Audiobookshelf's recent items and marks matching `Requested` or `In Progress` rows Fulfilled (via `admin_fulfilled(..., allow_requested=True)`; the dashboard button still requires In Progress), using the same matcher. A download finishing never closes a request; only ABS reporting the book does. Preview with `scripts/check_library.py`.
+- `audiobooks_intake.py` (2026-11-20): private aiohttp endpoint on its own port (default 13385) for the audiobook watcher on the Ubuntu server, which files torrents into the library and knows each book's real title/author, including every book of a multi-book pack. `POST /intake/books` {torrent {hash, name}, books [{title, author, series}]}: each book matching exactly one `Requested` row (strict torrent matcher, no date check) moves it to In Progress **without an email** and stores `requests.torrentHash`; books nobody requested are ignored. Security: refuses any proxy header (nginx is on the watcher's server, so the address alone proves nothing), peer must be in `allowed_ips`, Bearer secret compared in constant time (`secret` or env `AUDIOBOOKS_INTAKE_SECRET`; no secret = does not start). Contract for the watcher side: `docs/WATCHER_INTAKE.md`.
 
-**DB (`audiobooks_db.py`):** emails stored lowercase; sessions last `SESSION_DAYS`; migrations: phone→email (2026-10-29, old tables kept as `*_phone_legacy`), `author` column (2026-11-09, backs up first). `scripts/backfill_audiobook_titles.py` fixed old Audible-ID titles.
+**DB (`audiobooks_db.py`):** emails stored lowercase; sessions last `SESSION_DAYS`; migrations: phone→email (2026-10-29, old tables kept as `*_phone_legacy`), `author` column (2026-11-09, backs up first), `torrentHash` column (2026-11-20, backs up first as `*.pre-torrenthash-*.bak`). `scripts/backfill_audiobook_titles.py` fixed old Audible-ID titles.
 
 ### 7.2 Tasks (`cogs/tasks.py`)
 
@@ -385,7 +388,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 ---
 
-## 13. Open items (as of 2026-11-17)
+## 13. Open items (as of 2026-11-20)
 
 1. Verify the requests-site security behind the real nginx (X-Forwarded-For line; admin refused on mobile data, allowed at home).
 2. Test `/play` and `/clip` in a voice channel with the new cookies, including an age-restricted video.
@@ -396,6 +399,8 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 7. Possible cleanups: tighten intents; add tests for music/clip/moderation; a `requirements.txt`; the old fallback `cogs/portfolio.html` still says "directed".
 8. Two bot "web UI listening" lines 16 s apart were seen in `logs/bot.log` on 2026-11-17 09:58; not investigated (possible double start or reload).
 9. Dragonwilds server build choice (newer 26419371 vs old 26161880) is open (see `docs/HANDOFF-2026-11-10.md`).
+10. **Watcher intake (branch `feature/watcher-intake`, 2026-11-20):** bot side built, tested and merged; not deployed. Still to do: the watcher on the Ubuntu server must send `POST /intake/books` (contract in `docs/WATCHER_INTAKE.md`; that work belongs to the server session); set `AUDIOBOOKS_INTAKE_SECRET` on the PC and the watcher; allow inbound TCP 13385 from 192.168.4.74 in Windows Firewall; enable `audiobooks.intake` with dry run first.
+11. **Request-time matching (decided 2026-11-20, not built):** when a request is made, look the book up in canonical metadata to fix title/author/series, and warn if it is already in Audiobookshelf or already requested. Series requests stay website-only: Thea said the Discord side is for her, so no Discord request command.
 
 ---
 
@@ -403,10 +408,18 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
 
+### 2026-11-20 — Claude Code (Opus 5.5), watcher intake (branch `feature/watcher-intake`)
+
+- **Why:** the Ubuntu-server session reported that a request for one book of a multi-book torrent never matched (the pack's name has no book titles), so it stayed `Requested` forever. Thea chose: the server's watcher sends the real titles to the bot, the bot links them to requests and the torrent, Audiobookshelf closes them; one email only (Fulfilled); books nobody requested are ignored; private port plus secret.
+- **New `cogs/audiobooks_intake.py`:** `POST /intake/books` and `GET /intake/health` on port 13385 (§7.1). `check_caller` (no proxy headers, allowed IPs, constant-time Bearer secret), `parse_payload`, `plan_links` (unique matches only, resend-safe), `build_intake` (off unless enabled with a secret and allowed IPs).
+- `audiobooks_db.py`: `requests.torrentHash` column with a backup-first migration, `link_torrent()`. `audiobooks.py`: `mark_downloading()` (In Progress, no email, embed updated), `admin_fulfilled(allow_requested=)`, intake server started/stopped with the cog. `audiobooks_library.py`: closes `Requested` rows too. `config.example.json`: `audiobooks.intake`. New `docs/WATCHER_INTAKE.md` for the server side.
+- Tests: 303 passing (20 new in `tests/test_audiobook_intake.py`, 1 new and 2 updated in `test_audiobook_library.py`). Not tested: the real watcher calling in, the firewall, a live database migration.
+- **State:** merged into `master` and pushed (2026-11-20). Not deployed: the intake is off until configured, and the server's watcher does not call it yet.
+
 ### 2026-11-20 — Claude Code (Opus 5.5), ignore all of `data/`
 
 - `.gitignore`: `data/portfolio_*` replaced by `data/`, so the whole runtime data folder (tasks state, training labels, overrides, `TODO.md`, portfolio files, test torrents) is ignored, as §0 already said. Before this, everything in `data/` except the portfolio files showed as untracked and could be committed by a stray `git add .`.
-- State: committed on branch `chore/gitignore-data`; not merged or pushed yet. No code changed.
+- State: merged into `master` and pushed (2026-11-20). No code changed.
 
 ### 2026-11-17 — Claude Code (Opus 5.5), full design review
 

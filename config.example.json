@@ -40,6 +40,15 @@
             "_api_key_note": "Leave api_key blank to use the ABS_API_KEY environment variable (the one absLogin uses).",
             "library_id": "",
             "interval_seconds": 120
+        },
+        "intake": {
+            "enabled": false,
+            "dry_run": true,
+            "host": "0.0.0.0",
+            "port": 13385,
+            "secret": "",
+            "_secret_note": "Leave secret blank to use the AUDIOBOOKS_INTAKE_SECRET environment variable. The watcher on the Ubuntu server sends the same value.",
+            "allowed_ips": ["192.168.4.74"]
         }
     }
 }

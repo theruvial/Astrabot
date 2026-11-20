@@ -254,6 +254,8 @@ class Audiobooks(commands.Cog):
         self._web_site = None
         self.torrent_watcher = None
         self.library_watcher = None
+        self.intake = None
+        self._intake_runner = None
 
     # -- config helpers ------------------------------------------------
     @property
@@ -296,14 +298,39 @@ class Audiobooks(commands.Cog):
         await self.update_embed_for_request(updated)
         return updated, sent, None
 
-    async def admin_fulfilled(self, request_id: int):
-        """Mark fulfilled via the dashboard. Returns (row, sent, error)."""
+    async def mark_downloading(self, request_id: int, torrent_hash: str):
+        """The watcher is downloading this book. Returns (row, error).
+
+        In Progress plus the torrent link, Discord post updated, and
+        deliberately **no email** (Thea, 2026-11-20): the requester gets
+        one email, when Audiobookshelf has the book.
+        """
+        row = self.db.get_request(request_id)
+        if row is None:
+            return None, "not_found"
+        if row["status"] == "Fulfilled":
+            return row, "already_closed"
+        if row["status"] == "In Progress":
+            return row, "already_in_progress"
+        updated = self.db.link_torrent(request_id, torrent_hash)
+        await self.update_embed_for_request(updated)
+        return updated, None
+
+    async def admin_fulfilled(self, request_id: int, *, allow_requested: bool = False):
+        """Mark fulfilled via the dashboard. Returns (row, sent, error).
+
+        ``allow_requested`` lets the library watcher close a request that
+        never reached In Progress (for example one book of a pack): the
+        book is in Audiobookshelf, so the requester gets the one
+        Fulfilled email.
+        """
         row = self.db.get_request(request_id)
         if row is None:
             return None, False, "not_found"
         if row["status"] == "Fulfilled":
             return row, False, "already_closed"
-        if row["status"] != "In Progress":
+        if row["status"] != "In Progress" and not (
+                allow_requested and row["status"] == "Requested"):
             return row, False, "must_fulfill_first"
         updated = self.db.set_request_status(request_id, "Fulfilled")
         sent = await self.notifier(
@@ -605,6 +632,24 @@ class Audiobooks(commands.Cog):
                          self.library_watcher.dry_run)
         except Exception as exc:  # noqa: BLE001 - must not kill the cog
             log.warning("Library watcher could not start: %s", exc)
+        # Optional private endpoint for the server's audiobook watcher
+        # (off unless audiobooks.intake is on with a secret).
+        try:
+            from aiohttp import web as aio_web
+
+            from .audiobooks_intake import DEFAULT_PORT, build_intake
+
+            self.intake = build_intake(self)
+            if self.intake is not None:
+                self._intake_runner = aio_web.AppRunner(self.intake.build_app())
+                await self._intake_runner.setup()
+                host = str(self.intake.cfg.get("host") or "0.0.0.0")
+                port = int(self.intake.cfg.get("port") or DEFAULT_PORT)
+                await aio_web.TCPSite(self._intake_runner, host, port).start()
+                log.info("Watcher intake listening on %s:%s (dry run: %s).",
+                         host, port, self.intake.dry_run)
+        except Exception as exc:  # noqa: BLE001 - must not kill the cog
+            log.warning("Watcher intake could not start: %s", exc)
 
     async def cog_unload(self) -> None:
         # Awaited by discord.py (via maybe_coroutine). Awaiting the
@@ -619,6 +664,13 @@ class Audiobooks(commands.Cog):
         if self.library_watcher is not None:
             self.library_watcher.stop()
             self.library_watcher = None
+        if self._intake_runner is not None:
+            try:
+                await self._intake_runner.cleanup()
+            except Exception:
+                pass
+            self._intake_runner = None
+            self.intake = None
         if self._web_runner is not None:
             try:
                 await self._web_runner.cleanup()

@@ -15,4 +15,4 @@ audiobooks.db
 thi.db
 backups/
 *.bak
-data/portfolio_*
+data/

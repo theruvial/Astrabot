@@ -403,6 +403,11 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
 
+### 2026-11-20 — Claude Code (Opus 5.5), ignore all of `data/`
+
+- `.gitignore`: `data/portfolio_*` replaced by `data/`, so the whole runtime data folder (tasks state, training labels, overrides, `TODO.md`, portfolio files, test torrents) is ignored, as §0 already said. Before this, everything in `data/` except the portfolio files showed as untracked and could be committed by a stray `git add .`.
+- State: committed on branch `chore/gitignore-data`; not merged or pushed yet. No code changed.
+
 ### 2026-11-17 — Claude Code (Opus 5.5), full design review
 
 - **Rewrote §0–13 of this file after reading every file in the repo.** New: an agents' read-me-first section with the authorship note (agents wrote most code since 2026-10-29, so treat it as your own), a file-by-file authorship table, a repo map, the startup sequence, a full config and env reference, a data-store table, a section for every cog including music, clip and each legacy cog, and current open items. Removed stale Muse-era notes (the `~/workspace` staging paths, the snapshot-push GitHub flow, the host `bot.py` divergence, the old known-failing tests, which now pass). Section numbers changed: the change log is now §14.

@@ -29,3 +29,10 @@ Environment file at `~/.config/audiobook-watcher/env` (mode 600, never committed
 ## Troubleshooting
 `python3 audiobook_watcher.py --recent` shows the last 30 books handled: how each was placed and why, the tags
 ffprobe read, the catalogue's answer and any move.
+
+## Running and updating (on the server)
+The user service runs straight from this folder in a clone of the repo (`~/repos/Astrabot`). The installed unit is
+`~/.config/systemd/user/audiobook-watcher.service` (a copy of `audiobook-watcher.service` here).
+`./update.sh` fetches, runs the tests on the incoming code in a scratch worktree, and only if they pass pulls it and
+restarts the service. The clone follows whichever branch is checked out; switch with `git checkout master` once the
+watcher is merged.

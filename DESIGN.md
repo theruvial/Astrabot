@@ -388,7 +388,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 ---
 
-## 13. Open items (as of 2026-11-20)
+## 13. Open items (as of 2026-11-21)
 
 1. Verify the requests-site security behind the real nginx (X-Forwarded-For line; admin refused on mobile data, allowed at home).
 2. Test `/play` and `/clip` in a voice channel with the new cookies, including an age-restricted video.
@@ -399,7 +399,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 7. Possible cleanups: tighten intents; add tests for music/clip/moderation; a `requirements.txt`; the old fallback `cogs/portfolio.html` still says "directed".
 8. Two bot "web UI listening" lines 16 s apart were seen in `logs/bot.log` on 2026-11-17 09:58; not investigated (possible double start or reload).
 9. Dragonwilds server build choice (newer 26419371 vs old 26161880) is open (see `docs/HANDOFF-2026-11-10.md`).
-10. **Watcher intake (branch `feature/watcher-intake`, 2026-11-20):** bot side built, tested and merged. **Host setup 2026-11-20:** `AUDIOBOOKS_INTAKE_SECRET` set as a Windows user environment variable (random 64 hex chars); the same value is in `codingShit/intakeSecret.txt` on the Drive (next to `absAPIKey.txt`, outside the repo) for the watcher to read; host `config.json` has `audiobooks.intake` enabled with `dry_run: false` (Thea, 2026-11-20). Windows Firewall rule "Astrabot watcher intake" added by Thea (inbound TCP 13385, remote 192.168.4.74 only; verified). Still to do: restart the console so the bot sees the new variable; the watcher on the Ubuntu server must send `POST /intake/books` with that secret (contract in `docs/WATCHER_INTAKE.md`; server session's job).
+10. **Watcher intake (branch `feature/watcher-intake`, 2026-11-20):** bot side built, tested and merged. **Host setup 2026-11-20:** `AUDIOBOOKS_INTAKE_SECRET` set as a Windows user environment variable (random 64 hex chars); the same value is in `codingShit/intakeSecret.txt` on the Drive (next to `absAPIKey.txt`, outside the repo) for the watcher to read; host `config.json` has `audiobooks.intake` enabled with `dry_run: false` (Thea, 2026-11-20). Windows Firewall rule "Astrabot watcher intake" added by Thea (inbound TCP 13385, remote 192.168.4.74 only; verified). **Live since 2026-11-20 09:37** (intake listening, dry run off; checked in `logs/bot.log` on 2026-11-21): the Ubuntu watcher (`audiobook-watcher/0.1`) made 23 `POST /intake/books` calls that day, none refused; 12 requests linked to torrents (In Progress, no email), and the library watcher then closed 30 requests, so all 42 rows were Fulfilled with none open. Nothing left to do here; keep an eye on `ambiguous` results in the log.
 11. **Request-time matching (decided 2026-11-20, not built):** when a request is made, look the book up in canonical metadata to fix title/author/series, and warn if it is already in Audiobookshelf or already requested. Series requests stay website-only: Thea said the Discord side is for her, so no Discord request command.
 
 ---
@@ -408,12 +408,17 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
 
+### 2026-11-21 — Claude Code (Opus 5.5), watcher intake confirmed live (branch `docs/intake-live`)
+
+- Checked the host instead of assuming: port 13385 is listening, and `logs/bot.log` shows the intake started 2026-11-20 09:37 with dry run off, 23 watcher calls (all 200), 12 requests linked and 30 closed by the library watcher. The live database has 42 requests, all Fulfilled. The in-place channel resync also already ran (09:41). §13 item 10 and the earlier entries corrected; the earlier "restart still to do" notes were wrong.
+- State: docs only, on branch `docs/intake-live`.
+
 ### 2026-11-20 — Claude Code (Opus 5.5), requests channel synced in place (branch `feature/resync-in-place`)
 
 - **Why:** Thea asked why the audiobook channel was still wiped and re-posted on every cog load (including self-update hot reloads) when the buttons already survive restarts. Now it works like the tasks board: posts stay.
 - `cogs/audiobooks.py`: pure `plan_resync(message_ids, rows, channel_id)` → (delete, check, post); `embed_signature`, `message_buttons`, `view_buttons` to skip edits when nothing changed; `resync_channel` rewritten to keep, edit, post and delete. `docs/AUDIOBOOKS.md` updated.
 - Tests: new `tests/test_audiobook_resync.py`. Not tested against real Discord yet (first real run is the next restart; its log line gives kept/updated/posted/deleted counts).
-- State: merged into master and pushed (2026-11-20). Live after the next console restart.
+- State: merged into master and pushed (2026-11-20). Live: the 09:41 load on 2026-11-20 logged "24 kept, 0 updated, 0 posted, 0 deleted".
 
 ### 2026-11-20 — Claude Code (Opus 5.5), retroactive request check, ASIN titles, camelCase authors (branch `fix/camelcase-authors`)
 
@@ -425,7 +430,7 @@ Newest first. One dated entry per change (finished or in progress; say which, an
 
 ### 2026-11-20 — Claude Code (Opus 5.5), intake secret on the host
 
-- Generated the watcher intake secret and stored it as the user environment variable `AUDIOBOOKS_INTAKE_SECRET` and in `codingShit/intakeSecret.txt` on the Drive for the Ubuntu watcher (value never printed or recorded). Added `audiobooks.intake` to the host `config.json` (backup `config.json.bak`), then turned dry run off at Thea's request. Thea added the firewall rule "Astrabot watcher intake" (inbound TCP 13385 from 192.168.4.74 only; checked). Console restart still to do (§13 item 10).
+- Generated the watcher intake secret and stored it as the user environment variable `AUDIOBOOKS_INTAKE_SECRET` and in `codingShit/intakeSecret.txt` on the Drive for the Ubuntu watcher (value never printed or recorded). Added `audiobooks.intake` to the host `config.json` (backup `config.json.bak`), then turned dry run off at Thea's request. Thea added the firewall rule "Astrabot watcher intake" (inbound TCP 13385 from 192.168.4.74 only; checked). Console restart: done the same morning (see the 2026-11-21 entry).
 - State: merged into `master` and pushed (2026-11-20).
 
 ### 2026-11-20 — Claude Code (Opus 5.5), watcher intake (branch `feature/watcher-intake`)

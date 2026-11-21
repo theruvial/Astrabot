@@ -1,0 +1,14 @@
+[Unit]
+Description=Audiobook torrent watcher
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 %h/audiobook-watcher/audiobook_watcher.py
+# Optional model fallback: put ANTHROPIC_API_KEY=... (optionally ANTHROPIC_MODEL, default claude-haiku-5-5) in this file.
+# OPENAI_API_KEY (+ OPENAI_MODEL, OPENAI_BASE_URL) works as an alternative.
+EnvironmentFile=-%h/.config/audiobook-watcher/env
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

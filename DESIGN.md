@@ -119,6 +119,8 @@ cogs/
   roles.py points.py gambling.py shop.py pet.py house.py test.py   legacy cogs (§7.9)
 scripts/                one-off tools: backfill_audiobook_titles, check_torrents, check_library,
                         export_youtube_cookies
+audiobook-watcher/      server-side companion that runs on the Ubuntu server, not the PC: files torrents into the
+                        Audiobookshelf library (see §9); has its own tests/ and README.md
 tests/                  unittest suites (282 tests, all passing on 2026-11-17)
 docs/                   AUDIOBOOKS.md, README_tasks.md, CONSOLE.md, YOUTUBE_COOKIES.md,
                         HANDOFF-2026-11-10.md
@@ -348,6 +350,7 @@ Details: `docs/CONSOLE.md`.
 | `theruvial/absLogin` (private, `main`) | Audiobookshelf signup at audio.theruvial.com/signup (`:13381`, stdlib). Creates `user` accounts (download on; upload/update/delete off). Needs `ABS_API_KEY` (admin). Invite code from its own `config.json` (`invite_code`, read every request; empty = closed; 20 bad codes / 10 min cap). Password change page verifies the current password. Usernames forced lowercase. | `G:\My Drive\codingShit\absLogin` |
 | `theruvial/AstraThought` (public) | SetFit task classifier service on `:13383`; data and model git-ignored | `C:\codingShit\AstraThought` (own venv) |
 | `egamI-rorriM/Aboard-the-Astra---Remake` | the game; wiki backend under `Tools/wiki/backend` | `C:\codingShit\Aboard-the-Astra-Wiki` |
+| `audiobook-watcher/` (in this repo) | Runs on `thea-ubuntu-server` as the user service `audiobook-watcher`. Files each `.torrent` as `Author/Series/Title`, adds it to Transmission, checks the downloaded file's tags, links multi-book packs into the library over SSH on the TrueNAS, asks Audiobookshelf to scan and match, and calls the bot's intake (`docs/WATCHER_INTAKE.md`). Python 3.12, standard library only; secrets live in `~/.config/audiobook-watcher/env` on the server, never in the repo | `~/audiobook-watcher` on the server (a plain copy of this folder, not a git checkout) |
 | `theruvial/theruvial` (public) | GitHub profile README and the CV the portfolio serves | edited via `gh api` |
 | `theruvial/Astrabot-old`, `AstraThought-old` (private) | pre-2026-11-11 histories (contain old secrets) | — |
 
@@ -372,6 +375,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 - Run from the repo root: `py -3.14 -m unittest discover -s tests` (282 tests, all passing 2026-11-17). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
 - Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`.
+- The watcher has its own suites: `cd audiobook-watcher && python3 -m unittest discover -s tests` (46 tests, all passing on the Ubuntu server with Python 3.12 on 2026-11-21). The root run above does not collect them, and they have not been run on the Windows host.
 - No tests yet for `music.py`, `clip.py` (beyond imports), `moderation.py` or the legacy cogs.
 - Windows quirk: SQLite keeps files open, so temp dirs in tests use `ignore_cleanup_errors=True`; a rare temp-cleanup error on a full run passes on rerun.
 - Test values only: tests use made-up codes and keys (`test-invite-code`, fake ABS/Transmission servers). Never put real ones in tests.
@@ -400,6 +404,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 8. Two bot "web UI listening" lines 16 s apart were seen in `logs/bot.log` on 2026-11-17 09:58; not investigated (possible double start or reload).
 9. Dragonwilds server build choice (newer 26419371 vs old 26161880) is open (see `docs/HANDOFF-2026-11-10.md`).
 10. **Watcher intake (branch `feature/watcher-intake`, 2026-11-20):** bot side built, tested and merged. **Host setup 2026-11-20:** `AUDIOBOOKS_INTAKE_SECRET` set as a Windows user environment variable (random 64 hex chars); the same value is in `codingShit/intakeSecret.txt` on the Drive (next to `absAPIKey.txt`, outside the repo) for the watcher to read; host `config.json` has `audiobooks.intake` enabled with `dry_run: false` (Thea, 2026-11-20). Windows Firewall rule "Astrabot watcher intake" added by Thea (inbound TCP 13385, remote 192.168.4.74 only; verified). **Live since 2026-11-20 09:37** (intake listening, dry run off; checked in `logs/bot.log` on 2026-11-21): the Ubuntu watcher (`audiobook-watcher/0.1`) made 23 `POST /intake/books` calls that day, none refused; 12 requests linked to torrents (In Progress, no email), and the library watcher then closed 30 requests, so all 42 rows were Fulfilled with none open. Nothing left to do here; keep an eye on `ambiguous` results in the log.
+12. **Audiobook watcher code (branch `feature/audiobook-watcher`, 2026-11-21):** added to the repo. Open: the server still runs from a plain copy at `~/audiobook-watcher`, so edits must be copied across or the service pointed at a checkout; author-spelling variants (`ccPenaranda` vs "Chloe C. Peñaranda") can create a duplicate author folder for staged books and many-author packs; the model's author for a whole pack is not cross-checked against the catalogue; Gemini's free tier returns 503 now and then (the watcher retries three times).
 11. **Request-time matching (decided 2026-11-20, not built):** when a request is made, look the book up in canonical metadata to fix title/author/series, and warn if it is already in Audiobookshelf or already requested. Series requests stay website-only: Thea said the Discord side is for her, so no Discord request command.
 
 ---
@@ -407,6 +412,14 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 ## 14. Change log
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
+
+### 2026-11-21 — Claude Code (Sonnet 5.5), audiobook watcher added to the repo (branch `feature/audiobook-watcher`)
+
+- **What:** new folder `audiobook-watcher/` (nine modules, the systemd unit, a README and five test files). It was written on the Ubuntu server on 2026-11-20 and 2026-11-21 and has run there from a plain folder; this change only adds the code to the repo. **No bot code changed.** The bot's side of the contract is `docs/WATCHER_INTAKE.md`.
+- **Behaviour in short:** places each torrent as `Author/Series/Title` (name heuristics, Open Library, then a Gemini fallback whose answer is cross-checked against the Audible catalogue through Audiobookshelf); keeps multi-book torrents whole in staging and symlinks each book into the library over SSH; reads the downloaded file's tags and, only for torrents added from now on, moves a misfiled book through Transmission's `torrent-set-location`; asks Audiobookshelf to scan and match after downloads go quiet; tells the bot's intake which books a torrent holds; keeps a log of the last 30 books (`--recent`). Every limit and guard is documented in the code and the folder's README.
+- **State:** committed on this branch, not merged to `master`. The service on the server still runs from its own copy (§13 item 12).
+- **Tested:** 46 tests pass on the server (Python 3.12). Not run on the Windows host. No real Transmission move or many-author pack has run live yet; the tag check was only run against fakes, and read-only over the whole library (422 books, nothing moved).
+- **Secrets:** none in the folder. The env file with the keys stays on the server.
 
 ### 2026-11-21 — Claude Code (Opus 5.5), watcher intake confirmed live (branch `docs/intake-live`)
 

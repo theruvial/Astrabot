@@ -404,14 +404,22 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 8. Two bot "web UI listening" lines 16 s apart were seen in `logs/bot.log` on 2026-11-17 09:58; not investigated (possible double start or reload).
 9. Dragonwilds server build choice (newer 26419371 vs old 26161880) is open (see `docs/HANDOFF-2026-11-10.md`).
 10. **Watcher intake (branch `feature/watcher-intake`, 2026-11-20):** bot side built, tested and merged. **Host setup 2026-11-20:** `AUDIOBOOKS_INTAKE_SECRET` set as a Windows user environment variable (random 64 hex chars); the same value is in `codingShit/intakeSecret.txt` on the Drive (next to `absAPIKey.txt`, outside the repo) for the watcher to read; host `config.json` has `audiobooks.intake` enabled with `dry_run: false` (Thea, 2026-11-20). Windows Firewall rule "Astrabot watcher intake" added by Thea (inbound TCP 13385, remote 192.168.4.74 only; verified). **Live since 2026-11-20 09:37** (intake listening, dry run off; checked in `logs/bot.log` on 2026-11-21): the Ubuntu watcher (`audiobook-watcher/0.1`) made 23 `POST /intake/books` calls that day, none refused; 12 requests linked to torrents (In Progress, no email), and the library watcher then closed 30 requests, so all 42 rows were Fulfilled with none open. Nothing left to do here; keep an eye on `ambiguous` results in the log.
-12. **Audiobook watcher code (branch `feature/audiobook-watcher`, 2026-11-21):** added to the repo. Open: the server's clone follows this feature branch until it is merged (then `git checkout master`); author-spelling variants (`ccPenaranda` vs "Chloe C. Peñaranda") can create a duplicate author folder for staged books and many-author packs; the model's author for a whole pack is not cross-checked against the catalogue; Gemini's free tier returns 503 now and then (the watcher retries three times).
 11. **Request-time matching (decided 2026-11-20, not built):** when a request is made, look the book up in canonical metadata to fix title/author/series, and warn if it is already in Audiobookshelf or already requested. Series requests stay website-only: Thea said the Discord side is for her, so no Discord request command.
+12. **Audiobook watcher code (merged into master 2026-11-21):** in the repo. Open: the server's clone still follows `feature/audiobook-watcher` until someone runs `git checkout master` there (then `update.sh` follows master); author-spelling variants (`ccPenaranda` vs "Chloe C. Peñaranda") can create a duplicate author folder for staged books and many-author packs; the model's author for a whole pack is not cross-checked against the catalogue; Gemini's free tier returns 503 now and then (the watcher retries three times).
 
 ---
 
 ## 14. Change log
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
+
+### 2026-11-21 — Claude Code (Opus 5.5), audiobook watcher merged into master
+
+- Thea asked to merge `feature/audiobook-watcher` (the server session's two commits). Fast-forward, no bot code changed. Before merging, on the Windows host: bot suite 316 passing, the watcher's own suite (`audiobook-watcher/tests`) 46 passing with Python 3.14. Scanned for committed secrets: none.
+- That branch also holds the fix for the 2026-11-20 Gena Showalter misfiling: *The Immortal Who Loved Me* (Lynsay Sands, no author in the torrent name) was filed under `genaShowalter/theImmortal` because the title starts with Showalter's folder name; `series_scan` no longer counts that (`tests/test_series_scan.py`). The book is now in `lynsaySands/Argeneau`.
+- Seen while checking, not fixed (Audiobookshelf metadata, Thea's call): `lynsaySands/Argeneau/The Gift` carries *The Reluctant Vampire*'s ASIN B0051WU9O4. *The Gift* (Argeneau 15.5) has no ASIN of its own; it is Sands' half of the anthology *The Bite Before Christmas* (B005V2HFL4).
+- §13: item 12 updated (merged; the server clone still needs `git checkout master`) and moved after item 11.
+- State: merged into master and pushed (2026-11-21).
 
 ### 2026-11-21 — Claude Code (Sonnet 5.5), watcher service now runs from a clone (branch `feature/audiobook-watcher`)
 

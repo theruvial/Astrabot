@@ -68,6 +68,7 @@ from console_services import (
     inner_row_weights,
     outer_row_weights,
     pane_cells,
+    watcher_command,
     save_console_config,
 )
 
@@ -240,6 +241,13 @@ class Supervisor:
     def _route(self, line, previous):
         return self.name
 
+    def _retry_delay(self, crashes):
+        """Seconds to wait before restart number ``crashes``, or None to give up."""
+        return None if crashes >= MAX_CRASHES else self.restart_delay
+
+    def _retry_message(self, crashes, delay):
+        return f"Crash {crashes} of {MAX_CRASHES}, restarting in {delay:g} seconds."
+
     def _run_once(self):
         """Start the program, stream its output until it exits, return its code."""
         self._before_start()
@@ -296,18 +304,18 @@ class Supervisor:
             if time.monotonic() - started >= self.stable_seconds:
                 crashes = 0
             crashes += 1
-            if crashes >= MAX_CRASHES:
+            delay = self._retry_delay(crashes)
+            if delay is None:
                 self._want_running = False
-                crashes = 0
-                message = (f"{self.title} crashed {MAX_CRASHES} "
+                message = (f"{self.title} crashed {crashes} "
                            "times in a row - not restarting.")
+                crashes = 0
                 self._record(message)
                 self._say(self.name, message + " Press Restart when it is fixed.")
                 continue
-            self._say(self.name, f"Crash {crashes} of {MAX_CRASHES}, "
-                                 f"restarting in {self.restart_delay} seconds.")
+            self._say(self.name, self._retry_message(crashes, delay))
             self._waiting = True
-            if self._wake.wait(self.restart_delay):
+            if self._wake.wait(delay):
                 self._wake.clear()
             self._waiting = False
 
@@ -652,6 +660,35 @@ def abslogin_supervisor(emit):
                       ROOT / "logs", ports=(ABSLOGIN_PORT,))
 
 
+class WatcherSupervisor(Supervisor):
+    """The audiobook watcher's journal, followed over SSH (2026-11-22).
+
+    The watcher runs on the Ubuntu server, not here, so this does not run
+    or restart the watcher itself: it only shows its output. Restart here
+    reconnects. The connection drops whenever the server reboots or the
+    network blips, so its retry policy differs from a local program's."""
+
+    def __init__(self, emit, command, log_dir=ROOT / "logs", **kwargs):
+        super().__init__(emit, "watcher", ROOT, command, log_dir, **kwargs)
+
+    # Reconnect waits double from restart_delay up to this cap, forever.
+    MAX_RETRY_DELAY = 300
+
+    def _retry_delay(self, crashes):
+        """10 s, 20 s, 40 s ... capped at 5 minutes, and never give up.
+
+        A dropped connection is almost always the server rebooting or the
+        network blipping, so the pane should come back by itself. Backing
+        off keeps a real fault (a broken key, the server off for the
+        night) to a dozen cheap attempts an hour, and each failure's
+        reason stays visible in the pane."""
+        return min(self.restart_delay * 2 ** (crashes - 1), self.MAX_RETRY_DELAY)
+
+    def _retry_message(self, crashes, delay):
+        return (f"Lost the connection to the watcher ({crashes} in a row), "
+                f"reconnecting in {delay:g} seconds.")
+
+
 def classifier_supervisor(emit):
     """The classifier runs from the AstraThought checkout, with that
     repo's venv (torch lives there, not in the bot's Python), and from
@@ -689,6 +726,8 @@ def main():
     wiki = wiki_supervisor(emit)
     abs_login = abslogin_supervisor(emit)
     classifier = classifier_supervisor(emit)
+    watcher_cmd = watcher_command(cfg["watcher"])
+    watcher = WatcherSupervisor(emit, watcher_cmd or ["ssh"])
     extras = [(wiki, WIKI_BACKEND / "server.py"), (abs_login, ABSLOGIN_DIR / "app.py")]
     services = [supervisor] + [service for service, path in extras if path.is_file()]
 
@@ -723,6 +762,7 @@ def main():
     button("Restart absLogin", lambda: in_background(abs_login.restart))
     button("Restart Wiki", lambda: in_background(wiki.restart))
     button("Restart Classifier", lambda: in_background(classifier.restart))
+    button("Restart Watcher", lambda: in_background(watcher.restart))
     watchdog_button = button("Watchdog: Off", lambda: toggle_watchdog())
     pull_button = button("Pull + Restart", pull)
     button("Settings", lambda: open_settings_window())
@@ -1159,7 +1199,7 @@ def main():
                 box.see("end")
         status.configure(text="   ".join(f"{s.title}: {s.status()}"
                                          for s in (supervisor, abs_login, wiki,
-                                                   classifier, *custom.values())))
+                                                   classifier, watcher, *custom.values())))
         root.after(100, drain)
 
     watch = {"on": False, "started": time.monotonic()}
@@ -1252,7 +1292,7 @@ def main():
                                   "Closing this window stops the bot, site, wiki, "
                                   "absLogin and classifier, and every service you "
                                   "added. Close?"):
-            everything = [supervisor, wiki, abs_login, classifier, *custom.values()]
+            everything = [supervisor, wiki, abs_login, classifier, watcher, *custom.values()]
             # In parallel: a service with a clean-stop command can take a while.
             stoppers = [threading.Thread(target=s.shutdown, daemon=True) for s in everything]
             for stopper in stoppers:
@@ -1274,6 +1314,10 @@ def main():
     else:
         missing = next(path for path in classifier_files if not path.is_file())
         emit("classifier", f"Not found, so not started: {missing}")
+    if watcher_cmd:
+        watcher.start()
+    else:
+        emit("watcher", "Off: console.json has no valid watcher host and unit.")
     render_decisions()
     drain()
     # The classifier may already be running (started by an earlier

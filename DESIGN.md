@@ -334,7 +334,8 @@ Balances are never stored: they are sums over append-only ledgers.
 ## 8. Golurk Console (`astra_console.py`, `console_services.py`, `console_settings.py`)
 
 Details: `docs/CONSOLE.md`.
-- Six built-in panes in a collapsible "Astrabot" group: bot, audiobook site (log lines from `audiobooks*`/`aiohttp*` loggers), absLogin, wiki backend, classifier, portfolio (from `portfolio` logger). Each has Start/Restart/Stop and crash handling (10 s restart, give up after 5, a 60 s run resets the streak). Built-ins cannot be removed.
+- Seven built-in panes in a collapsible "Astrabot" group: bot, audiobook site (log lines from `audiobooks*`/`aiohttp*` loggers), absLogin, wiki backend, classifier, portfolio (from `portfolio` logger), and (since 2026-11-22, full width at the bottom) the **audiobook watcher**. Each has Start/Restart/Stop and crash handling (10 s restart, give up after 5, a 60 s run resets the streak). Built-ins cannot be removed.
+- The watcher pane does not run the watcher (it lives on the Ubuntu server): `WatcherSupervisor` runs `ssh -o BatchMode=yes thea-server` with `systemctl --user is-active audiobook-watcher` then `journalctl --user -u audiobook-watcher -f -n 30` (`watcher_command` in `console_services.py`). It needs key login from this PC to the server (`~/.ssh/config` alias `thea-server`; works as of 2026-11-22). `console.json` `"watcher": {"host", "unit"}` changes it; a blank host turns it off; host and unit are checked against a strict pattern before going into the remote command. "Restart Watcher" reconnects. Its reconnect policy is its own `_retry_delay`: 10, 20, 40 s ... capped at 5 min, never giving up (a lost connection is usually a reboot or a network blip; the base `Supervisor._retry_delay` hook was added for it). Not in the watchdog.
 - Settings adds extra services (program, PowerShell, batch; env, working folder, stop commands, start at login), saved in `console.json`; those can be removed. The Dragonwilds dedicated server (`C:\Servers\Dragonwilds`) is one.
 - "Pull + Restart" pulls Astrabot, absLogin and the wiki repo (not AstraThought; use Restart Classifier). Every start frees the service's port first.
 - Decisions panel: last 50 classifier decisions, refreshed on classifier log events, not polled.
@@ -412,6 +413,13 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 ## 14. Change log
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
+
+### 2026-11-22 — Claude Code (Opus 5.5), watcher pane in the Golurk Console (branch `feature/console-watcher-pane`, merged into master and pushed)
+
+- **Why:** Thea asked to see the audiobook watcher's status in the Golurk Console.
+- **What:** seventh built-in pane "Audiobook watcher (Ubuntu server)" (full width under classifier/portfolio) following the watcher's journal over SSH, plus a "Restart Watcher" button and the watcher in the status bar. `Supervisor` gained `_retry_delay` / `_retry_message` hooks (behaviour of the existing services unchanged). `console.json` accepts an optional `watcher` section. Checked by hand: the pane's exact ssh command streams the state line and journal from `thea-server` through a pipe.
+- **Reconnect policy:** doubles from 10 s to a 5-minute cap and never gives up (Thea asked Claude to choose).
+- **State:** merged into master and pushed (2026-11-22); no server-side change needed (the pane only reads the journal). Bot suite 321 passing (5 new watcher tests; layout tests updated for the new row). Not yet opened in the real console.
 
 ### 2026-11-21 — Claude Code (Opus 5.5), audiobook watcher merged into master
 

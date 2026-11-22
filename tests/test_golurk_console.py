@@ -106,7 +106,7 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(cells["bot"], (0, 0, 1))
         self.assertEqual(cells["classifier"], (2, 0, 1))
         self.assertEqual(cells["portfolio"], (2, 1, 1))
-        self.assertEqual(cells["watcher"], (3, 0, 2))  # full width, last row
+        self.assertEqual(cells["librarian"], (3, 0, 2))  # full width, last row
 
     def test_added_services_fill_two_per_row_underneath(self):
         cells = cs.pane_cells(["a", "b", "c"])
@@ -116,7 +116,7 @@ class LayoutTests(unittest.TestCase):
 
     def test_a_row_of_collapsed_panes_gives_its_room_back(self):
         self.assertEqual(cs.inner_row_weights({}), {0: 3, 1: 3, 2: 2, 3: 2})
-        self.assertEqual(cs.inner_row_weights({"watcher": True})[3], 0)
+        self.assertEqual(cs.inner_row_weights({"librarian": True})[3], 0)
         collapsed = {"absLogin": True, "wiki": True}
         self.assertEqual(cs.inner_row_weights(collapsed)[1], 0)
         self.assertEqual(cs.inner_row_weights({"absLogin": True})[1], 3)
@@ -135,40 +135,40 @@ class LayoutTests(unittest.TestCase):
     def test_the_built_in_windows_are_the_seven_we_ship(self):
         self.assertEqual(set(cs.BUILTIN_PANES),
                          {"bot", "site", "absLogin", "wiki", "classifier", "portfolio",
-                          "watcher"})
+                          "librarian"})
 
 
-class WatcherPaneTests(unittest.TestCase):
-    def test_the_default_tails_the_watcher_on_thea_server(self):
-        cmd = cs.watcher_command(cs.merge_config({})["watcher"])
+class LibrarianPaneTests(unittest.TestCase):
+    def test_the_default_tails_the_librarian_on_thea_server(self):
+        cmd = cs.librarian_command(cs.merge_config({})["librarian"])
         self.assertEqual(cmd[0], "ssh")
         self.assertIn("BatchMode=yes", cmd)
         self.assertEqual(cmd[-2], "thea-server")
-        self.assertIn("systemctl --user is-active audiobook-watcher", cmd[-1])
-        self.assertIn("journalctl --user -u audiobook-watcher -f", cmd[-1])
+        self.assertIn("systemctl --user is-active automated-librarian", cmd[-1])
+        self.assertIn("journalctl --user -u automated-librarian -f", cmd[-1])
 
     def test_console_json_can_change_the_host_or_turn_it_off(self):
-        cfg = cs.merge_config({"watcher": {"host": "192.168.4.74"}})
-        self.assertEqual(cfg["watcher"], {"host": "192.168.4.74", "unit": "audiobook-watcher"})
-        self.assertIsNone(cs.watcher_command(cs.merge_config({"watcher": {"host": ""}})["watcher"]))
+        cfg = cs.merge_config({"librarian": {"host": "192.168.4.74"}})
+        self.assertEqual(cfg["librarian"], {"host": "192.168.4.74", "unit": "automated-librarian"})
+        self.assertIsNone(cs.librarian_command(cs.merge_config({"librarian": {"host": ""}})["librarian"]))
 
     def test_nothing_from_console_json_can_reach_the_remote_shell(self):
-        for watcher in ({"host": "-oProxyCommand=calc", "unit": "audiobook-watcher"},
-                        {"host": "thea-server; rm -rf ~", "unit": "audiobook-watcher"},
+        for librarian in ({"host": "-oProxyCommand=calc", "unit": "automated-librarian"},
+                        {"host": "thea-server; rm -rf ~", "unit": "automated-librarian"},
                         {"host": "thea-server", "unit": "x; reboot"},
                         {"host": "thea-server", "unit": "$(id)"}):
-            self.assertIsNone(cs.watcher_command(watcher), watcher)
+            self.assertIsNone(cs.librarian_command(librarian), librarian)
 
-    def test_the_watcher_reconnects_with_backoff_and_never_gives_up(self):
-        from astra_console import WatcherSupervisor
-        watcher = WatcherSupervisor(lambda *_: None, ["ssh"])
-        self.assertEqual([watcher._retry_delay(n) for n in range(1, 7)],
+    def test_the_librarian_reconnects_with_backoff_and_never_gives_up(self):
+        from astra_console import LibrarianSupervisor
+        librarian = LibrarianSupervisor(lambda *_: None, ["ssh"])
+        self.assertEqual([librarian._retry_delay(n) for n in range(1, 7)],
                          [10, 20, 40, 80, 160, 300])
-        self.assertEqual(watcher._retry_delay(50), 300)
+        self.assertEqual(librarian._retry_delay(50), 300)
 
-    def test_a_broken_watcher_entry_falls_back_to_the_default(self):
-        self.assertEqual(cs.merge_config({"watcher": "nope"})["watcher"],
-                         cs.DEFAULT_CONFIG["watcher"])
+    def test_a_broken_librarian_entry_falls_back_to_the_default(self):
+        self.assertEqual(cs.merge_config({"librarian": "nope"})["librarian"],
+                         cs.DEFAULT_CONFIG["librarian"])
 
 class CustomSupervisorTests(unittest.TestCase):
     def setUp(self):

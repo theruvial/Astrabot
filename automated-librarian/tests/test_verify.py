@@ -2,7 +2,7 @@
 import shutil, sys, tempfile, unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import audiobook_watcher as w, tags, verify
+import automated_librarian as w, tags, verify
 from tags import Tags
 
 

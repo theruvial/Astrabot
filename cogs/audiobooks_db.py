@@ -163,7 +163,7 @@ class AudiobooksDB:
         )
 
     def _add_torrent_hash_column(self) -> None:
-        """Add requests.torrentHash (the watcher's link), backing up first.
+        """Add requests.torrentHash (the librarian's link), backing up first.
 
         Caller holds the lock. Same pattern as ``_add_author_column``.
         """
@@ -428,7 +428,7 @@ class AudiobooksDB:
         return self.get_request(request_id)
 
     def link_torrent(self, request_id: int, torrent_hash: str) -> dict | None:
-        """Mark a request In Progress and tie it to a torrent (watcher intake)."""
+        """Mark a request In Progress and tie it to a torrent (librarian intake)."""
         with self._lock:
             self.conn.execute(
                 "UPDATE requests SET status = 'In Progress', torrentHash = ?, "

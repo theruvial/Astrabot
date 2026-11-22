@@ -29,8 +29,8 @@ class Ring(unittest.TestCase):
         h = history.History(Path("/proc/nope/recent.json")); h.record("k", "x", "s", "m")
 
     def test_log_lines_are_attached_to_the_focused_book(self):
-        history.configure(self.p, loggers=("audiobook-watcher.verify",))
-        lg = logging.getLogger("audiobook-watcher.verify"); lg.setLevel(logging.INFO)
+        history.configure(self.p, loggers=("automated-librarian.verify",))
+        lg = logging.getLogger("automated-librarian.verify"); lg.setLevel(logging.INFO)
         history.record("k", "Book", "placed", "filed")
         history.focus("k"); lg.warning("tags say X but folder is Y")
         history.focus(None); lg.warning("someone else's line")
@@ -40,8 +40,8 @@ class Ring(unittest.TestCase):
 
 class WithVerifier(Base):
     def test_a_move_is_fully_recorded(self):
-        history.configure(Path(tempfile.mkdtemp()) / "r.json", loggers=("audiobook-watcher.verify",))
-        logging.getLogger("audiobook-watcher.verify").setLevel(logging.INFO)
+        history.configure(Path(tempfile.mkdtemp()) / "r.json", loggers=("automated-librarian.verify",))
+        logging.getLogger("automated-librarian.verify").setLevel(logging.INFO)
         old = self.book("genaShowalter/theImmortal/Who Loved Me"); self.tr.add("h1", old, ["b.m4b"])
         self.tags["b.m4b"] = Tags("Who Loved Me", ["Lynsay Sands"], "Who Loved Me")
         self.v.track("h1", "Who Loved Me.m4b", "placed", "genaShowalter", "Gena Showalter", "Who Loved Me"); self.v.tick()

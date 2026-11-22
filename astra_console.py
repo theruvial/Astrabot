@@ -68,7 +68,7 @@ from console_services import (
     inner_row_weights,
     outer_row_weights,
     pane_cells,
-    watcher_command,
+    librarian_command,
     save_console_config,
 )
 
@@ -660,16 +660,16 @@ def abslogin_supervisor(emit):
                       ROOT / "logs", ports=(ABSLOGIN_PORT,))
 
 
-class WatcherSupervisor(Supervisor):
-    """The audiobook watcher's journal, followed over SSH (2026-11-22).
+class LibrarianSupervisor(Supervisor):
+    """The Automated Librarian's journal, followed over SSH (2026-11-22).
 
-    The watcher runs on the Ubuntu server, not here, so this does not run
-    or restart the watcher itself: it only shows its output. Restart here
+    The librarian runs on the Ubuntu server, not here, so this does not run
+    or restart the librarian itself: it only shows its output. Restart here
     reconnects. The connection drops whenever the server reboots or the
     network blips, so its retry policy differs from a local program's."""
 
     def __init__(self, emit, command, log_dir=ROOT / "logs", **kwargs):
-        super().__init__(emit, "watcher", ROOT, command, log_dir, **kwargs)
+        super().__init__(emit, "librarian", ROOT, command, log_dir, **kwargs)
 
     # Reconnect waits double from restart_delay up to this cap, forever.
     MAX_RETRY_DELAY = 300
@@ -685,7 +685,7 @@ class WatcherSupervisor(Supervisor):
         return min(self.restart_delay * 2 ** (crashes - 1), self.MAX_RETRY_DELAY)
 
     def _retry_message(self, crashes, delay):
-        return (f"Lost the connection to the watcher ({crashes} in a row), "
+        return (f"Lost the connection to the librarian ({crashes} in a row), "
                 f"reconnecting in {delay:g} seconds.")
 
 
@@ -726,8 +726,8 @@ def main():
     wiki = wiki_supervisor(emit)
     abs_login = abslogin_supervisor(emit)
     classifier = classifier_supervisor(emit)
-    watcher_cmd = watcher_command(cfg["watcher"])
-    watcher = WatcherSupervisor(emit, watcher_cmd or ["ssh"])
+    librarian_cmd = librarian_command(cfg["librarian"])
+    librarian = LibrarianSupervisor(emit, librarian_cmd or ["ssh"])
     extras = [(wiki, WIKI_BACKEND / "server.py"), (abs_login, ABSLOGIN_DIR / "app.py")]
     services = [supervisor] + [service for service, path in extras if path.is_file()]
 
@@ -762,7 +762,7 @@ def main():
     button("Restart absLogin", lambda: in_background(abs_login.restart))
     button("Restart Wiki", lambda: in_background(wiki.restart))
     button("Restart Classifier", lambda: in_background(classifier.restart))
-    button("Restart Watcher", lambda: in_background(watcher.restart))
+    button("Restart Librarian", lambda: in_background(librarian.restart))
     watchdog_button = button("Watchdog: Off", lambda: toggle_watchdog())
     pull_button = button("Pull + Restart", pull)
     button("Settings", lambda: open_settings_window())
@@ -1199,7 +1199,7 @@ def main():
                 box.see("end")
         status.configure(text="   ".join(f"{s.title}: {s.status()}"
                                          for s in (supervisor, abs_login, wiki,
-                                                   classifier, watcher, *custom.values())))
+                                                   classifier, librarian, *custom.values())))
         root.after(100, drain)
 
     watch = {"on": False, "started": time.monotonic()}
@@ -1292,7 +1292,7 @@ def main():
                                   "Closing this window stops the bot, site, wiki, "
                                   "absLogin and classifier, and every service you "
                                   "added. Close?"):
-            everything = [supervisor, wiki, abs_login, classifier, watcher, *custom.values()]
+            everything = [supervisor, wiki, abs_login, classifier, librarian, *custom.values()]
             # In parallel: a service with a clean-stop command can take a while.
             stoppers = [threading.Thread(target=s.shutdown, daemon=True) for s in everything]
             for stopper in stoppers:
@@ -1314,10 +1314,10 @@ def main():
     else:
         missing = next(path for path in classifier_files if not path.is_file())
         emit("classifier", f"Not found, so not started: {missing}")
-    if watcher_cmd:
-        watcher.start()
+    if librarian_cmd:
+        librarian.start()
     else:
-        emit("watcher", "Off: console.json has no valid watcher host and unit.")
+        emit("librarian", "Off: console.json has no valid librarian host and unit.")
     render_decisions()
     drain()
     # The classifier may already be running (started by an earlier

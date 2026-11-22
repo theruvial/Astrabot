@@ -17,8 +17,8 @@ from pathlib import Path
 import history
 import tags as tagmod
 
-log = logging.getLogger("audiobook-watcher.verify")
-STATE = Path.home() / ".local/state/audiobook-watcher/verify.json"
+log = logging.getLogger("automated-librarian.verify")
+STATE = Path.home() / ".local/state/automated-librarian/verify.json"
 POLL_SECS, MOVE_WAIT_SECS, MAX_ERRORS = 10, 120, 30
 # Folders the user fills on purpose (a series or collection of mixed authors): never move a book out of them.
 EXEMPT_AUTHORS = {"mixedauthors"}

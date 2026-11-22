@@ -352,7 +352,7 @@ class Audiobooks(commands.Cog):
         return updated, sent, None
 
     async def mark_downloading(self, request_id: int, torrent_hash: str):
-        """The watcher is downloading this book. Returns (row, error).
+        """The librarian is downloading this book. Returns (row, error).
 
         In Progress plus the torrent link, Discord post updated, and
         deliberately **no email** (Thea, 2026-11-20): the requester gets
@@ -692,7 +692,7 @@ class Audiobooks(commands.Cog):
                          self.library_watcher.dry_run)
         except Exception as exc:  # noqa: BLE001 - must not kill the cog
             log.warning("Library watcher could not start: %s", exc)
-        # Optional private endpoint for the server's audiobook watcher
+        # Optional private endpoint for the server's Automated Librarian
         # (off unless audiobooks.intake is on with a secret).
         try:
             from aiohttp import web as aio_web
@@ -706,10 +706,10 @@ class Audiobooks(commands.Cog):
                 host = str(self.intake.cfg.get("host") or "0.0.0.0")
                 port = int(self.intake.cfg.get("port") or DEFAULT_PORT)
                 await aio_web.TCPSite(self._intake_runner, host, port).start()
-                log.info("Watcher intake listening on %s:%s (dry run: %s).",
+                log.info("Librarian intake listening on %s:%s (dry run: %s).",
                          host, port, self.intake.dry_run)
         except Exception as exc:  # noqa: BLE001 - must not kill the cog
-            log.warning("Watcher intake could not start: %s", exc)
+            log.warning("Librarian intake could not start: %s", exc)
 
     async def cog_unload(self) -> None:
         # Awaited by discord.py (via maybe_coroutine). Awaiting the

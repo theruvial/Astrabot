@@ -1,7 +1,7 @@
-"""Tests for the watcher intake: the Ubuntu server's audiobook watcher tells
+"""Tests for the librarian intake: the Ubuntu server's Automated Librarian tells
 the bot which books a torrent holds, and the bot links them to requests.
 
-No real watcher: calls come from the aiohttp test client on 127.0.0.1. The
+No real librarian: calls come from the aiohttp test client on 127.0.0.1. The
 secret here is a made-up test value, never the real one.
 """
 
@@ -26,7 +26,7 @@ from cogs.audiobooks_intake import (
 )
 
 SECRET = "test-intake-secret"
-WATCHER = "192.168.4.74"
+LIBRARIAN = "192.168.4.74"
 HASH = "abc123def456"
 AUTH = {"Authorization": f"Bearer {SECRET}"}
 
@@ -41,10 +41,10 @@ def book(title, author=""):
 
 
 class CallerTests(unittest.TestCase):
-    def check(self, peer=WATCHER, headers=None, secret=SECRET, allowed=(WATCHER,)):
+    def check(self, peer=LIBRARIAN, headers=None, secret=SECRET, allowed=(LIBRARIAN,)):
         return check_caller(peer, AUTH if headers is None else headers, secret, list(allowed))
 
-    def test_the_watcher_with_the_secret_is_let_in(self):
+    def test_the_librarian_with_the_secret_is_let_in(self):
         self.assertIsNone(self.check())
 
     def test_a_wrong_or_missing_secret_is_refused(self):
@@ -53,7 +53,7 @@ class CallerTests(unittest.TestCase):
         self.assertEqual(self.check(headers={"Authorization": SECRET}), "bad_secret")
 
     def test_anything_through_nginx_is_refused_even_with_the_secret(self):
-        # nginx runs on the watcher's own server, so the address alone proves nothing.
+        # nginx runs on the librarian's own server, so the address alone proves nothing.
         for header in ("X-Forwarded-For", "X-Real-IP", "Forwarded"):
             self.assertEqual(self.check(headers={**AUTH, header: "203.0.113.9"}), "proxied")
 
@@ -144,7 +144,7 @@ class BuildTests(unittest.TestCase):
         self.assertIsNone(build_intake(FakeCog([])))
         cfg = {"enabled": True, "secret": SECRET}
         self.assertIsNone(build_intake(FakeCog([], {"intake": cfg})))
-        cfg["allowed_ips"] = [WATCHER]
+        cfg["allowed_ips"] = [LIBRARIAN]
         self.assertIsNotNone(build_intake(FakeCog([], {"intake": cfg})))
 
 

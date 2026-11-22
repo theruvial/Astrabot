@@ -2,7 +2,7 @@
 import sys, tempfile, unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import audiobook_watcher as w, packs
+import automated_librarian as w, packs
 from tags import Tags
 
 AUTHORS = ["Lynsay Sands", "James Hunter", "Dennis E. Taylor", "Brandon Sanderson", "Jim Butcher", "Andy Weir",

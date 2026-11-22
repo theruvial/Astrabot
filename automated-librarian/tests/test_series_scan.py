@@ -3,7 +3,7 @@ Real case (2026-11-20): 'The Immortal Who Loved Me ...' was filed under genaShow
 import sys, tempfile, unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import audiobook_watcher as w
+import automated_librarian as w
 
 
 def lib_with(tree):

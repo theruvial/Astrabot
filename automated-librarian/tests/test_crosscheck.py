@@ -2,7 +2,7 @@
 import sys, tempfile, unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import audiobook_watcher as w, bookcheck
+import automated_librarian as w, bookcheck
 
 
 def lib():

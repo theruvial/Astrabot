@@ -1,9 +1,9 @@
-"""Audiobookshelf integration for audiobook-watcher.
+"""Audiobookshelf integration for automated-librarian.
 
-When a torrent the watcher filed finishes downloading, this:
+When a torrent the librarian filed finishes downloading, this:
   1. asks Audiobookshelf to scan the library,
   2. finds the new item by its Author/[Series/]Title path,
-  3. searches the metadata provider using the title/author the watcher already worked out,
+  3. searches the metadata provider using the title/author the librarian already worked out,
   4. applies the match only if a result agrees with that title and author.
 
 A job survives restarts (state file). Nothing here can block downloads: any error just
@@ -20,9 +20,9 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-log = logging.getLogger("audiobook-watcher.abs")
-STATE = Path.home() / ".local/state/audiobook-watcher/pending.json"
-USER_AGENT = "audiobook-watcher/0.1"
+log = logging.getLogger("automated-librarian.abs")
+STATE = Path.home() / ".local/state/automated-librarian/pending.json"
+USER_AGENT = "automated-librarian/0.1"
 SCAN_RETRY_SECS, SCAN_MAX_TRIES, MAX_ERRORS = 8, 15, 30
 GATE_POLL_SECS = 5   # how often a finished book re-checks whether downloads have gone quiet
 

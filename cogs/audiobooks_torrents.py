@@ -104,7 +104,7 @@ _SERIES_NUMBER_RE = re.compile(r"\b(book|vol|volume|part)\.?\s*#?\d+\b", re.IGNO
 
 
 # camelCase boundaries: "lynsaySands" -> "lynsay Sands", "dennisETaylor" ->
-# "dennis E Taylor". The watcher names author folders this way, and
+# "dennis E Taylor". The Automated Librarian names author folders this way, and
 # Audiobookshelf shows the folder name as the author until it has matched
 # the book's metadata (2026-11-20).
 _CAMEL_RE = re.compile(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
@@ -163,7 +163,7 @@ def match_title_exact(row: dict, title: str, author: str = "", added=None) -> bo
     """True when a clean title and author are exactly the requested book.
 
     For sources that give the title and author separately (the
-    Audiobookshelf library, the watcher intake), so it can be stricter
+    Audiobookshelf library, the librarian intake), so it can be stricter
     than ``match_torrent``: the two titles must have the **same** words,
     not just the request's words somewhere in the name. "Twice" no longer
     matches "Twice Bitten" by the same author (2026-11-20).

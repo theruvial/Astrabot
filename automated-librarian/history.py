@@ -1,9 +1,9 @@
-"""A running log of the last N books the watcher handled, for troubleshooting later.
+"""A running log of the last N books the librarian handled, for troubleshooting later.
 
 One entry per torrent (keyed by info-hash): when it arrived, how it was placed and why, what ffprobe read from the
-audio file, what the catalogue said, whether anything moved, and the explanation lines the watcher logged for it.
-Stored as JSON (~/.local/state/audiobook-watcher/recent.json); the newest N entries are kept.
-View it with:  audiobook_watcher.py --recent [N]
+audio file, what the catalogue said, whether anything moved, and the explanation lines the librarian logged for it.
+Stored as JSON (~/.local/state/automated-librarian/recent.json); the newest N entries are kept.
+View it with:  automated_librarian.py --recent [N]
 Never holds secrets: only names, paths, tags and decisions.
 """
 import json
@@ -11,7 +11,7 @@ import logging
 import time
 from pathlib import Path
 
-STATE = Path.home() / ".local/state/audiobook-watcher/recent.json"
+STATE = Path.home() / ".local/state/automated-librarian/recent.json"
 LIMIT, MAX_EVENTS = 30, 60
 
 _h = None        # the configured History; record() does nothing until configure() is called
@@ -32,7 +32,7 @@ class History:
             tmp.write_text(json.dumps(self.entries, indent=1, ensure_ascii=False))
             tmp.replace(self.path)
         except OSError:
-            pass                       # history must never break the watcher
+            pass                       # history must never break the librarian
 
     def record(self, key, name=None, step="", msg="", **data):
         if not key:
@@ -67,7 +67,7 @@ class History:
 
 
 class _Capture(logging.Handler):
-    """Keeps the watcher's own explanation lines for whichever book is being worked on."""
+    """Keeps the librarian's own explanation lines for whichever book is being worked on."""
     def emit(self, record):
         if _h is not None and _h.current:
             _h.record(_h.current, step=record.levelname.lower(), msg=record.getMessage())

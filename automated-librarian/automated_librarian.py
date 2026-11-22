@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""audiobook-watcher: watch a folder for .torrent files, work out where the
+"""automated-librarian: watch a folder for .torrent files, work out where the
 audiobook belongs in the Audiobookshelf library (Author/[Series/]Title), and
 add it to Transmission with that download location.
 
@@ -37,9 +37,9 @@ import tags as tagmod
 import packs
 from textutil import clean_name, norm, safe_component, sim, tidy_title
 
-log = logging.getLogger("audiobook-watcher")
+log = logging.getLogger("automated-librarian")
 AUDIO_EXT = {".m4b", ".mp3", ".m4a", ".flac", ".ogg", ".opus", ".aac", ".wav"}
-USER_AGENT = "audiobook-watcher/0.1"
+USER_AGENT = "automated-librarian/0.1"
 
 
 # --------------------------------------------------------------------------
@@ -832,12 +832,12 @@ def main():
     if a.recent is not None:
         print(history.History().render(a.recent))
         return 0
-    history.configure(loggers=("audiobook-watcher.verify", "audiobook-watcher.packs"))
+    history.configure(loggers=("automated-librarian.verify", "automated-librarian.packs"))
 
     if a.link_plan:
         linker = packs.linker_from_env()
         if not linker:
-            sys.exit("set NAS_SSH_HOST (and NAS_ROOT, NAS_SSH_KEY) first, e.g. `set -a; . ~/.config/audiobook-watcher/env; set +a`")
+            sys.exit("set NAS_SSH_HOST (and NAS_ROOT, NAS_SSH_KEY) first, e.g. `set -a; . ~/.config/automated-librarian/env; set +a`")
         res = linker.run(packs.read_plan(a.link_plan), apply=a.apply)
         print("\n".join(res["lines"]))
         print(res["stderr"] or "", end="" if not res["stderr"] else "\n")

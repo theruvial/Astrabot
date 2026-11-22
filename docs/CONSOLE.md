@@ -7,7 +7,7 @@ with one pane of live output for each.
 ## Layout
 
 - The seven Astrabot windows (**Bot**, **Site**, **absLogin**, **Wiki**,
-  **Classifier**, **Portfolio**, **Audiobook watcher**) sit together in one
+  **Classifier**, **Portfolio**, **Automated Librarian**) sit together in one
   **Astrabot** group. The arrow on the group header collapses all seven at once; the arrow on each window's header collapses
   just that window. Collapsed windows give their room back to the others.
 - The **Decisions** panel on the right collapses the same way.
@@ -16,12 +16,12 @@ with one pane of live output for each.
 - **Site** and **Portfolio** show the log lines of the audiobooks and portfolio
   cogs, which run inside the bot. **Restart Site** and **Restart Portfolio**
   reload just that cog; **Restart Bot** restarts both.
-- **Audiobook watcher** shows the watcher that runs on the Ubuntu server. It
+- **Automated Librarian** shows the librarian that runs on the Ubuntu server. It
   connects with `ssh thea-server` (key login, no password prompt), prints whether
-  the `audiobook-watcher` service is active, then follows its journal live.
-  **Restart Watcher** reconnects; it does not restart the watcher itself. To use
+  the `automated-librarian` service is active, then follows its journal live.
+  **Restart Librarian** reconnects; it does not restart the librarian itself. To use
   another host or unit, or to turn the pane off (blank host), add to `console.json`:
-  `"watcher": {"host": "thea-server", "unit": "audiobook-watcher"}`.
+  `"librarian": {"host": "thea-server", "unit": "automated-librarian"}`.
 - The seven built-in windows can never be removed. Only services you added have a
   **Remove** button (and Settings only enables Remove for those).
 

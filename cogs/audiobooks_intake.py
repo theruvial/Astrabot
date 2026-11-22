@@ -1,6 +1,6 @@
-"""Private endpoint for the audiobook watcher on the Ubuntu server.
+"""Private endpoint for the Automated Librarian on the Ubuntu server.
 
-The watcher (``~/audiobook-watcher`` on 192.168.4.74, not in this repo)
+The Automated Librarian (``automated-librarian/`` in this repo, run on 192.168.4.74)
 files every new torrent into the library. It knows the real title and
 author of each book, even inside a multi-book pack whose torrent name
 says nothing useful. It sends those books here, and the bot links each
@@ -19,12 +19,12 @@ Books that match no request are ignored: Thea also adds books that
 nobody asked for, and those need nothing on the requests side.
 
 Security (the bot's public site is proxied by nginx on the *same*
-server as the watcher, so the source address alone proves nothing):
+server as the librarian, so the source address alone proves nothing):
 
 * a separate port that nginx never forwards (default 13385);
 * any request carrying a proxy header (X-Forwarded-For, X-Real-IP, ...)
-  is refused, because the watcher talks to the bot directly;
-* the peer address must be in ``allowed_ips`` (the watcher's server);
+  is refused, because the librarian talks to the bot directly;
+* the peer address must be in ``allowed_ips`` (the librarian's server);
 * a shared secret in ``Authorization: Bearer <secret>``, compared in
   constant time. With no secret configured the endpoint does not start.
 
@@ -69,7 +69,7 @@ def intake_secret(cfg: Mapping) -> str:
 
 def check_caller(peer: object, headers: Mapping[str, str], secret: str,
                  allowed_ips) -> str | None:
-    """None if the caller is the watcher, else a short refusal reason.
+    """None if the caller is the librarian, else a short refusal reason.
 
     Fails closed: no secret, no allowed address, a proxy header or a
     wrong secret all refuse.
@@ -93,7 +93,7 @@ def check_caller(peer: object, headers: Mapping[str, str], secret: str,
 
 # -- what was sent -----------------------------------------------------
 def parse_payload(raw: object) -> tuple[dict | None, str | None]:
-    """Validate the watcher's JSON. Returns (payload, error)."""
+    """Validate the librarian's JSON. Returns (payload, error)."""
     if not isinstance(raw, dict):
         return None, "body must be a JSON object"
     torrent = raw.get("torrent")
@@ -128,7 +128,7 @@ def match_book(row: dict, book: dict) -> bool:
     """True when this filed book is the one the request asked for.
 
     Same exact rule as the library (``match_title_exact``): the titles
-    have the same words and the author agrees. No date check (the watcher
+    have the same words and the author agrees. No date check (the librarian
     only sends books it is filing now).
     """
     return match_title_exact(row, book.get("title") or "", book.get("author") or "")
@@ -139,7 +139,7 @@ def plan_links(requests: list[dict], books: list[dict], torrent_hash: str) -> li
 
     ``status`` is ``linked`` (a Requested row to move to In Progress),
     ``already_linked`` (In Progress and already tied to this torrent:
-    the watcher resent), ``ambiguous`` or ``no_request``. A book
+    the librarian resent), ``ambiguous`` or ``no_request``. A book
     matching several requests, or a request matching several books, is
     ambiguous and left for Thea, as everywhere else.
     """

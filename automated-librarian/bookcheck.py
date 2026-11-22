@@ -13,7 +13,7 @@ from collections import Counter, namedtuple
 from tags import author_matches, split_authors
 from textutil import norm, sim
 
-log = logging.getLogger("audiobook-watcher.bookcheck")
+log = logging.getLogger("automated-librarian.bookcheck")
 Verdict = namedtuple("Verdict", "status authors series title", defaults=("", ""))
 _EDITION = re.compile(r"\s*(?:\([^)]*\)|\[[^\]]*\]|,\s*book\s*\d+.*|:\s*book\s*\d+.*)$", re.I)
 

@@ -36,20 +36,20 @@ STARTUP_NAME = "Golurk Console.bat"
 IS_WINDOWS = os.name == "nt"
 
 # The windows that are part of the console and cannot be removed.
-BUILTIN_PANES = ("bot", "site", "absLogin", "wiki", "classifier", "portfolio", "watcher")
+BUILTIN_PANES = ("bot", "site", "absLogin", "wiki", "classifier", "portfolio", "librarian")
 BUILTIN_TITLES = {"bot": "Bot", "site": "Site (13380)", "absLogin": "absLogin (13381)",
                   "wiki": "Wiki (13382)", "classifier": "Classifier (13383)",
                   "portfolio": "Portfolio (13384)",
-                  "watcher": "Audiobook watcher (Ubuntu server)"}
+                  "librarian": "Automated Librarian (Ubuntu server)"}
 # The seven built-in windows live together in one collapsible group.
 GROUP_KEY = "astrabot"
 GROUP_TITLE = "Astrabot"
 # Where a built-in pane sits inside that group's grid: (row, column, columnspan).
 BUILTIN_CELLS = {"bot": (0, 0, 1), "site": (0, 1, 1), "absLogin": (1, 0, 1),
                  "wiki": (1, 1, 1), "classifier": (2, 0, 1), "portfolio": (2, 1, 1),
-                 "watcher": (3, 0, 2)}
+                 "librarian": (3, 0, 2)}
 # Shorter rows inside the group (the rest get 3).
-SHORT_ROWS = {BUILTIN_CELLS["classifier"][0], BUILTIN_CELLS["watcher"][0]}
+SHORT_ROWS = {BUILTIN_CELLS["classifier"][0], BUILTIN_CELLS["librarian"][0]}
 # Added services sit in the outer grid under the group (row 0 is the group).
 FIRST_CUSTOM_ROW = 1
 
@@ -63,14 +63,14 @@ DEFAULT_CONFIG = {
     "collapsed": {},
     # The services added in Settings. Built-in windows are not listed here.
     "services": [],
-    # The audiobook watcher pane tails the watcher's journal on the Ubuntu
+    # The Automated Librarian pane tails the librarian's journal on the Ubuntu
     # server over SSH (key login, no password). A blank host turns it off.
-    "watcher": {"host": "thea-server", "unit": "audiobook-watcher"},
+    "librarian": {"host": "thea-server", "unit": "automated-librarian"},
 }
 
 # Safe to put in the remote shell command: an SSH alias or address, a unit name.
-WATCHER_HOST = re.compile(r"^[A-Za-z0-9_.@-]+$")
-WATCHER_UNIT = re.compile(r"^[A-Za-z0-9_.@-]+$")
+LIBRARIAN_HOST = re.compile(r"^[A-Za-z0-9_.@-]+$")
+LIBRARIAN_UNIT = re.compile(r"^[A-Za-z0-9_.@-]+$")
 
 DEFAULT_SERVICE = {
     "name": "", "title": "", "run_as": "program", "command": "", "cwd": "",
@@ -137,11 +137,11 @@ def merge_config(user) -> dict:
         seen.add(spec["name"])
     if not isinstance(cfg["collapsed"], dict):
         cfg["collapsed"] = {}
-    watcher = dict(DEFAULT_CONFIG["watcher"])
-    if isinstance(cfg["watcher"], dict):
-        watcher.update({k: str(v or "").strip() for k, v in cfg["watcher"].items()
-                        if k in watcher})
-    cfg["watcher"] = watcher
+    librarian = dict(DEFAULT_CONFIG["librarian"])
+    if isinstance(cfg["librarian"], dict):
+        librarian.update({k: str(v or "").strip() for k, v in cfg["librarian"].items()
+                          if k in librarian})
+    cfg["librarian"] = librarian
     cfg["startup_delay_seconds"] = max(0, _int(cfg["startup_delay_seconds"], 0))
     cfg["console_name"] = str(cfg["console_name"] or DEFAULT_CONSOLE_NAME)
     return cfg
@@ -332,8 +332,8 @@ def pane_cells(custom_keys) -> dict:
     return cells
 
 
-def watcher_command(watcher) -> list[str] | None:
-    """The ssh command that tails the watcher's journal, or None. Pure.
+def librarian_command(librarian) -> list[str] | None:
+    """The ssh command that tails the librarian's journal, or None. Pure.
 
     It prints the service state once (``systemctl is-active``), then
     follows the journal from its last 30 lines. BatchMode means a missing
@@ -341,11 +341,11 @@ def watcher_command(watcher) -> list[str] | None:
     the keepalives end a dead connection within about 45 seconds so the
     pane can reconnect. Host and unit are checked before they go into the
     remote command, so console.json cannot inject shell."""
-    host = str((watcher or {}).get("host") or "").strip()
-    unit = str((watcher or {}).get("unit") or "").strip()
-    if not host or host.startswith("-") or not WATCHER_HOST.match(host):
+    host = str((librarian or {}).get("host") or "").strip()
+    unit = str((librarian or {}).get("unit") or "").strip()
+    if not host or host.startswith("-") or not LIBRARIAN_HOST.match(host):
         return None
-    if not WATCHER_UNIT.match(unit):
+    if not LIBRARIAN_UNIT.match(unit):
         return None
     remote = (f'echo "{unit}: $(systemctl --user is-active {unit})"; '
               f"exec journalctl --user -u {unit} -f -n 30 -o short-iso --no-pager")
@@ -358,7 +358,7 @@ def inner_row_weights(collapsed) -> dict:
     """Vertical room for each row inside the Astrabot group. Pure.
 
     A row whose panes are all collapsed gets none, so the others grow
-    into the space. The classifier and watcher rows are shorter."""
+    into the space. The classifier and librarian rows are shorter."""
     weights: dict[int, int] = {}
     for key, (row, _col, _span) in BUILTIN_CELLS.items():
         base = 2 if row in SHORT_ROWS else 3

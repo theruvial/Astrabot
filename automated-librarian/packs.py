@@ -9,7 +9,7 @@ The links are created on the NAS itself over SSH (the CIFS mount cannot make sym
 relative, so they work wherever the share is mounted. Nothing in the torrent is moved or renamed.
 
 SSH linking is opt-in (NAS_SSH_HOST). Without it the plan is saved to ~/.local/state/
-audiobook-watcher/plans/ and logged, and can be applied later with --link-plan.
+automated-librarian/plans/ and logged, and can be applied later with --link-plan.
 """
 import json
 import logging
@@ -28,8 +28,8 @@ from textutil import clean_name, safe_component, sim, tidy_title
 
 import history
 
-log = logging.getLogger("audiobook-watcher.packs")
-STATE_DIR = Path.home() / ".local/state/audiobook-watcher"
+log = logging.getLogger("automated-librarian.packs")
+STATE_DIR = Path.home() / ".local/state/automated-librarian"
 PLANS = STATE_DIR / "plans"
 AUDIO_EXT = {".m4b", ".mp3", ".m4a", ".flac", ".ogg", ".opus", ".aac", ".wav"}
 BOOK_EXT = {".m4b", ".m4a"}          # one file == one whole book
@@ -290,7 +290,7 @@ class PackTracker:
                 log.warning("pack %r: %s (try %d/%d)", j["name"], e, j["tries"], self.MAX_TRIES)
                 verdict = "drop" if j["tries"] >= self.MAX_TRIES else "keep"
             if verdict == "drop":
-                log.warning("pack %r: giving up; apply later with: audiobook_watcher.py --link-plan %s --apply",
+                log.warning("pack %r: giving up; apply later with: automated_librarian.py --link-plan %s --apply",
                             j["name"], j["plan"])
             if verdict in ("done", "drop"):
                 del self.jobs[h]
@@ -325,7 +325,7 @@ class PackTracker:
             self._save()
         if self.linker is None:
             log.warning("pack %r finished. NAS linking is off (no NAS_SSH_HOST), so no links yet. "
-                        "Apply with: audiobook_watcher.py --link-plan %s --apply", j["name"], j["plan"])
+                        "Apply with: automated_librarian.py --link-plan %s --apply", j["name"], j["plan"])
             return "done"
         res = self.linker.run([tuple(s) for s in j["specs"]], apply=True)
         if not res["ok"]:

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from textutil import clean_name, norm, sim, tidy_title  # noqa: F401  (norm re-used by verify)
 
-log = logging.getLogger("audiobook-watcher.tags")
+log = logging.getLogger("automated-librarian.tags")
 AUDIO_EXT = (".m4b", ".m4a", ".mp3", ".flac", ".ogg", ".opus", ".aac", ".wma")
 
 

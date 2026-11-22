@@ -1,4 +1,4 @@
-"""Tell Astrabot which books a torrent contains (contract: Astrabot docs/WATCHER_INTAKE.md).
+"""Tell Astrabot which books a torrent contains (contract: Astrabot docs/LIBRARIAN_INTAKE.md).
 
 Best-effort: a down bot never blocks a download. Unsent calls are kept in a state file and retried.
 Enabled only when INTAKE_URL and INTAKE_SECRET are both set. The secret is never logged.
@@ -11,8 +11,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-log = logging.getLogger("audiobook-watcher.intake")
-STATE = Path.home() / ".local/state/audiobook-watcher/intake.json"
+log = logging.getLogger("automated-librarian.intake")
+STATE = Path.home() / ".local/state/automated-librarian/intake.json"
 MAX_BOOKS, MAX_TRIES, RETRY_SECS = 200, 20, 60
 
 
@@ -40,7 +40,7 @@ class Intake:
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(self.url + path, data, {
             "Authorization": "Bearer " + self.secret, "Content-Type": "application/json",
-            "User-Agent": "audiobook-watcher/0.1"}, method=method)
+            "User-Agent": "automated-librarian/0.1"}, method=method)
         with urllib.request.urlopen(req, timeout=self.timeout) as r:
             return json.loads(r.read() or b"{}")
 

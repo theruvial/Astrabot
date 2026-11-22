@@ -138,13 +138,13 @@ run-book for the feature; the design document is the full spec.
   as collected editions. Omnibus/anthology extras are therefore not
   requested, and are not reported as "skipped" either — they were
   never candidates.
-- **Watcher intake (2026-11-20, off by default):** the audiobook watcher
+- **Librarian intake (2026-11-20, off by default):** the Automated Librarian
   on the Ubuntu server files each torrent into the library and tells the
   bot which books it holds, on a private port (13385) with a shared
   secret. A book matching exactly one `Requested` request moves it to
   `In Progress` with no email and links it to the torrent; this is what
   catches single books inside multi-book packs. Books nobody requested
-  are ignored. Full contract and setup: [WATCHER_INTAKE.md](WATCHER_INTAKE.md).
+  are ignored. Full contract and setup: [LIBRARIAN_INTAKE.md](LIBRARIAN_INTAKE.md).
 - **Closing requests from Audiobookshelf (2026-11-10, off by default):**
   the torrent watcher only moves a request to `In Progress` (the requester
   is told it is being worked on). A second watcher

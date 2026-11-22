@@ -1,12 +1,12 @@
 [Unit]
-Description=Audiobook torrent watcher
+Description=Automated Librarian
 After=network-online.target
 
 [Service]
-ExecStart=/usr/bin/python3 %h/repos/Astrabot/audiobook-watcher/audiobook_watcher.py
+ExecStart=/usr/bin/python3 %h/repos/Astrabot/automated-librarian/automated_librarian.py
 # Optional model fallback: put ANTHROPIC_API_KEY=... (optionally ANTHROPIC_MODEL, default claude-haiku-5-5) in this file.
 # OPENAI_API_KEY (+ OPENAI_MODEL, OPENAI_BASE_URL) works as an alternative.
-EnvironmentFile=-%h/.config/audiobook-watcher/env
+EnvironmentFile=-%h/.config/automated-librarian/env
 Restart=on-failure
 RestartSec=10
 

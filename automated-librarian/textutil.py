@@ -1,4 +1,4 @@
-"""Small text/path helpers shared by the watcher, the pack planner and the Audiobookshelf client."""
+"""Small text/path helpers shared by the librarian, the pack planner and the Audiobookshelf client."""
 import difflib
 import re
 

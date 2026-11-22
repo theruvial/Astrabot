@@ -1,18 +1,18 @@
-# Watcher intake: how the audiobook watcher talks to the bot
+# Librarian intake: how the Automated Librarian talks to the bot
 
 This is the contract between Astrabot (Windows PC, 192.168.4.80) and the
-audiobook watcher (`~/audiobook-watcher` on the Ubuntu server, 192.168.4.74).
-The bot side lives in `cogs/audiobooks_intake.py`. The watcher side is not in
+Automated Librarian (`~/automated-librarian` on the Ubuntu server, 192.168.4.74).
+The bot side lives in `cogs/audiobooks_intake.py`. The librarian side is not in
 this repo.
 
 ## Why it exists
 
 A request for one book of a multi-book torrent ("pack") never matched the
 torrent, because the pack's name has none of the book titles in it. The
-watcher already knows each book's real title and author when it files the
+librarian already knows each book's real title and author when it files the
 torrent, so it tells the bot. The bot links each book to a waiting request:
 
-1. When the watcher adds a torrent to Transmission, it sends the bot the
+1. When the librarian adds a torrent to Transmission, it sends the bot the
    torrent's hash and name and the books inside it.
 2. Each book that matches exactly one `Requested` request moves that request
    to `In Progress` and stores the torrent hash on it. The Discord post updates.
@@ -89,7 +89,7 @@ Use it to test the connection.
 
 - The intake uses its own port, 13385. **nginx must never proxy this port.**
 - Any request carrying `X-Forwarded-For`, `X-Real-IP`, `Forwarded` or
-  `X-Forwarded-Host`/`-Proto` is refused. nginx runs on the watcher's own
+  `X-Forwarded-Host`/`-Proto` is refused. nginx runs on the librarian's own
   server, so the bot cannot tell proxied public traffic apart by address alone.
 - The peer address must be in `audiobooks.intake.allowed_ips` (default
   `["192.168.4.74"]`).
@@ -120,8 +120,8 @@ environment variable instead:
 setx AUDIOBOOKS_INTAKE_SECRET "<a long random value>"
 ```
 
-Then restart the console so the bot picks it up. The watcher needs the same
+Then restart the console so the bot picks it up. The librarian needs the same
 value in its own config on the server.
 
-Start with `dry_run: true`. The watcher's calls then return `would_link` and the
+Start with `dry_run: true`. The librarian's calls then return `would_link` and the
 bot logs what it would do. Set it to `false` once the matches look right.

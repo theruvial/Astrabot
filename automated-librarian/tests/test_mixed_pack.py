@@ -1,6 +1,7 @@
 """A multi-book torrent with many authors stays whole in staging; each book is linked under ITS author."""
 import sys, tempfile, unittest
 from pathlib import Path
+from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import automated_librarian as w, packs
 from tags import Tags
@@ -94,7 +95,10 @@ class Flow(Resolver):
         tk = packs.PackTracker(FakeTr("/dl", files), linker, post, state=d / "p.json",
                                resolver=lambda r, b, f, u: w.resolve_mixed(r, b, f, u, self.lib, self.confirm, self.probe),
                                intake=intake)
-        packs.STATE_DIR = d
+        # Both paths are module globals computed at import: patch them together and put them
+        # back, or write_plan() writes into the real ~/.local/state on the server (2026-11-22).
+        for name, value in (("STATE_DIR", d), ("PLANS", d / "plans")):
+            patcher = mock.patch.object(packs, name, value); patcher.start(); self.addCleanup(patcher.stop)
         tk.track_mixed("hash", ROOT, self.units); tk.tick()
         self.assertEqual(tk.jobs, {})
         (specs, apply), = linker.got

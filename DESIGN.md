@@ -340,7 +340,7 @@ Details: `docs/CONSOLE.md`.
 - "Pull + Restart" pulls Astrabot, absLogin and the wiki repo (not AstraThought; use Restart Classifier). Every start frees the service's port first.
 - Decisions panel: last 50 classifier decisions, refreshed on classifier log events, not polled.
 - Watchdog (on by default; `--no-watchdog`): if a service's watcher thread is dead on two checks 15 s apart (after a 2 min grace), it restarts the whole console, at most 3 times an hour (`logs/watchdog_restarts.json`), then gives up and alerts the owner via the flag file.
-- Closing the window stops everything. Do not run hand-started copies of the services alongside it.
+- Closing the window stops everything, including a service caught mid-start: `Supervisor._run_once` checks `_closing` under `_lock` right after the spawn and stops the new process itself if `shutdown()` already ran (fixed 2026-11-24; it used to orphan that process). Do not run hand-started copies of the services alongside it.
 
 ---
 
@@ -374,10 +374,11 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 ## 11. Testing
 
-- Run from the repo root: `py -3.14 -m unittest discover -s tests` (282 tests, all passing 2026-11-17). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
+- Run from the repo root: `py -3.14 -m unittest discover -s tests` (322 tests, all passing three runs in a row on 2026-11-24, branch `fix/console-restart-race`). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
 - Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`.
 - The Automated Librarian has its own suites: `cd automated-librarian && python3 -m unittest discover -s tests` (46 tests, all passing on the Ubuntu server with Python 3.12 on 2026-11-21). The root run above does not collect them, and they have not been run on the Windows host.
 - No tests yet for `music.py`, `clip.py` (beyond imports), `moderation.py` or the legacy cogs.
+- `test_manual_restart_is_not_a_crash` used to fail with a 10 s join timeout and a PermissionError on `bot.log`: tearDown's `shutdown()` landed between the bot's spawn and `_proc` being set, leaving an orphan bot. Fixed in `astra_console.py`, not the test; `test_shutdown_during_a_start_leaves_no_orphan` forces that window every run.
 - Windows quirk: SQLite keeps files open, so temp dirs in tests use `ignore_cleanup_errors=True`; a rare temp-cleanup error on a full run passes on rerun.
 - Test values only: tests use made-up codes and keys (`test-invite-code`, fake ABS/Transmission servers). Never put real ones in tests.
 
@@ -413,6 +414,12 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 ## 14. Change log
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
+
+### 2026-11-24 — Claude Code (Opus 5.5), Golurk Console shutdown race fixed (branch `fix/console-restart-race`, not merged)
+
+- **Why:** `test_manual_restart_is_not_a_crash` was failing on master and on feature branches. Thea asked for the real cause, fixed in the console.
+- **What:** `Supervisor._run_once` sets `_proc` only after the spawn. A `shutdown()` in that window saw no process, so the new bot ran on unwatched. The window close could leave an orphan bot that way, and the test's tearDown hit it every run. Now `_run_once` takes `_lock` after the spawn: if `_closing` is set it stops and reaps the process and returns, otherwise it publishes `_proc`. One of the two sides always sees the other. New regression test `test_shutdown_during_a_start_leaves_no_orphan` (fails on the old code after 60 s, passes in 0.3 s). Full suite 322/322, three runs.
+- **Still open:** `restart()` has a similar window (a restart request landing mid-spawn may be lost; harmless, the bot just isn't restarted). Not changed.
 
 ### 2026-11-22 — Claude Code (Opus 5.5), audiobook watcher renamed to Automated Librarian (branch `feature/automated-librarian`, merged into master, pushed and migrated)
 

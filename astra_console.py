@@ -264,7 +264,19 @@ class Supervisor:
             self._record(f"{self.name} could not start: {exc}")
             return 1
         with self._lock:
-            self._proc = proc
+            # shutdown() may have run between the spawn and here: it saw no
+            # process to stop, so this one would be orphaned. Checked under
+            # the same lock shutdown() takes, so one of the two always stops it.
+            orphan = self._closing
+            if orphan:
+                self._stop(proc)
+            else:
+                self._proc = proc
+        if orphan:
+            proc.wait()
+            proc.stdout.close()
+            self._say(self.name, f"{self.title} was stopped as it started (closing).")
+            return 0
         stream = self.name
         with open(self.log_dir / f"{self.name}.log", "a", encoding="utf-8") as log:
             for line in proc.stdout:

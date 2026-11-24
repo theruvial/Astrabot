@@ -61,7 +61,7 @@ startConsole.bat ──> astra_console.py (Golurk Console, tkinter)
                        │    ├─ cogs.music / cogs.clip → yt-dlp + FFmpeg → voice
                        │    ├─ cogs.moderation (polls logs/*.flag every 2 s)
                        │    ├─ cogs.selfupdate (git fetch/pull every 15 min)
-                       │    └─ cogs.homeassistant → ha_agent → Ollama 127.0.0.1:11434 + Home Assistant 192.168.4.229:8123
+                       │    └─ cogs.homeassistant → ha_agent → Ollama 127.0.0.1:11434 + Home Assistant 192.168.4.229 (port 80)
                        ├─ absLogin app.py                 :13381 (audio.theruvial.com/signup)
                        ├─ wiki backend server.py          :13382 (Aboard the Astra repo, loopback)
                        ├─ AstraThought classifier         :13383 (separate repo + venv)
@@ -124,7 +124,7 @@ scripts/                one-off tools: backfill_audiobook_titles, check_torrents
                         export_youtube_cookies
 automated-librarian/      server-side companion that runs on the Ubuntu server, not the PC: files torrents into the
                         Audiobookshelf library (see §9); has its own tests/ and README.md
-tests/                  unittest suites (345 tests, all passing on 2026-11-24)
+tests/                  unittest suites (353 tests on 2026-11-24; one known console-test failure, §11)
 docs/                   AUDIOBOOKS.md, README_tasks.md, CONSOLE.md, YOUTUBE_COOKIES.md,
                         HANDOFF-2026-11-10.md
 Saved/                  saved clips for /sclip and /cplay (only .keepfolder.txt is tracked)
@@ -344,7 +344,8 @@ Carries messages between Discord and Thea's local Home Assistant agent. The agen
 - **Answering:** typing indicator, `speaker` = display name, `asyncio.wait_for` 180 s. Reply text plus a small-print footer per action (`✅ fan.set_percentage → Air Purifier {percentage: 40}`, `❌ … (declined)`) and seconds; split under 2000 chars; mentions never ping.
 - **Confirm buttons:** the agent awaits `confirm(summary)` before risky actions. The cog posts "Allow **…**?" with Allow / Deny; only the asker can press (others get an ephemeral refusal); Deny, 60 s without an answer, or any error = no. The 60 s deadline is enforced by `asyncio.wait_for` in `make_confirm`, not by the View's own timeout (discord.py only starts that once a real send registers the view). Never auto-approves.
 - **Errors:** Home Assistant down or token rejected → "Home Assistant isn't responding"; Ollama down → "Start Ollama on Golurk"; timeout → "try again". Tracebacks go to the log only. If HA is down at load, the cog stays loaded and retries `start()` on the next message. No token or no package → it stays loaded and says what is missing to allowed users.
-- **Commands:** `/ha ask text`, `/ha reset` (forget this conversation), `/ha reload` (re-read HA's actions, reports the count). Global, allowlist-checked.
+- **Thinking (required by the guide since 2026-11-24):** Qwen reasons first, about 3x slower (3.7 s vs 13.0 s measured), off by default. Per conversation, kept in the agent (resets to off on restart). `/think` flips it, `/think on|off` sets it (`agent.set_thinking`), `/think <message>` thinks for that one message only (`chat(..., think=True)`, toggle untouched). A thought-about reply has 🧠 in its footer and its reasoning (`reply.thinking`, cut to 1800 chars, `||` defused) as a spoiler in a last message.
+- **Commands:** `/think [message]`, `/ha ask text`, `/ha reset` (forget this conversation), `/ha reload` (re-read HA's actions, reports the count). Global, allowlist-checked.
 - **Dev mode:** `fake_ha: true` loads the agent repo's `tests/fake_ha.py`, which records actions instead of running them; no token needed. Restarting HA through it is the way to try the buttons.
 - **Not yet tried live:** no HA token on the host yet and the cog is not in the host's `"cogs"`; only the unit tests (`tests/test_homeassistant.py`, fake agent) have run.
 
@@ -394,7 +395,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 ## 11. Testing
 
-- Run from the repo root: `py -3.14 -m unittest discover -s tests` (345 tests, all passing 2026-11-24). `test_astra_console`'s `test_manual_restart_is_not_a_crash` failed now and then on 2026-11-24 with a temp-folder cleanup error (the bot subprocess still holding `bot.log`); it passes alone and on rerun. Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
+- Run from the repo root: `py -3.14 -m unittest discover -s tests` (353 tests on `feature/ha-agent-cog`, 2026-11-24). **Known failure:** `test_astra_console`'s `test_manual_restart_is_not_a_crash` fails on 2026-11-24 with a temp-folder cleanup error (a bot subprocess still holding `bot.log` after `shutdown()`, which waits 10 s for the thread and gives up); it fails on `master` too, passes when run alone, and passed in some full runs that day. Looks like a race between `restart()` spawning the new bot and `shutdown()` in the supervisor; not investigated. Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
 - Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`, `test_homeassistant`.
 - The Automated Librarian has its own suites: `cd automated-librarian && python3 -m unittest discover -s tests` (46 tests, all passing on the Ubuntu server with Python 3.12 on 2026-11-21). The root run above does not collect them, and they have not been run on the Windows host.
 - No tests yet for `music.py`, `clip.py` (beyond imports), `moderation.py` or the legacy cogs.
@@ -433,6 +434,11 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 ## 14. Change log
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
+
+### 2026-11-24 — Claude Code (Opus 5.5), thinking toggle for the Home Assistant cog (branch `feature/ha-agent-cog`, committed, not merged)
+- The agent's `COG_GUIDE.md` gained a required thinking section. Added `/think [message]` (toggle, on/off, or think once), `think=` passed through to `agent.chat`, 🧠 in the footer and the reasoning as a truncated spoiler message (§7.10). The guide also moved HA's default URL to port 80; the cog leaves that to the agent, only §1.2 changed.
+- Tests: 8 more in `tests/test_homeassistant.py` (32). Full suite 353, all passing except `test_manual_restart_is_not_a_crash`, which fails the same way on untouched `master` today (§11).
+- Not tested live (no HA token on the host, cog not in `"cogs"`).
 
 ### 2026-11-24 — Claude Code (Opus 5.5), Home Assistant agent cog (branch `feature/ha-agent-cog`, committed, not merged)
 - New `cogs/homeassistant.py` from the ha-agent repo's `COG_GUIDE.md`: allowlisted DMs / channel / mentions go to `ha_agent`, replies with an action footer, Allow/Deny confirm buttons only the asker can press (60 s, never auto-approve), friendly errors, `/ha ask|reset|reload`, `fake_ha` dev mode. Details in §7.10.

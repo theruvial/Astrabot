@@ -125,6 +125,8 @@ class FakeAgent:
         self.chat_impl = chat or (lambda *a, **k: reply())
         self.calls = []
         self.forgotten = []
+        self.thinks = []
+        self.toggles = {}
         self.closed = False
 
     async def start(self):
@@ -132,13 +134,19 @@ class FakeAgent:
         if self.starts <= self.start_errors:
             raise hac.HAError("could not reach Home Assistant")
 
-    async def chat(self, cid, text, confirm, speaker):
+    async def chat(self, cid, text, confirm, speaker, think=None):
         self.calls.append((cid, text, speaker))
+        self.thinks.append(think)
         result = self.chat_impl(cid, text, confirm, speaker)
         return await result if asyncio.iscoroutine(result) else result
 
     def forget(self, cid):
         self.forgotten.append(cid)
+
+    def set_thinking(self, cid, on=None):
+        new = (not self.toggles.get(cid, False)) if on is None else bool(on)
+        self.toggles[cid] = new
+        return new
 
     async def close(self):
         self.closed = True
@@ -198,9 +206,80 @@ class AnswerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(agent.closed)
 
 
+class ThinkingTests(unittest.IsolatedAsyncioTestCase):
+    def test_think_choice(self):
+        self.assertEqual(hac.think_choice(None), ("toggle", None))
+        self.assertEqual(hac.think_choice("  "), ("toggle", None))
+        self.assertEqual(hac.think_choice("ON"), ("set", True))
+        self.assertEqual(hac.think_choice("off"), ("set", False))
+        self.assertEqual(hac.think_choice(" is it going to rain? "), ("once", "is it going to rain?"))
+
+    def test_a_thought_reply_gets_a_brain_and_a_spoiler(self):
+        r = reply(seconds=13.04)
+        r.thought, r.thinking = True, "The user wants || rain || info."
+        parts = hac.reply_messages(r)
+        self.assertIn(f"-# {hac.BRAIN} 13.0 s", parts[0])
+        self.assertEqual(parts[-1], f"-# {hac.BRAIN} Reasoning (tap to show)\n"
+                                    "||The user wants | | rain | | info.||")
+
+    def test_no_brain_or_spoiler_without_thinking(self):
+        r = reply()
+        r.thought, r.thinking = False, "stale"
+        parts = hac.reply_messages(r)
+        self.assertEqual(len(parts), 1)
+        self.assertNotIn(hac.BRAIN, parts[0])
+
+    def test_long_reasoning_is_cut_to_fit_one_message(self):
+        msg = hac.reasoning_message("x" * 9000)
+        self.assertLessEqual(len(msg), 2000)
+        self.assertTrue(msg.endswith("…||"))
+        self.assertIsNone(hac.reasoning_message("   "))
+
+    async def test_answer_passes_think_through(self):
+        agent = FakeAgent()
+        cog = hac.HomeAssistant(bot=None, settings=settings(), agent=agent)
+        await cog.answer("c", "hi", message().author, no_confirm, think=True)
+        await cog.answer("c", "hi", message().author, no_confirm)
+        self.assertEqual(agent.thinks, [True, None])
+
+    async def think_command(self, cog, user_id, message=None):
+        inter = interaction(user_id)
+        inter.channel = types.SimpleNamespace(id=7, guild=object())
+        await hac.HomeAssistant.think.callback(cog, inter, message)
+        return inter
+
+    async def test_think_toggles_and_sets(self):
+        agent = FakeAgent()
+        cog = hac.HomeAssistant(bot=None, settings=settings(), agent=agent)
+        for arg, want in ((None, "ON"), (None, "OFF"), ("on", "ON"), ("off", "OFF")):
+            inter = await self.think_command(cog, THEA, arg)
+            self.assertIn(f"now {want}", inter.response.send_message.call_args.args[0])
+        self.assertEqual(agent.toggles, {"discord:7": False})
+
+    async def test_think_with_a_message_thinks_once_without_the_toggle(self):
+        agent = FakeAgent()
+        cog = hac.HomeAssistant(bot=None, settings=settings(), agent=agent)
+        inter = interaction(THEA)
+        inter.channel = types.SimpleNamespace(id=7, guild=object())
+        inter.response.defer = mock.AsyncMock()
+        inter.followup = types.SimpleNamespace(send=mock.AsyncMock())
+        await hac.HomeAssistant.think.callback(cog, inter, "will it rain?")
+        self.assertEqual(agent.calls, [("discord:7", "will it rain?", "Thea")])
+        self.assertEqual(agent.thinks, [True])
+        self.assertEqual(agent.toggles, {})
+
+    async def test_strangers_cannot_think(self):
+        agent = FakeAgent()
+        cog = hac.HomeAssistant(bot=None, settings=settings(), agent=agent)
+        inter = await self.think_command(cog, 1)
+        self.assertEqual(inter.response.send_message.call_args.args[0], "Not allowed.")
+        self.assertEqual(agent.toggles, {})
+
+
 def interaction(user_id):
     resp = types.SimpleNamespace(send_message=mock.AsyncMock(), edit_message=mock.AsyncMock())
-    return types.SimpleNamespace(user=types.SimpleNamespace(id=user_id), response=resp,
+    return types.SimpleNamespace(user=types.SimpleNamespace(id=user_id, display_name="Thea"),
+                                 response=resp,
                                  message=types.SimpleNamespace(content="Allow **x**?"))
 
 

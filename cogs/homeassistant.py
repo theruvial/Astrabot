@@ -22,6 +22,13 @@ including this one, are always ignored. ``/ha ask`` does the same for servers
 where message content is off; ``/ha reset`` and ``/ha reload`` manage memory and
 the action list.
 
+Thinking (Qwen reasons first: smarter, about 3x slower, off by default) is
+per conversation and lives in the agent, so it resets to off on restart.
+``/think`` flips it, ``/think on`` / ``/think off`` set it, and ``/think <message>``
+thinks for that one message without touching the setting. A reply that was
+thought about gets a brain in its footer and its reasoning, cut short, as a
+spoiler in a last message.
+
 Risky actions (restart, unlock, open covers, add-on/backup/update actions) are
 decided by the agent, which awaits a ``confirm(summary)`` function before
 running them. Here that posts Allow / Deny buttons that only the person who
@@ -74,6 +81,8 @@ log = logging.getLogger("homeassistant")
 
 DISCORD_LIMIT = 2000
 CONFIRM_SECONDS = 60
+REASONING_LIMIT = 1800  # leaves room for the label and spoiler bars
+BRAIN = "\U0001f9e0"
 NO_PINGS = discord.AllowedMentions.none()
 
 
@@ -184,13 +193,44 @@ def action_footer(reply) -> str:
         if not act.ok:
             line += f" ({act.result})"
         lines.append("-# " + discord.utils.escape_markdown(line[:300]))
-    lines.append(f"-# {reply.seconds:.1f} s")
+    brain = f"{BRAIN} " if getattr(reply, "thought", False) else ""
+    lines.append(f"-# {brain}{reply.seconds:.1f} s")
     return "\n".join(lines)
 
 
+def reasoning_message(thinking: str, limit: int = REASONING_LIMIT) -> str | None:
+    """The model's reasoning as one collapsed spoiler message, or None."""
+    thinking = (thinking or "").strip()
+    if not thinking:
+        return None
+    if len(thinking) > limit:
+        thinking = thinking[:limit].rstrip() + " …"
+    # "||" inside would close the spoiler early.
+    thinking = thinking.replace("||", "| |")
+    return f"-# {BRAIN} Reasoning (tap to show)\n||{thinking}||"
+
+
 def reply_messages(reply) -> list[str]:
-    """The Discord messages for one agent reply: its text, then the footer."""
-    return split_message(f"{reply.text.strip() or 'Done.'}\n{action_footer(reply)}")
+    """The Discord messages for one agent reply: text and footer, then reasoning."""
+    parts = split_message(f"{reply.text.strip() or 'Done.'}\n{action_footer(reply)}")
+    reasoning = None
+    if getattr(reply, "thought", False):
+        reasoning = reasoning_message(getattr(reply, "thinking", ""))
+    return parts + [reasoning] if reasoning else parts
+
+
+def think_choice(message: str | None):
+    """What ``/think`` was asked: ("toggle", None), ("set", bool) or ("once", text)."""
+    text = (message or "").strip()
+    if not text:
+        return "toggle", None
+    if text.lower() in ("on", "off"):
+        return "set", text.lower() == "on"
+    return "once", text
+
+
+def thinking_state(on: bool) -> str:
+    return "Thinking is now ON (smarter, slower)." if on else "Thinking is now OFF (fast)."
 
 
 def error_text(exc: BaseException) -> str:
@@ -358,15 +398,20 @@ class HomeAssistant(commands.Cog):
 
     # -- one answer --
 
-    async def answer(self, cid: str, text: str, author, confirm) -> list[str]:
-        """The messages to send back for one request (errors included)."""
+    async def answer(self, cid: str, text: str, author, confirm,
+                     think: bool | None = None) -> list[str]:
+        """The messages to send back for one request (errors included).
+
+        ``think`` True/False forces thinking for this message; None = the toggle.
+        """
         if self.agent is None:
             return [self.problem or "The house agent is off."]
         if not await self._ensure_started():
             return ["Home Assistant isn't reachable right now. I'll try again next message."]
         try:
             reply = await asyncio.wait_for(
-                self.agent.chat(cid, text, confirm=confirm, speaker=author.display_name),
+                self.agent.chat(cid, text, confirm=confirm, speaker=author.display_name,
+                                think=think),
                 self.settings["timeout"])
         except Exception as exc:  # noqa: BLE001
             log.exception("Home Assistant agent failed (%s)", cid)
@@ -407,10 +452,8 @@ class HomeAssistant(commands.Cog):
         await interaction.response.send_message("Not allowed.", ephemeral=True)
         return True
 
-    @ha.command(name="ask", description="Ask the house something or tell it to do something.")
-    async def ask(self, interaction: discord.Interaction, text: str):
-        if await self._refuse(interaction):
-            return
+    async def _ask(self, interaction, text: str, think: bool | None = None):
+        """One request from a slash command (the caller checked the allowlist)."""
         await interaction.response.defer(thinking=True)
 
         async def send(content, view):
@@ -419,9 +462,33 @@ class HomeAssistant(commands.Cog):
 
         cid = conversation_id(interaction.channel, interaction.user)
         parts = await self.answer(cid, text, interaction.user,
-                                  make_confirm(send, interaction.user.id))
+                                  make_confirm(send, interaction.user.id), think=think)
         for part in parts:
             await interaction.followup.send(part, allowed_mentions=NO_PINGS)
+
+    @ha.command(name="ask", description="Ask the house something or tell it to do something.")
+    async def ask(self, interaction: discord.Interaction, text: str):
+        if await self._refuse(interaction):
+            return
+        await self._ask(interaction, text)
+
+    @app_commands.command(name="think", description="Toggle thinking for this conversation, "
+                                                    "or think about one message.")
+    @app_commands.describe(message="on / off, or a message to think about once. "
+                                   "Leave empty to toggle.")
+    async def think(self, interaction: discord.Interaction, message: str | None = None):
+        if await self._refuse(interaction):
+            return
+        kind, value = think_choice(message)
+        if kind == "once":
+            await self._ask(interaction, value, think=True)
+            return
+        if self.agent is None:
+            await interaction.response.send_message(self.problem or "The house agent is off.",
+                                                    ephemeral=True)
+            return
+        on = self.agent.set_thinking(conversation_id(interaction.channel, interaction.user), value)
+        await interaction.response.send_message(thinking_state(on))
 
     @ha.command(name="reset", description="Forget this conversation's short-term memory.")
     async def reset(self, interaction: discord.Interaction):

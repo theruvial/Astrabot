@@ -438,20 +438,20 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
 
-### 2026-11-24 — Claude Code (Opus 5.5), Home Assistant cog: modes (branch `feature/ha-cog-threads`, committed, not merged)
+### 2026-11-24 — Claude Code (Opus 5.5), Home Assistant cog: modes (branch `feature/ha-cog-threads`, merged into master and pushed)
 
 - **Why:** `COG_GUIDE.md` §9 makes modes required; Thea asked for them.
 - **What:** `/mode [name]` (show/set, choices from `ha_agent.MODES`), `/code <message>` (code mode once), `answer(..., mode=)`, `footer_bits` (mode icon and "(auto)", 🧠, `🔎 N tools`, seconds), code-block-aware `split_message`. 8 more tests (55); full suite 377 passing. See §7.10.
 - **Not done:** not tried live (no HA token on the host, cog not in `"cogs"`).
 
-### 2026-11-24 — Claude Code (Opus 5.5), Home Assistant cog: channel-only, dm_user_ids, thread context restored (branch `feature/ha-cog-threads`, committed, not merged)
+### 2026-11-24 — Claude Code (Opus 5.5), Home Assistant cog: channel-only, dm_user_ids, thread context restored (branch `feature/ha-cog-threads`, merged into master and pushed)
 
 - **Why:** Thea wants the agent to read and answer only in its channel (and threads), plus DMs from a configurable `dm_user_ids`. The ha-agent review session (commit 006ddb2 in `C:\codingShit\ha-agent`, now a git repo) added `has_history` / `remember`, so a thread's context can be rebuilt after a restart.
 - **What:** `usable_here` decides for messages and slash commands. Mentions outside the channel no longer reach the agent. New `dm_user_ids` setting (default `owner_id`). `thread_turns` + `_restore_thread` rebuild a forgotten thread from Discord. 7 more tests (47); full suite 369 passing. See §7.10.
 - **Agent changes the cog now relies on (from 006ddb2):** confirm must return exactly True (ours returns a bool); more actions ask (cover toggle/position, `homeassistant.turn_on/toggle` on locks, covers, alarms); HA timeouts are `HAError`, so they show "Home Assistant isn't responding". No cog change needed for those.
 - **Not done:** modes (COG_GUIDE §9). Not tried live.
 
-### 2026-11-24 — Claude Code (Opus 5.5), Home Assistant cog: one thread per request (branch `feature/ha-cog-threads`, committed, not merged)
+### 2026-11-24 — Claude Code (Opus 5.5), Home Assistant cog: one thread per request (branch `feature/ha-cog-threads`, merged into master and pushed)
 
 - **Why:** Thea wants each request in the agent channel to get its own thread, with the thread as the agent's context.
 - **What:** `agent_place` / `thread_name` helpers; `on_message` opens a thread for top-level messages in `channel_id` and answers there (falling back to the channel if thread creation fails); threads under the channel route without a mention; new `history_turns` setting passed to `HAAgent`. 8 new tests (40 in `test_homeassistant`); full suite 362 passing. See §7.10.

@@ -41,6 +41,15 @@ thinks for that one message without touching the setting. A reply that was
 thought about gets a brain in its footer and its reasoning, cut short, as a
 spoiler in a last message.
 
+Modes (the agent's, one model with three prompts): ``general`` (default:
+questions, web lookups, math; hands house messages to ``home`` and coding to
+``code`` by itself), ``home`` (Home Assistant) and ``code`` (answers only).
+Per conversation, so per thread, and reset to general on restart. ``/mode``
+shows it, ``/mode <name>`` sets it, ``/code <message>`` uses code mode once.
+The footer says which mode answered ("🏠 home (auto)" when general handed it
+over) and how many non-house tool calls ran (web lookups, device reads). Long
+code replies are split without breaking their code blocks.
+
 Risky actions (restart, unlock, open covers, add-on/backup/update actions) are
 decided by the agent, which awaits a ``confirm(summary)`` function before
 running them. Here that posts Allow / Deny buttons that only the person who
@@ -92,6 +101,16 @@ except ImportError:  # the cog still loads and says what is missing
 
     class HAError(Exception):
         """Stand-in so error handling works without the package."""
+
+try:
+    from ha_agent import DEFAULT_MODE, MODES
+except ImportError:  # no package, or one from before modes
+    DEFAULT_MODE, MODES = "general", {}
+
+# Names for the /mode choices; the agent's own list wins when it has one.
+MODE_NAMES = list(MODES) or ["general", "home", "code"]
+MODE_ICONS = {"general": "\U0001f4ac", "home": "\U0001f3e0", "code": "\U0001f4bb"}
+FENCE = "```"
 
 log = logging.getLogger("homeassistant")
 
@@ -248,19 +267,47 @@ def conversation_id(channel, user) -> str:
 
 # ----------------------------------------------------------------- replies --
 
+def _open_fence(text: str) -> str | None:
+    """The opening line (e.g. ```python) of a code block still open at the end, or None."""
+    opener = None
+    for line in text.split("\n"):
+        if line.lstrip().startswith(FENCE):
+            opener = None if opener else line.strip()
+    return opener
+
+
 def split_message(text: str, limit: int = DISCORD_LIMIT) -> list[str]:
-    """Split text into Discord-sized parts, at a line break or space if it can."""
+    """Split text into Discord-sized parts, at a line break or space if it can.
+
+    A cut inside a code block closes it with ``` and reopens it (same language)
+    at the top of the next part, so code replies stay formatted. Indentation
+    after a cut is kept.
+    """
     text = text.strip()
     parts = []
+    room = limit - len(FENCE) - 1  # space to close a block at the cut
     while len(text) > limit:
-        cut = text.rfind("\n", 0, limit + 1)
+        cut = text.rfind("\n", 0, room + 1)
         if cut <= 0:
-            cut = text.rfind(" ", 0, limit + 1)
-        if cut <= 0:
-            cut = limit
-        parts.append(text[:cut].rstrip())
-        text = text[cut:].lstrip()
-    if text:
+            cut = text.rfind(" ", 0, room + 1)
+        if cut > 0 and text[:cut].strip().startswith(FENCE) and "\n" not in text[:cut].strip():
+            cut = -1  # only a fence line fits before the cut: cut hard, or it never ends
+        if cut > 0:
+            part, rest = text[:cut], text[cut + 1:]
+        else:  # no space at all: cut hard, leaving room to close a code block only if needed
+            hard = room if _open_fence(text[:limit]) else limit
+            part, rest = text[:hard], text[hard:]
+        part = part.rstrip()
+        opener = _open_fence(part)
+        if opener:
+            part += "\n" + FENCE
+            rest = opener + "\n" + rest
+        else:
+            rest = rest.lstrip("\n")
+        if part.strip():
+            parts.append(part)
+        text = rest
+    if text.strip():
         parts.append(text)
     return parts or ["Done."]
 
@@ -282,9 +329,29 @@ def action_footer(reply) -> str:
         if not act.ok:
             line += f" ({act.result})"
         lines.append("-# " + discord.utils.escape_markdown(line[:300]))
-    brain = f"{BRAIN} " if getattr(reply, "thought", False) else ""
-    lines.append(f"-# {brain}{reply.seconds:.1f} s")
+    lines.append("-# " + " · ".join(footer_bits(reply)))
     return "\n".join(lines)
+
+
+def footer_bits(reply) -> list[str]:
+    """The last footer line's pieces: mode, thinking, tools, time.
+
+    The mode that answered is shown so a wrong automatic pick is easy to spot:
+    "🏠 home (auto)" when general mode handed it over, "💻 code" when set.
+    """
+    bits = []
+    mode = getattr(reply, "mode", "") or ""
+    if mode:
+        auto = " (auto)" if getattr(reply, "routed_by", "") else ""
+        bits.append(f"{MODE_ICONS.get(mode, '')} {mode}{auto}".strip())
+    if getattr(reply, "thought", False):
+        bits.append(BRAIN)
+    # Web lookups and device reads aren't in reply.actions, but are tool calls.
+    extra = getattr(reply, "tool_calls", 0) - len(reply.actions)
+    if extra > 0:
+        bits.append(f"\U0001f50e {extra} tool{'s' if extra != 1 else ''}")
+    bits.append(f"{reply.seconds:.1f} s")
+    return bits
 
 
 def reasoning_message(thinking: str, limit: int = REASONING_LIMIT) -> str | None:
@@ -306,6 +373,13 @@ def reply_messages(reply) -> list[str]:
     if getattr(reply, "thought", False):
         reasoning = reasoning_message(getattr(reply, "thinking", ""))
     return parts + [reasoning] if reasoning else parts
+
+
+def mode_title(name: str) -> str:
+    """"🏠 Home" for a mode name, from the agent's own titles when it has them."""
+    mode = MODES.get(name)
+    title = getattr(mode, "title", None) or name
+    return f"{MODE_ICONS.get(name, '')} {title}".strip()
 
 
 def think_choice(message: str | None):
@@ -489,19 +563,21 @@ class HomeAssistant(commands.Cog):
     # -- one answer --
 
     async def answer(self, cid: str, text: str, author, confirm,
-                     think: bool | None = None) -> list[str]:
+                     think: bool | None = None, mode: str | None = None) -> list[str]:
         """The messages to send back for one request (errors included).
 
         ``think`` True/False forces thinking for this message; None = the toggle.
+        ``mode`` forces a mode for this message; None = the conversation's mode.
         """
         if self.agent is None:
             return [self.problem or "The house agent is off."]
         if not await self._ensure_started():
             return ["Home Assistant isn't reachable right now. I'll try again next message."]
+        extra = {"mode": mode} if mode else {}  # older agents have no mode argument
         try:
             reply = await asyncio.wait_for(
                 self.agent.chat(cid, text, confirm=confirm, speaker=author.display_name,
-                                think=think),
+                                think=think, **extra),
                 self.settings["timeout"])
         except Exception as exc:  # noqa: BLE001
             log.exception("Home Assistant agent failed (%s)", cid)
@@ -600,7 +676,8 @@ class HomeAssistant(commands.Cog):
         await interaction.response.send_message(text, ephemeral=True)
         return True
 
-    async def _ask(self, interaction, text: str, think: bool | None = None):
+    async def _ask(self, interaction, text: str, think: bool | None = None,
+                   mode: str | None = None):
         """One request from a slash command (the caller checked the allowlist)."""
         await interaction.response.defer(thinking=True)
 
@@ -612,7 +689,8 @@ class HomeAssistant(commands.Cog):
         if agent_place(interaction.channel, self.settings["channel_id"]) == "thread":
             await self._restore_thread(interaction.channel, cid)
         parts = await self.answer(cid, text, interaction.user,
-                                  make_confirm(send, interaction.user.id), think=think)
+                                  make_confirm(send, interaction.user.id), think=think,
+                                  mode=mode)
         for part in parts:
             await interaction.followup.send(part, allowed_mentions=NO_PINGS)
 
@@ -639,6 +717,36 @@ class HomeAssistant(commands.Cog):
             return
         on = self.agent.set_thinking(conversation_id(interaction.channel, interaction.user), value)
         await interaction.response.send_message(thinking_state(on))
+
+    @app_commands.command(name="mode", description="Show or set this conversation's mode.")
+    @app_commands.describe(name="general (default, hands off automatically), home or code. "
+                                "Leave empty to see the current one.")
+    @app_commands.choices(name=[app_commands.Choice(name=n, value=n) for n in MODE_NAMES])
+    async def mode(self, interaction: discord.Interaction, name: str | None = None):
+        if await self._refuse(interaction):
+            return
+        if self.agent is None or not hasattr(self.agent, "set_mode"):
+            await interaction.response.send_message(
+                self.problem or "The house agent is off (or too old for modes).", ephemeral=True)
+            return
+        cid = conversation_id(interaction.channel, interaction.user)
+        if name is None:
+            await interaction.response.send_message(f"Mode: {mode_title(self.agent.mode(cid))}.")
+            return
+        try:
+            new = self.agent.set_mode(cid, name)
+        except ValueError:
+            await interaction.response.send_message(
+                f"Unknown mode. Modes: {', '.join(MODE_NAMES)}.", ephemeral=True)
+            return
+        await interaction.response.send_message(f"Mode is now {mode_title(new)}.")
+
+    @app_commands.command(name="code", description="Ask the code mode one thing "
+                                                   "(answers only, it can't touch files).")
+    async def code(self, interaction: discord.Interaction, message: str):
+        if await self._refuse(interaction):
+            return
+        await self._ask(interaction, message, mode="code")
 
     @ha.command(name="reset", description="Forget this conversation's short-term memory.")
     async def reset(self, interaction: discord.Interaction):

@@ -346,7 +346,8 @@ Carries messages between Discord and Thea's local Home Assistant agent. The agen
 - **Confirm buttons:** the agent awaits `confirm(summary)` before risky actions. The cog posts "Allow **…**?" with Allow / Deny; only the asker can press (others get an ephemeral refusal); Deny, 60 s without an answer, or any error = no. The 60 s deadline is enforced by `asyncio.wait_for` in `make_confirm`, not by the View's own timeout (discord.py only starts that once a real send registers the view). Never auto-approves.
 - **Errors:** Home Assistant down or token rejected → "Home Assistant isn't responding"; Ollama down → "Start Ollama on Golurk"; timeout → "try again". Tracebacks go to the log only. If HA is down at load, the cog stays loaded and retries `start()` on the next message. No token or no package → it stays loaded and says what is missing to allowed users.
 - **Thinking (required by the guide since 2026-11-24):** Qwen reasons first, about 3x slower (3.7 s vs 13.0 s measured), off by default. Per conversation, kept in the agent (resets to off on restart). `/think` flips it, `/think on|off` sets it (`agent.set_thinking`), `/think <message>` thinks for that one message only (`chat(..., think=True)`, toggle untouched). A thought-about reply has 🧠 in its footer and its reasoning (`reply.thinking`, cut to 1800 chars, `||` defused) as a spoiler in a last message.
-- **Commands:** `/think [message]`, `/ha ask text`, `/ha reset` (forget this conversation), `/ha reload` (re-read HA's actions, reports the count). Global, but only work in the agent channel, its threads and allowed DMs.
+- **Modes (required by the guide, 2026-11-24, branch `feature/ha-cog-threads`):** the agent has `general` (default: questions, web search, math; hands house messages to `home` and coding to `code` per message, by keywords or the model), `home` and `code` (answers only). Per conversation (so per thread), kept in the agent, back to general on restart. `/mode` shows it, `/mode <name>` sets it (choices from `ha_agent.MODES`), `/code <message>` uses code mode once (`chat(..., mode="code")`; the cog only passes `mode` when set, so an older agent still works). Footer's last line: mode that answered (`🏠 home (auto)` when general handed it over), 🧠 if it thought, `🔎 N tools` for tool calls that aren't house actions (web lookups, device reads), seconds. `split_message` closes an open code block at a cut with ``` and reopens it (same language) in the next part, and keeps indentation.
+- **Commands:** `/think [message]`, `/mode [name]`, `/code message`, `/ha ask text`, `/ha reset` (forget this conversation), `/ha reload` (re-read HA's actions, reports the count). Global, but only work in the agent channel, its threads and allowed DMs.
 - **Dev mode:** `fake_ha: true` loads the agent repo's `tests/fake_ha.py`, which records actions instead of running them; no token needed. Restarting HA through it is the way to try the buttons.
 - **Not yet tried live:** no HA token on the host yet and the cog is not in the host's `"cogs"`; only the unit tests (`tests/test_homeassistant.py`, fake agent) have run.
 
@@ -436,6 +437,12 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 ## 14. Change log
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
+
+### 2026-11-24 — Claude Code (Opus 5.5), Home Assistant cog: modes (branch `feature/ha-cog-threads`, committed, not merged)
+
+- **Why:** `COG_GUIDE.md` §9 makes modes required; Thea asked for them.
+- **What:** `/mode [name]` (show/set, choices from `ha_agent.MODES`), `/code <message>` (code mode once), `answer(..., mode=)`, `footer_bits` (mode icon and "(auto)", 🧠, `🔎 N tools`, seconds), code-block-aware `split_message`. 8 more tests (55); full suite 377 passing. See §7.10.
+- **Not done:** not tried live (no HA token on the host, cog not in `"cogs"`).
 
 ### 2026-11-24 — Claude Code (Opus 5.5), Home Assistant cog: channel-only, dm_user_ids, thread context restored (branch `feature/ha-cog-threads`, committed, not merged)
 

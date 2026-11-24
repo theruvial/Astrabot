@@ -145,7 +145,8 @@ class FakeAgent:
         if self.starts <= self.start_errors:
             raise hac.HAError("could not reach Home Assistant")
 
-    async def chat(self, cid, text, confirm, speaker, think=None):
+    async def chat(self, cid, text, confirm, speaker, think=None, **kw):
+        self.modes_used = getattr(self, "modes_used", []) + [kw.get("mode")]
         self.calls.append((cid, text, speaker))
         self.thinks.append(think)
         result = self.chat_impl(cid, text, confirm, speaker)
@@ -229,7 +230,8 @@ class ThinkingTests(unittest.IsolatedAsyncioTestCase):
         r = reply(seconds=13.04)
         r.thought, r.thinking = True, "The user wants || rain || info."
         parts = hac.reply_messages(r)
-        self.assertIn(f"-# {hac.BRAIN} 13.0 s", parts[0])
+        r.tool_calls = 0
+        self.assertIn(f"-# {hac.BRAIN} · 13.0 s", hac.reply_messages(r)[0])
         self.assertEqual(parts[-1], f"-# {hac.BRAIN} Reasoning (tap to show)\n"
                                     "||The user wants | | rain | | info.||")
 
@@ -558,6 +560,97 @@ class RestoreTests(unittest.IsolatedAsyncioTestCase):
         inter.channel = types.SimpleNamespace(id=7, guild=object())
         await hac.HomeAssistant.think.callback(cog, inter, None)
         self.assertEqual(inter.response.send_message.call_args.args[0], "I only answer in <#42>.")
+
+
+class ModeAgent(FakeAgent):
+    def __init__(self):
+        super().__init__()
+        self.current = {}
+
+    def mode(self, cid):
+        return self.current.get(cid, "general")
+
+    def set_mode(self, cid, name):
+        name = name.strip().lower()
+        if name not in ("general", "home", "code"):
+            raise ValueError(f"unknown mode '{name}'")
+        self.current[cid] = name
+        return name
+
+
+class ModeTests(unittest.IsolatedAsyncioTestCase):
+    def test_footer_shows_the_mode_that_answered(self):
+        r = reply(actions=[act("fan.turn_off", ["Fan"], {})])
+        r.mode, r.routed_by, r.tool_calls = "home", "keywords", 2
+        self.assertEqual(hac.footer_bits(r), ["\U0001f3e0 home (auto)", "\U0001f50e 1 tool", "2.3 s"])
+        r.mode, r.routed_by, r.actions, r.tool_calls = "code", "", [], 0
+        self.assertEqual(hac.footer_bits(r), ["\U0001f4bb code", "2.3 s"])
+        r.mode, r.tool_calls = "general", 3
+        self.assertEqual(hac.footer_bits(r)[:2], ["\U0001f4ac general", "\U0001f50e 3 tools"])
+
+    def test_no_mode_on_older_agents(self):
+        self.assertEqual(hac.footer_bits(reply()), ["\U0001f50e 1 tool", "2.3 s"])
+
+    def test_split_never_breaks_a_code_block(self):
+        nl = chr(10)
+        code = nl.join(f"    line_{i} = {i}  # some code" for i in range(300))
+        text = "Here you go:" + nl + "```python" + nl + code + nl + "```" + nl + "That's it."
+        parts = hac.split_message(text)
+        self.assertGreater(len(parts), 1)
+        for part in parts:
+            self.assertLessEqual(len(part), hac.DISCORD_LIMIT)
+            fences = [l for l in part.split(nl) if l.lstrip().startswith("```")]
+            self.assertEqual(len(fences) % 2, 0, part[-80:])
+        self.assertTrue(parts[1].startswith("```python" + nl))
+        body = [l for p in parts for l in p.split(nl) if not l.lstrip().startswith("```")]
+        self.assertEqual(body, [l for l in text.split(nl) if not l.lstrip().startswith("```")])
+
+    def test_a_long_unbroken_code_line_still_ends(self):
+        nl = chr(10)
+        parts = hac.split_message("```" + nl + "x" * 5000 + nl + "```")
+        self.assertTrue(all(len(p) <= hac.DISCORD_LIMIT for p in parts))
+        self.assertEqual(sum(p.count("x") for p in parts), 5000)
+
+    def cog(self, agent):
+        return hac.HomeAssistant(types.SimpleNamespace(user=BOT), settings(), agent=agent)
+
+    def inter(self):
+        inter = interaction(THEA)
+        inter.channel = types.SimpleNamespace(id=42, guild=object())
+        inter.response.defer = mock.AsyncMock()
+        inter.followup = types.SimpleNamespace(send=mock.AsyncMock())
+        return inter
+
+    async def test_mode_shows_and_sets(self):
+        agent = ModeAgent()
+        cog = self.cog(agent)
+        inter = self.inter()
+        await hac.HomeAssistant.mode.callback(cog, inter, None)
+        self.assertIn("General", inter.response.send_message.call_args.args[0])
+        await hac.HomeAssistant.mode.callback(cog, inter, "code")
+        self.assertIn("Code", inter.response.send_message.call_args.args[0])
+        self.assertEqual(agent.current, {"discord:42": "code"})
+
+    async def test_an_unknown_mode_lists_the_names(self):
+        cog = self.cog(ModeAgent())
+        inter = self.inter()
+        await hac.HomeAssistant.mode.callback(cog, inter, "chef")
+        self.assertIn("general, home, code", inter.response.send_message.call_args.args[0])
+
+    async def test_code_command_uses_code_mode_once(self):
+        agent = ModeAgent()
+        cog = self.cog(agent)
+        cog.started = True
+        await hac.HomeAssistant.code.callback(cog, self.inter(), "reverse a list")
+        self.assertEqual(agent.modes_used, ["code"])
+        self.assertEqual(agent.current, {})
+
+    async def test_plain_answers_leave_the_mode_to_the_agent(self):
+        agent = FakeAgent()
+        cog = self.cog(agent)
+        cog.started = True
+        await cog.answer("c", "hi", message().author, no_confirm)
+        self.assertEqual(agent.modes_used, [None])
 
 
 if __name__ == "__main__":

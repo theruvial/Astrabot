@@ -42,6 +42,7 @@ A personal Discord bot (discord.py 2.7, slash commands, SQLite) running since 20
 | Music and clips | `/play` queue from YouTube/YT Music/SoundCloud/Spotify; `/clip`, `/sclip`, `/cplay` for sound clips | §7.5, §7.6 |
 | Moderation | `/kick`, `/purge`, `/speak`, `/reloadcog`, stream presence; also the console's reload/alert flag watcher | §7.7 |
 | Self-update | Polls git every 15 min, pulls and hot-reloads only changed cogs | §7.8 |
+| Home Assistant | Allowlisted users talk to the house in Discord through the local `ha_agent` (Qwen on Ollama); risky actions need an Allow button | §7.10 |
 | Golurk Console | Tkinter control panel that runs and supervises the bot and its sibling services | §8 |
 | Legacy cogs | 2019–2021 economy, roles, shop, gambling, pets, houses; in the repo, off by default | §7.9 |
 
@@ -59,7 +60,8 @@ startConsole.bat ──> astra_console.py (Golurk Console, tkinter)
                        │    ├─ cogs.wiki       → wiki backend :13382
                        │    ├─ cogs.music / cogs.clip → yt-dlp + FFmpeg → voice
                        │    ├─ cogs.moderation (polls logs/*.flag every 2 s)
-                       │    └─ cogs.selfupdate (git fetch/pull every 15 min)
+                       │    ├─ cogs.selfupdate (git fetch/pull every 15 min)
+                       │    └─ cogs.homeassistant → ha_agent → Ollama 127.0.0.1:11434 + Home Assistant 192.168.4.229:8123
                        ├─ absLogin app.py                 :13381 (audio.theruvial.com/signup)
                        ├─ wiki backend server.py          :13382 (Aboard the Astra repo, loopback)
                        ├─ AstraThought classifier         :13383 (separate repo + venv)
@@ -116,12 +118,13 @@ cogs/
   clip.py               cog: /clip, /sclip, /cplay
   moderation.py         cog: moderation commands + console flag watcher
   selfupdate.py         cog: git poll + hot reload
+  homeassistant.py      cog: Discord <-> the local Home Assistant agent (ha_agent package, separate repo)
   roles.py points.py gambling.py shop.py pet.py house.py test.py   legacy cogs (§7.9)
 scripts/                one-off tools: backfill_audiobook_titles, check_torrents, check_library,
                         export_youtube_cookies
 automated-librarian/      server-side companion that runs on the Ubuntu server, not the PC: files torrents into the
                         Audiobookshelf library (see §9); has its own tests/ and README.md
-tests/                  unittest suites (282 tests, all passing on 2026-11-17)
+tests/                  unittest suites (345 tests, all passing on 2026-11-24)
 docs/                   AUDIOBOOKS.md, README_tasks.md, CONSOLE.md, YOUTUBE_COOKIES.md,
                         HANDOFF-2026-11-10.md
 Saved/                  saved clips for /sclip and /cplay (only .keepfolder.txt is tracked)
@@ -171,6 +174,7 @@ All settings are in the host's `config.json` (untracked; `config.example.json` s
 | `portfolio` | portfolio | object: `web_host` (0.0.0.0), `web_port` (13384), `cv_watch`, `cv_repo`, `cv_path`, `cv_branch`, `cv_poll_minutes` (10), `cv_auto_publish` (false), `data_dir`, `owner_id` |
 | `tasks` | tasks | optional object overriding classifier/wiki URLs and paths |
 | `selfupdate` | selfupdate | object: `enabled`, `interval_minutes` |
+| `homeassistant` | homeassistant | object: `allowed_user_ids` (default Thea), `channel_id`, `ha_token` (blank = env `HA_TOKEN`), `ha_url`, `ollama_url`, `model`, `timeout_seconds` (180), `fake_ha` (dev mode), `fake_ha_path` (§7.10) |
 | `roles`, `crewmate`, `updates`, `rolesMessageID`, `updatesEmojiID`, `welcomeChannel` | legacy roles | ids |
 | `botShop`, `workChannel` | legacy shop | ids |
 | `be_webhook`, `bl_webhook`, `gd_webhook` | legacy house | webhook URLs (secrets) |
@@ -190,6 +194,7 @@ Known non-secret host values: guild `454792201633792001`, requests channel `1565
 | `AUDIOBOOKS_CHANNEL_ID`, `AUDIOBOOKS_WEB_HOST`, `AUDIOBOOKS_WEB_PORT`, `AUDIOBOOKS_DB_PATH`, `AUDIOBOOKS_ADMIN_IDS`, `AUDIOBOOKS_ADMIN_EMAIL` | audiobooks overrides |
 | `PORTFOLIO_WEB_HOST`, `PORTFOLIO_WEB_PORT` | portfolio overrides |
 | `SELFUPDATE_ENABLED`, `SELFUPDATE_INTERVAL_MINUTES` | selfupdate overrides |
+| `HA_TOKEN` | homeassistant (Home Assistant long-lived token, made by Thea) when `homeassistant.ha_token` is blank; `HA_URL`, `OLLAMA_URL`, `HA_AGENT_MODEL` are read by the agent itself when the config keys are blank |
 | `GITHUB_TOKEN` | wiki backend (not the bot) |
 | `SIGNUP_CONFIG` | absLogin, path to its config.json |
 
@@ -329,6 +334,20 @@ Every 15 minutes (and `/check_updates`, admin): `git fetch origin <current branc
 
 Balances are never stored: they are sums over append-only ledgers.
 
+### 7.10 Home Assistant (`cogs/homeassistant.py`, 2026-11-24)
+
+Carries messages between Discord and Thea's local Home Assistant agent. The agent is a separate package, `ha_agent` in `C:\codingShit\ha-agent` (not in this repo; its `COG_GUIDE.md` is the brief this cog follows). It picks the tools, asks Qwen3.5-4B on Ollama and calls Home Assistant's REST API. Wrong replies are fixed in the agent, never here.
+- **Must run on Golurk:** Ollama listens only on 127.0.0.1, on purpose. Moving the bot needs an HTTP wrapper and a network-exposure decision first; ask Thea.
+- **Install:** `py -3.14 -m pip install -e C:\codingShit\ha-agent` (editable, so agent fixes apply at the next cog reload). Done on the host 2026-11-24. Off until `"homeassistant"` is in `"cogs"`; the token goes in the `HA_TOKEN` user environment variable (Thea sets it; never in config.json on the Drive if avoidable, never in docs).
+- **Who:** only `allowed_user_ids` (default Thea). An ID list, never a role. Others are ignored silently; slash commands answer them "Not allowed." ephemerally.
+- **What reaches the agent:** DMs, messages in `channel_id`, or @mentions of the bot (mention stripped); bots never. Memory key `discord:<channel id>` or `discord:dm:<user id>` (the agent keeps 6 exchanges and serializes each conversation).
+- **Answering:** typing indicator, `speaker` = display name, `asyncio.wait_for` 180 s. Reply text plus a small-print footer per action (`✅ fan.set_percentage → Air Purifier {percentage: 40}`, `❌ … (declined)`) and seconds; split under 2000 chars; mentions never ping.
+- **Confirm buttons:** the agent awaits `confirm(summary)` before risky actions. The cog posts "Allow **…**?" with Allow / Deny; only the asker can press (others get an ephemeral refusal); Deny, 60 s without an answer, or any error = no. The 60 s deadline is enforced by `asyncio.wait_for` in `make_confirm`, not by the View's own timeout (discord.py only starts that once a real send registers the view). Never auto-approves.
+- **Errors:** Home Assistant down or token rejected → "Home Assistant isn't responding"; Ollama down → "Start Ollama on Golurk"; timeout → "try again". Tracebacks go to the log only. If HA is down at load, the cog stays loaded and retries `start()` on the next message. No token or no package → it stays loaded and says what is missing to allowed users.
+- **Commands:** `/ha ask text`, `/ha reset` (forget this conversation), `/ha reload` (re-read HA's actions, reports the count). Global, allowlist-checked.
+- **Dev mode:** `fake_ha: true` loads the agent repo's `tests/fake_ha.py`, which records actions instead of running them; no token needed. Restarting HA through it is the way to try the buttons.
+- **Not yet tried live:** no HA token on the host yet and the cog is not in the host's `"cogs"`; only the unit tests (`tests/test_homeassistant.py`, fake agent) have run.
+
 ---
 
 ## 8. Golurk Console (`astra_console.py`, `console_services.py`, `console_settings.py`)
@@ -352,6 +371,7 @@ Details: `docs/CONSOLE.md`.
 | `theruvial/AstraThought` (public) | SetFit task classifier service on `:13383`; data and model git-ignored | `C:\codingShit\AstraThought` (own venv) |
 | `egamI-rorriM/Aboard-the-Astra---Remake` | the game; wiki backend under `Tools/wiki/backend` | `C:\codingShit\Aboard-the-Astra-Wiki` |
 | `automated-librarian/` (in this repo) | Runs on `thea-ubuntu-server` as the user service `automated-librarian`. Files each `.torrent` as `Author/Series/Title`, adds it to Transmission, checks the downloaded file's tags, links multi-book packs into the library over SSH on the TrueNAS, asks Audiobookshelf to scan and match, and calls the bot's intake (`docs/LIBRARIAN_INTAKE.md`). Python 3.12, standard library only; secrets live in `~/.config/automated-librarian/env` on the server, never in the repo | `~/repos/Astrabot/automated-librarian` on the server (a clone of this repo; the service runs straight from it; update with `automated-librarian/update.sh`) |
+| `ha-agent` (local only, package `ha_agent`) | Home Assistant agent for Qwen via Ollama; the bot imports it as a library (§7.10). Python ≥3.11, aiohttp only | `C:\codingShit\ha-agent` (installed editable into `py -3.14`) |
 | `theruvial/theruvial` (public) | GitHub profile README and the CV the portfolio serves | edited via `gh api` |
 | `theruvial/Astrabot-old`, `AstraThought-old` (private) | pre-2026-11-11 histories (contain old secrets) | — |
 
@@ -374,8 +394,8 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 ## 11. Testing
 
-- Run from the repo root: `py -3.14 -m unittest discover -s tests` (282 tests, all passing 2026-11-17). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
-- Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`.
+- Run from the repo root: `py -3.14 -m unittest discover -s tests` (345 tests, all passing 2026-11-24). `test_astra_console`'s `test_manual_restart_is_not_a_crash` failed now and then on 2026-11-24 with a temp-folder cleanup error (the bot subprocess still holding `bot.log`); it passes alone and on rerun. Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
+- Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`, `test_homeassistant`.
 - The Automated Librarian has its own suites: `cd automated-librarian && python3 -m unittest discover -s tests` (46 tests, all passing on the Ubuntu server with Python 3.12 on 2026-11-21). The root run above does not collect them, and they have not been run on the Windows host.
 - No tests yet for `music.py`, `clip.py` (beyond imports), `moderation.py` or the legacy cogs.
 - Windows quirk: SQLite keeps files open, so temp dirs in tests use `ignore_cleanup_errors=True`; a rare temp-cleanup error on a full run passes on rerun.
@@ -400,7 +420,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 3. Confirm bot token reset and ABS API key rotation.
 4. Decide whether ordinary requests-site accounts get a password or email link login.
 5. Webhook vs polling for self-update: awaiting Thea's choice; do not build.
-6. DM AI agent cog (idea only): awaiting scope and API key; do not build.
+6. Home Assistant agent cog: built 2026-11-24 (§7.10, branch `feature/ha-agent-cog`). To go live, Thea sets `HA_TOKEN`, adds `"homeassistant"` to `"cogs"` (and an optional `channel_id`), and restarts; try `fake_ha: true` first to see the buttons.
 7. Possible cleanups: tighten intents; add tests for music/clip/moderation; a `requirements.txt`; the old fallback `cogs/portfolio.html` still says "directed".
 8. Two bot "web UI listening" lines 16 s apart were seen in `logs/bot.log` on 2026-11-17 09:58; not investigated (possible double start or reload).
 9. Dragonwilds server build choice (newer 26419371 vs old 26161880) is open (see `docs/HANDOFF-2026-11-10.md`).
@@ -413,6 +433,12 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 ## 14. Change log
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
+
+### 2026-11-24 — Claude Code (Opus 5.5), Home Assistant agent cog (branch `feature/ha-agent-cog`, committed, not merged)
+- New `cogs/homeassistant.py` from the ha-agent repo's `COG_GUIDE.md`: allowlisted DMs / channel / mentions go to `ha_agent`, replies with an action footer, Allow/Deny confirm buttons only the asker can press (60 s, never auto-approve), friendly errors, `/ha ask|reset|reload`, `fake_ha` dev mode. Details in §7.10.
+- `ha_agent` installed editable into `py -3.14` on the host. `config.example.json` gained a `homeassistant` block. Not in `DEFAULT_COGS`.
+- Tests: `tests/test_homeassistant.py` (24, fake agent, no Discord/HA/Ollama); full suite 345 passing. Found while testing: a View's own timeout never fires unless discord.py registered the view through a real send, so the confirm deadline uses `asyncio.wait_for`.
+- Not tested live: no HA token on the host yet, cog not in the host's `"cogs"`.
 
 ### 2026-11-22 — Claude Code (Opus 5.5), audiobook watcher renamed to Automated Librarian (branch `feature/automated-librarian`, merged into master, pushed and migrated)
 

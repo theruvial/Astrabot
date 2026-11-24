@@ -50,5 +50,17 @@
             "_secret_note": "Leave secret blank to use the AUDIOBOOKS_INTAKE_SECRET environment variable. The Automated Librarian on the Ubuntu server sends the same value.",
             "allowed_ips": ["192.168.4.74"]
         }
+    },
+    "homeassistant": {
+        "_note": "Off until homeassistant is in cogs. Needs the ha-agent package (pip install -e, see DESIGN.md 7.10) and Ollama on this PC.",
+        "allowed_user_ids": [151408413744693248],
+        "channel_id": 0,
+        "ha_token": "",
+        "_ha_token_note": "Leave ha_token blank to use the HA_TOKEN environment variable (recommended).",
+        "ha_url": "",
+        "ollama_url": "",
+        "model": "",
+        "timeout_seconds": 180,
+        "fake_ha": false
     }
 }

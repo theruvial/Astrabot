@@ -3,6 +3,7 @@
 No real Home Assistant, Ollama or Discord: the agent is a stand-in object.
 """
 import asyncio
+import sys
 import types
 import unittest
 from unittest import mock
@@ -214,8 +215,29 @@ class AnswerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unload_closes_the_agent(self):
         agent = FakeAgent()
-        await self.cog(agent).cog_unload()
+        with mock.patch.dict(sys.modules):   # unload drops ha_agent; put it back afterwards
+            await self.cog(agent).cog_unload()
         self.assertTrue(agent.closed)
+
+    async def test_unload_drops_ha_agent_so_a_cog_reload_reloads_it(self):
+        fake = types.ModuleType("x")
+        with mock.patch.dict(sys.modules, {"ha_agent": fake, "ha_agent.agent": fake,
+                                           "ha_agent_fake_ha": fake, "ha_agentish": fake}):
+            await self.cog(FakeAgent()).cog_unload()
+            left = {n for n in sys.modules if n.startswith("ha_agent")}
+        self.assertEqual(left, {"ha_agentish"})
+
+    async def test_unload_drops_ha_agent_even_if_close_fails(self):
+        agent = FakeAgent()
+
+        async def broken():
+            raise RuntimeError("boom")
+
+        agent.close = broken
+        with mock.patch.dict(sys.modules, {"ha_agent": types.ModuleType("x")}):
+            with self.assertLogs("homeassistant", "ERROR"):
+                await self.cog(agent).cog_unload()
+            self.assertNotIn("ha_agent", sys.modules)
 
 
 class ThinkingTests(unittest.IsolatedAsyncioTestCase):

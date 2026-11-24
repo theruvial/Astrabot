@@ -83,6 +83,7 @@ import importlib.util
 import logging
 import os
 import re
+import sys
 from pathlib import Path
 
 import aiohttp
@@ -488,6 +489,21 @@ def _load_fake_ha(path: str | None):
     return module.FakeHA
 
 
+def _forget_agent_modules() -> list[str]:
+    """Drop ``ha_agent`` (and the dev-mode fake HA) from ``sys.modules``.
+
+    Called on unload so that ``reload_extension("cogs.homeassistant")`` re-imports
+    the agent too, and agent fixes apply without a bot restart. Safe if the new
+    load fails: discord.py's rollback re-runs the old module's ``setup``, which
+    still holds the old classes directly.
+    """
+    gone = [n for n in sys.modules
+            if n == "ha_agent" or n.startswith("ha_agent.") or n == "ha_agent_fake_ha"]
+    for name in gone:
+        del sys.modules[name]
+    return gone
+
+
 class HomeAssistant(commands.Cog):
     """Carries messages between Discord and the local Home Assistant agent."""
 
@@ -543,6 +559,7 @@ class HomeAssistant(commands.Cog):
                 await self.agent.close()
             except Exception:  # noqa: BLE001
                 log.exception("Closing the Home Assistant agent failed")
+        _forget_agent_modules()
 
     async def _ensure_started(self) -> bool:
         """Start the agent if it has not started yet; retried on every message."""

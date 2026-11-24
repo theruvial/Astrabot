@@ -61,6 +61,7 @@
         "ollama_url": "",
         "model": "",
         "timeout_seconds": 180,
+        "history_turns": 6,
         "fake_ha": false
     }
 }

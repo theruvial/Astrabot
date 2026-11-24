@@ -341,6 +341,7 @@ Carries messages between Discord and Thea's local Home Assistant agent. The agen
 - **Install:** `py -3.14 -m pip install -e C:\codingShit\ha-agent` (editable, so agent fixes apply at the next cog reload). Done on the host 2026-11-24. Off until `"homeassistant"` is in `"cogs"`; the token goes in the `HA_TOKEN` user environment variable (Thea sets it; never in config.json on the Drive if avoidable, never in docs).
 - **Who:** only `allowed_user_ids` (default Thea). An ID list, never a role. Others are ignored silently; slash commands answer them "Not allowed." ephemerally.
 - **What reaches the agent:** DMs, messages in `channel_id`, or @mentions of the bot (mention stripped); bots never. Memory key `discord:<channel id>` or `discord:dm:<user id>` (the agent keeps 6 exchanges and serializes each conversation).
+- **Threads (2026-11-24, branch `feature/ha-cog-threads`):** a new message in `channel_id` itself opens a thread on that message, named after its first line (max 100 chars, archives after 24 h idle), and the answer, confirm buttons and later replies go there. Messages in any thread under `channel_id` reach the agent without a mention. The thread is the conversation: memory key `discord:<thread id>`, so `/think` and `/ha reset` inside it act on that thread only. The agent remembers `history_turns` exchanges (config, default 6) in memory, so a bot restart forgets a thread's context even though its text stays on Discord. Rebuilding it from the thread's messages waits on a `has_history`/`remember` API in `ha_agent` (being added in a separate session). If the bot lacks Create Public Threads, it logs a warning and answers in the channel. `/ha ask` and mentions elsewhere don't open threads.
 - **Answering:** typing indicator, `speaker` = display name, `asyncio.wait_for` 180 s. Reply text plus a small-print footer per action (`✅ fan.set_percentage → Air Purifier {percentage: 40}`, `❌ … (declined)`) and seconds; split under 2000 chars; mentions never ping.
 - **Confirm buttons:** the agent awaits `confirm(summary)` before risky actions. The cog posts "Allow **…**?" with Allow / Deny; only the asker can press (others get an ephemeral refusal); Deny, 60 s without an answer, or any error = no. The 60 s deadline is enforced by `asyncio.wait_for` in `make_confirm`, not by the View's own timeout (discord.py only starts that once a real send registers the view). Never auto-approves.
 - **Errors:** Home Assistant down or token rejected → "Home Assistant isn't responding"; Ollama down → "Start Ollama on Golurk"; timeout → "try again". Tracebacks go to the log only. If HA is down at load, the cog stays loaded and retries `start()` on the next message. No token or no package → it stays loaded and says what is missing to allowed users.
@@ -435,6 +436,12 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 ## 14. Change log
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
+
+### 2026-11-24 — Claude Code (Opus 5.5), Home Assistant cog: one thread per request (branch `feature/ha-cog-threads`, committed, not merged)
+
+- **Why:** Thea wants each request in the agent channel to get its own thread, with the thread as the agent's context.
+- **What:** `agent_place` / `thread_name` helpers; `on_message` opens a thread for top-level messages in `channel_id` and answers there (falling back to the channel if thread creation fails); threads under the channel route without a mention; new `history_turns` setting passed to `HAAgent`. 8 new tests (40 in `test_homeassistant`); full suite 362 passing. See §7.10.
+- **Not done:** restoring a thread's context after a bot restart (needs the `ha_agent` API from the parallel ha-agent review session); modes (COG_GUIDE §9, required) aren't in the cog yet. Not tried live.
 
 ### 2026-11-24 — Claude Code (Opus 5.5), Golurk Console shutdown race fixed (branch `fix/console-restart-race`, merged into master and pushed)
 

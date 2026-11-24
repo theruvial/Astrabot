@@ -336,5 +336,122 @@ class ConfirmTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(await hac.make_confirm(send, THEA)("x"))
 
 
+class Place:
+    """A fake channel or thread that records what is sent to it."""
+
+    def __init__(self, id, parent_id=None):
+        self.id, self.parent_id, self.guild = id, parent_id, object()
+        self.sent = []
+
+    async def send(self, content, view=None, allowed_mentions=None):
+        self.sent.append(content)
+        return content
+
+    def typing(self):
+        class Typing:
+            async def __aenter__(self_):
+                return None
+
+            async def __aexit__(self_, *exc):
+                return False
+        return Typing()
+
+
+def chat_message(channel, content="turn off the fan\nplease", thread=None, thread_error=None):
+    msg = types.SimpleNamespace(
+        author=types.SimpleNamespace(id=THEA, bot=False, display_name="Thea"),
+        guild=channel.guild, channel=channel, mentions=[], content=content,
+        replies=[], thread_calls=[])
+
+    async def reply(content, view=None, allowed_mentions=None):
+        msg.replies.append(content)
+        return content
+
+    async def create_thread(name, auto_archive_duration):
+        msg.thread_calls.append((name, auto_archive_duration))
+        if thread_error:
+            raise thread_error
+        return thread
+
+    msg.reply, msg.create_thread = reply, create_thread
+    return msg
+
+
+class ThreadTests(unittest.IsolatedAsyncioTestCase):
+    def cog(self, agent):
+        cog = hac.HomeAssistant(types.SimpleNamespace(user=BOT), settings(), agent=agent)
+        cog.started = True
+        return cog
+
+    def test_agent_place(self):
+        self.assertEqual(hac.agent_place(Place(42), 42), "channel")
+        self.assertEqual(hac.agent_place(Place(50, parent_id=42), 42), "thread")
+        self.assertIsNone(hac.agent_place(Place(50, parent_id=7), 42))
+        self.assertIsNone(hac.agent_place(Place(42), 0))
+
+    def test_threads_under_the_channel_need_no_mention(self):
+        msg = chat_message(Place(50, parent_id=42))
+        self.assertTrue(hac.should_handle(msg, BOT, settings()))
+        msg.author = types.SimpleNamespace(id=1, bot=False)
+        self.assertFalse(hac.should_handle(msg, BOT, settings()))
+
+    def test_thread_name(self):
+        self.assertEqual(hac.thread_name("turn  off the fan\nplease"), "turn off the fan")
+        long = hac.thread_name("x " * 80)
+        self.assertLessEqual(len(long), 100)
+        self.assertTrue(long.endswith("…"))
+        self.assertEqual(hac.thread_name("   "), "House request")
+
+    def test_history_turns_setting(self):
+        self.assertEqual(hac.load_settings({}, env={})["history_turns"], 6)
+        self.assertEqual(hac.load_settings({"homeassistant": {"history_turns": "20"}}, env={})["history_turns"], 20)
+        self.assertEqual(hac.load_settings({"homeassistant": {"history_turns": "x"}}, env={})["history_turns"], 6)
+
+    async def test_a_channel_message_opens_a_thread_and_answers_there(self):
+        agent, channel, thread = FakeAgent(), Place(42), Place(50, parent_id=42)
+        msg = chat_message(channel, thread=thread)
+        await self.cog(agent).on_message(msg)
+        self.assertEqual(msg.thread_calls, [("turn off the fan", 1440)])
+        self.assertEqual(agent.calls[0][0], "discord:50")
+        self.assertTrue(thread.sent and thread.sent[0].startswith("Done it."))
+        self.assertEqual(msg.replies, [])
+        self.assertEqual(channel.sent, [])
+
+    async def test_a_follow_up_in_the_thread_stays_in_it(self):
+        agent, thread = FakeAgent(), Place(50, parent_id=42)
+        msg = chat_message(thread, content="and the lamp")
+        await self.cog(agent).on_message(msg)
+        self.assertEqual(msg.thread_calls, [])
+        self.assertEqual(agent.calls[0][0], "discord:50")
+        self.assertEqual(len(msg.replies), 1)
+
+    async def test_no_thread_permission_answers_in_the_channel(self):
+        agent, channel = FakeAgent(), Place(42)
+        denied = hac.discord.Forbidden(types.SimpleNamespace(status=403, reason="Forbidden"),
+                                       "Missing Permissions")
+        msg = chat_message(channel, thread_error=denied)
+        with self.assertLogs("homeassistant", "WARNING"):
+            await self.cog(agent).on_message(msg)
+        self.assertEqual(agent.calls[0][0], "discord:42")
+        self.assertEqual(len(msg.replies), 1)
+
+    async def test_confirm_buttons_go_to_the_thread(self):
+        async def asks(cid, text, confirm, speaker):
+            await confirm("unlock the door")
+            return reply()
+
+        agent, thread = FakeAgent(chat=asks), Place(50, parent_id=42)
+        msg = chat_message(Place(42), thread=thread)
+        def quick_confirm(send, owner_id):
+            async def confirm(summary):
+                await send(f"Allow {summary}?", None)
+                return False
+            return confirm
+
+        with mock.patch.object(hac, "make_confirm", quick_confirm):
+            await self.cog(agent).on_message(msg)
+        self.assertTrue(any("unlock the door" in str(m) for m in thread.sent), thread.sent)
+
+
 if __name__ == "__main__":
     unittest.main()

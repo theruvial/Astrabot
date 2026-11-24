@@ -17,7 +17,16 @@ never a role (anyone with Manage Roles can hand out a role). Everyone else is
 ignored without a reply, so strangers cannot even tell it is listening.
 
 What reaches the agent: messages from allowed users that are a DM, in the
-configured ``channel_id``, or that @mention the bot (mention stripped). Bots,
+configured ``channel_id`` or a thread under it, or that @mention the bot
+(mention stripped).
+
+Threads: a new message in ``channel_id`` itself opens a thread named after the
+request, and the agent answers there. The thread is the conversation: its own
+memory, thinking toggle and confirm buttons, and follow-ups in the thread need
+no mention. The agent keeps the last ``history_turns`` exchanges (default 6,
+in memory, so a bot restart forgets them; the thread's text stays on Discord).
+If the bot can't create threads there (needs "Create Public Threads"), it
+answers in the channel as before. Bots,
 including this one, are always ignored. ``/ha ask`` does the same for servers
 where message content is off; ``/ha reset`` and ``/ha reload`` manage memory and
 the action list.
@@ -38,7 +47,9 @@ auto-approved.
 Configuration (``config.json`` ``"homeassistant"`` object):
 - ``allowed_user_ids`` (default ``[Thea]``): who may use it.
 - ``channel_id`` (default 0 = none): a channel where every message from an
-  allowed user goes to the agent, no mention needed.
+  allowed user goes to the agent, no mention needed; each one opens a thread.
+- ``history_turns`` (default 6): exchanges the agent remembers per
+  conversation (per thread).
 - ``ha_token``: blank = the ``HA_TOKEN`` environment variable (recommended).
   A long-lived Home Assistant token; never commit it or log it.
 - ``ha_url``, ``ollama_url``, ``model``: blank = the agent's own defaults or its
@@ -80,6 +91,8 @@ except ImportError:  # the cog still loads and says what is missing
 log = logging.getLogger("homeassistant")
 
 DISCORD_LIMIT = 2000
+THREAD_NAME_LIMIT = 100
+THREAD_ARCHIVE_MINUTES = 1440  # Discord's choices: 60, 1440, 4320, 10080
 CONFIRM_SECONDS = 60
 REASONING_LIMIT = 1800  # leaves room for the label and spoiler bars
 BRAIN = "\U0001f9e0"
@@ -108,6 +121,10 @@ def load_settings(cfg, env=None) -> dict:
         timeout = max(10.0, float(raw.get("timeout_seconds", 180)))
     except (TypeError, ValueError):
         timeout = 180.0
+    try:
+        history_turns = max(1, int(raw.get("history_turns", 6)))
+    except (TypeError, ValueError):
+        history_turns = 6
 
     def text(key):
         return str(raw.get(key) or "").strip() or None
@@ -120,6 +137,7 @@ def load_settings(cfg, env=None) -> dict:
         "ollama_url": text("ollama_url"),
         "model": text("model"),
         "timeout": timeout,
+        "history_turns": history_turns,
         "fake_ha": bool(raw.get("fake_ha", False)),
         "fake_ha_path": text("fake_ha_path"),
     }
@@ -140,9 +158,29 @@ def should_handle(message, bot_user, settings) -> bool:
         return False
     if message.guild is None:
         return True
-    if settings["channel_id"] and message.channel.id == settings["channel_id"]:
+    if agent_place(message.channel, settings["channel_id"]):
         return True
     return bot_user is not None and bot_user in message.mentions
+
+
+def agent_place(channel, channel_id: int) -> str | None:
+    """``"channel"`` for the agent channel itself, ``"thread"`` for a thread
+    under it, else None."""
+    if not channel_id:
+        return None
+    if channel.id == channel_id:
+        return "channel"
+    if getattr(channel, "parent_id", None) == channel_id:
+        return "thread"
+    return None
+
+
+def thread_name(text: str) -> str:
+    """A thread title from the request: first line, squashed, under Discord's 100."""
+    line = " ".join((text or "").split("\n", 1)[0].split())
+    if len(line) > THREAD_NAME_LIMIT:
+        line = line[:THREAD_NAME_LIMIT - 1].rstrip() + "…"
+    return line or "House request"
 
 
 def strip_mention(text: str, bot_id: int) -> str:
@@ -151,7 +189,7 @@ def strip_mention(text: str, bot_id: int) -> str:
 
 
 def conversation_id(channel, user) -> str:
-    """Memory key: one per channel, one per person in DMs."""
+    """Memory key: one per channel or thread, one per person in DMs."""
     if getattr(channel, "guild", None) is None:
         return f"discord:dm:{user.id}"
     return f"discord:{channel.id}"
@@ -352,7 +390,8 @@ class HomeAssistant(commands.Cog):
             self.problem = "No Home Assistant token: set HA_TOKEN on Golurk."
             return None
         agent = HAAgent(ha_url=s["ha_url"], ha_token=token,
-                        ollama_url=s["ollama_url"], model=s["model"])
+                        ollama_url=s["ollama_url"], model=s["model"],
+                        history_turns=s.get("history_turns", 6))
         if s["fake_ha"]:
             agent.ha = _load_fake_ha(s["fake_ha_path"])()
             agent.home.ha = agent.ha
@@ -433,16 +472,37 @@ class HomeAssistant(commands.Cog):
         if not text:
             return
 
+        thread = None
+        if agent_place(message.channel, self.settings["channel_id"]) == "channel":
+            thread = await self._open_thread(message, text)
+        where = thread or message.channel
+
         async def send(content, view):
+            if thread is not None:
+                return await thread.send(content, view=view, allowed_mentions=NO_PINGS)
             return await message.reply(content, view=view, allowed_mentions=NO_PINGS)
 
-        cid = conversation_id(message.channel, message.author)
-        async with message.channel.typing():
+        cid = conversation_id(where, message.author)
+        async with where.typing():
             parts = await self.answer(cid, text, message.author,
                                       make_confirm(send, message.author.id))
-        await message.reply(parts[0], allowed_mentions=NO_PINGS)
+        if thread is not None:
+            first = await thread.send(parts[0], allowed_mentions=NO_PINGS)
+        else:
+            first = await message.reply(parts[0], allowed_mentions=NO_PINGS)
         for part in parts[1:]:
-            await message.channel.send(part, allowed_mentions=NO_PINGS)
+            await where.send(part, allowed_mentions=NO_PINGS)
+        return first
+
+    async def _open_thread(self, message, text):
+        """A thread on the request message, or None (then answer in the channel)."""
+        try:
+            return await message.create_thread(name=thread_name(text),
+                                               auto_archive_duration=THREAD_ARCHIVE_MINUTES)
+        except discord.HTTPException as exc:  # Forbidden is one; also "already has a thread"
+            log.warning("Couldn't open a thread for a house request (%s); answering in the channel",
+                        exc)
+            return None
 
     # -- slash commands --
 

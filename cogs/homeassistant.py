@@ -16,20 +16,23 @@ Thea). Whoever can talk to this cog controls the house, so it is an ID list,
 never a role (anyone with Manage Roles can hand out a role). Everyone else is
 ignored without a reply, so strangers cannot even tell it is listening.
 
-What reaches the agent: messages from allowed users that are a DM, in the
-configured ``channel_id`` or a thread under it, or that @mention the bot
-(mention stripped).
+Where: the configured ``channel_id`` and threads under it, for allowed users
+(an @mention is stripped but not needed), plus DMs from ``dm_user_ids``
+(default: just the owner). Everything else is ignored, and the slash commands
+answer "only in #channel" ephemerally elsewhere. With ``channel_id`` unset
+only those DMs work. Bots, including this one, are
+always ignored.
 
 Threads: a new message in ``channel_id`` itself opens a thread named after the
 request, and the agent answers there. The thread is the conversation: its own
-memory, thinking toggle and confirm buttons, and follow-ups in the thread need
-no mention. The agent keeps the last ``history_turns`` exchanges (default 6,
-in memory, so a bot restart forgets them; the thread's text stays on Discord).
-If the bot can't create threads there (needs "Create Public Threads"), it
-answers in the channel as before. Bots,
-including this one, are always ignored. ``/ha ask`` does the same for servers
-where message content is off; ``/ha reset`` and ``/ha reload`` manage memory and
-the action list.
+memory, thinking toggle and confirm buttons. The agent keeps the last
+``history_turns`` exchanges (default 6) in memory; after a bot restart the
+first message in a thread re-reads the thread from Discord and hands it back
+with ``agent.remember`` (``thread_turns`` drops footers, confirm prompts,
+reasoning and error notices). If the bot can't create threads there (needs
+"Create Public Threads"), it answers in the channel instead. ``/ha ask`` works
+like a message where message content is off; ``/ha reset`` and ``/ha reload``
+manage memory and the action list.
 
 Thinking (Qwen reasons first: smarter, about 3x slower, off by default) is
 per conversation and lives in the agent, so it resets to off on restart.
@@ -45,9 +48,11 @@ asked can press; Deny, a 60 s timeout or any error means no. Nothing is ever
 auto-approved.
 
 Configuration (``config.json`` ``"homeassistant"`` object):
-- ``allowed_user_ids`` (default ``[Thea]``): who may use it.
-- ``channel_id`` (default 0 = none): a channel where every message from an
-  allowed user goes to the agent, no mention needed; each one opens a thread.
+- ``allowed_user_ids`` (default ``[Thea]``): who may use it in the channel.
+- ``dm_user_ids`` (default: the bot's ``owner_id``, Thea): who may DM it. A
+  separate list on purpose: a DM has no audience, so keep it short.
+- ``channel_id`` (default 0 = off): the one channel the agent works in; each
+  new message there opens a thread.
 - ``history_turns`` (default 6): exchanges the agent remembers per
   conversation (per thread).
 - ``ha_token``: blank = the ``HA_TOKEN`` environment variable (recommended).
@@ -76,7 +81,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from cogs.owner import DEFAULT_OWNER_ID
+from cogs.owner import DEFAULT_OWNER_ID, owner_id
 
 try:
     import ha_agent
@@ -107,12 +112,17 @@ def load_settings(cfg, env=None) -> dict:
     raw = cfg.get("homeassistant") if isinstance(cfg, dict) else None
     raw = raw if isinstance(raw, dict) else {}
 
-    allowed = set()
-    for value in raw.get("allowed_user_ids", [DEFAULT_OWNER_ID]) or []:
-        try:
-            allowed.add(int(value))
-        except (TypeError, ValueError):
-            log.warning("Ignoring a bad allowed_user_ids entry: %r", value)
+    def ids(key, default):
+        out = set()
+        for value in raw.get(key, default) or []:
+            try:
+                out.add(int(value))
+            except (TypeError, ValueError):
+                log.warning("Ignoring a bad %s entry: %r", key, value)
+        return frozenset(out)
+
+    allowed = ids("allowed_user_ids", [DEFAULT_OWNER_ID])
+    dm_users = ids("dm_user_ids", [owner_id(cfg if isinstance(cfg, dict) else {})])
     try:
         channel_id = int(raw.get("channel_id") or 0)
     except (TypeError, ValueError):
@@ -130,7 +140,7 @@ def load_settings(cfg, env=None) -> dict:
         return str(raw.get(key) or "").strip() or None
 
     return {
-        "allowed": frozenset(allowed),
+        "allowed": allowed,
         "channel_id": channel_id,
         "ha_token": text("ha_token") or (env.get("HA_TOKEN") or "").strip() or None,
         "ha_url": text("ha_url"),
@@ -138,6 +148,7 @@ def load_settings(cfg, env=None) -> dict:
         "model": text("model"),
         "timeout": timeout,
         "history_turns": history_turns,
+        "dm_users": dm_users,
         "fake_ha": bool(raw.get("fake_ha", False)),
         "fake_ha_path": text("fake_ha_path"),
     }
@@ -148,19 +159,22 @@ def load_settings(cfg, env=None) -> dict:
 def should_handle(message, bot_user, settings) -> bool:
     """Whether a Discord message goes to the agent.
 
-    Bots never; then only allowed users; then a DM, the configured channel,
-    or a message that mentions the bot.
+    Never bots. DMs from ``dm_user_ids``; otherwise only allowed users, and
+    only in the configured channel or a thread under it. Anything else is ignored.
     """
     author = message.author
     if author.bot or (bot_user is not None and author.id == bot_user.id):
         return False
-    if author.id not in settings["allowed"]:
+    return usable_here(message.channel, author, settings)
+
+
+def usable_here(channel, user, settings) -> bool:
+    """May this user use the agent in this channel? (Messages and slash commands.)"""
+    if getattr(channel, "guild", None) is None:
+        return user.id in settings["dm_users"]  # DMs: their own list
+    if user.id not in settings["allowed"]:
         return False
-    if message.guild is None:
-        return True
-    if agent_place(message.channel, settings["channel_id"]):
-        return True
-    return bot_user is not None and bot_user in message.mentions
+    return agent_place(channel, settings["channel_id"]) is not None
 
 
 def agent_place(channel, channel_id: int) -> str | None:
@@ -173,6 +187,43 @@ def agent_place(channel, channel_id: int) -> str | None:
     if getattr(channel, "parent_id", None) == channel_id:
         return "thread"
     return None
+
+
+def _bot_noise(text: str) -> bool:
+    """Bot messages that aren't the agent's answers: prompts, errors, notices."""
+    return (text.startswith(("Allow **", "||", "Thinking is now", "Home Assistant isn't",
+                             "The local model isn't", "That took too long",
+                             "Something went wrong talking", "The house agent",
+                             "The ha_agent package", "No Home Assistant token")))
+
+
+def thread_turns(messages, bot_id: int, allowed) -> list[tuple[str, str]]:
+    """A thread's messages (oldest first) as ``(role, text)`` turns for
+    ``agent.remember``, written the way ``chat()`` stores them.
+
+    Allowed users' messages become ``"Name: text"`` user turns (mention
+    stripped). The bot's answers become assistant turns without their ``-#``
+    footer lines, with a reply that was split over several messages joined
+    back up. Confirm prompts, reasoning spoilers, error notices and everyone
+    else's messages are left out.
+    """
+    turns: list[tuple[str, str]] = []
+    for msg in messages:
+        content = (getattr(msg, "content", "") or "").strip()
+        if msg.author.id == bot_id:
+            text = "\n".join(line for line in content.splitlines()
+                             if not line.startswith("-# ")).strip()
+            if not text or _bot_noise(text):
+                continue
+            if turns and turns[-1][0] == "assistant":
+                turns[-1] = ("assistant", f"{turns[-1][1]}\n{text}")
+            else:
+                turns.append(("assistant", text))
+        elif msg.author.id in allowed:
+            text = strip_mention(content, bot_id)
+            if text:
+                turns.append(("user", f"{msg.author.display_name}: {text}"))
+    return turns
 
 
 def thread_name(text: str) -> str:
@@ -483,6 +534,8 @@ class HomeAssistant(commands.Cog):
             return await message.reply(content, view=view, allowed_mentions=NO_PINGS)
 
         cid = conversation_id(where, message.author)
+        if thread is None and agent_place(where, self.settings["channel_id"]) == "thread":
+            await self._restore_thread(where, cid, skip_id=message.id)
         async with where.typing():
             parts = await self.answer(cid, text, message.author,
                                       make_confirm(send, message.author.id))
@@ -493,6 +546,36 @@ class HomeAssistant(commands.Cog):
         for part in parts[1:]:
             await where.send(part, allowed_mentions=NO_PINGS)
         return first
+
+    async def _restore_thread(self, thread, cid: str, skip_id: int | None = None) -> int:
+        """After a restart the agent has forgotten this thread: re-read it from Discord.
+
+        Returns how many turns were handed back (0 when nothing was needed or
+        Discord couldn't be read; the answer then just starts without them).
+        """
+        agent = self.agent
+        if agent is None or not hasattr(agent, "has_history") or agent.has_history(cid):
+            return 0
+        limit = 4 * self.settings.get("history_turns", 6) + 10
+        try:
+            messages = [m async for m in thread.history(limit=limit)]
+        except discord.HTTPException as exc:
+            log.warning("Couldn't read thread %s to restore its context: %s", thread.id, exc)
+            return 0
+        messages.reverse()  # oldest first
+        if len(messages) < limit:
+            # Reached the top. A thread opened on a message has the same id as that
+            # message, which lives in the parent channel: it is the first request.
+            try:
+                messages.insert(0, await thread.parent.fetch_message(thread.id))
+            except (discord.HTTPException, AttributeError):
+                pass  # not opened on a message, or it was deleted
+        turns = thread_turns([m for m in messages if m.id != skip_id],
+                             self.bot.user.id, self.settings["allowed"])
+        if turns:
+            agent.remember(cid, turns)
+            log.info("Restored %d turns for %s from Discord", len(turns), cid)
+        return len(turns)
 
     async def _open_thread(self, message, text):
         """A thread on the request message, or None (then answer in the channel)."""
@@ -507,9 +590,14 @@ class HomeAssistant(commands.Cog):
     # -- slash commands --
 
     async def _refuse(self, interaction) -> bool:
-        if self.allowed(interaction.user):
+        if usable_here(interaction.channel, interaction.user, self.settings):
             return False
-        await interaction.response.send_message("Not allowed.", ephemeral=True)
+        channel_id = self.settings["channel_id"]
+        if self.allowed(interaction.user) and channel_id:
+            text = f"I only answer in <#{channel_id}>."
+        else:
+            text = "Not allowed."
+        await interaction.response.send_message(text, ephemeral=True)
         return True
 
     async def _ask(self, interaction, text: str, think: bool | None = None):
@@ -521,6 +609,8 @@ class HomeAssistant(commands.Cog):
                                                    allowed_mentions=NO_PINGS)
 
         cid = conversation_id(interaction.channel, interaction.user)
+        if agent_place(interaction.channel, self.settings["channel_id"]) == "thread":
+            await self._restore_thread(interaction.channel, cid)
         parts = await self.answer(cid, text, interaction.user,
                                   make_confirm(send, interaction.user.id), think=think)
         for part in parts:

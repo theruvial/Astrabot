@@ -49,17 +49,28 @@ class SettingsTests(unittest.TestCase):
 
 
 class RoutingTests(unittest.TestCase):
-    def test_dm_from_an_allowed_user(self):
+    def test_dms_only_from_dm_user_ids(self):
         self.assertTrue(hac.should_handle(message(guild=False), BOT, settings()))
+        s = settings(allowed=frozenset({THEA, 5}))
+        self.assertFalse(hac.should_handle(message(author_id=5, guild=False), BOT, s))
+        self.assertTrue(hac.should_handle(message(author_id=5, guild=False), BOT,
+                                          settings(dm_users=frozenset({5}))))
+
+    def test_dm_user_ids_default_to_the_owner(self):
+        self.assertEqual(hac.load_settings({}, env={})["dm_users"], frozenset({THEA}))
+        self.assertEqual(hac.load_settings({"owner_id": 9}, env={})["dm_users"], frozenset({9}))
+        self.assertEqual(hac.load_settings({"homeassistant": {"dm_user_ids": ["3", "x"]}},
+                                           env={})["dm_users"], frozenset({3}))
 
     def test_strangers_and_bots_are_ignored_everywhere(self):
         for msg in (message(author_id=1, guild=False), message(bot=True, guild=False),
                     message(author_id=BOT.id, guild=False), message(author_id=1, channel_id=42)):
             self.assertFalse(hac.should_handle(msg, BOT, settings()))
 
-    def test_configured_channel_or_a_mention(self):
+    def test_only_the_configured_channel(self):
         self.assertTrue(hac.should_handle(message(channel_id=42), BOT, settings()))
-        self.assertTrue(hac.should_handle(message(mentions=[BOT]), BOT, settings()))
+        self.assertTrue(hac.should_handle(message(channel_id=42, mentions=[BOT]), BOT, settings()))
+        self.assertFalse(hac.should_handle(message(mentions=[BOT]), BOT, settings()))
         self.assertFalse(hac.should_handle(message(), BOT, settings()))
         self.assertFalse(hac.should_handle(message(channel_id=0), BOT, settings(channel_id=0)))
 
@@ -244,7 +255,7 @@ class ThinkingTests(unittest.IsolatedAsyncioTestCase):
 
     async def think_command(self, cog, user_id, message=None):
         inter = interaction(user_id)
-        inter.channel = types.SimpleNamespace(id=7, guild=object())
+        inter.channel = types.SimpleNamespace(id=42, guild=object())
         await hac.HomeAssistant.think.callback(cog, inter, message)
         return inter
 
@@ -254,17 +265,17 @@ class ThinkingTests(unittest.IsolatedAsyncioTestCase):
         for arg, want in ((None, "ON"), (None, "OFF"), ("on", "ON"), ("off", "OFF")):
             inter = await self.think_command(cog, THEA, arg)
             self.assertIn(f"now {want}", inter.response.send_message.call_args.args[0])
-        self.assertEqual(agent.toggles, {"discord:7": False})
+        self.assertEqual(agent.toggles, {"discord:42": False})
 
     async def test_think_with_a_message_thinks_once_without_the_toggle(self):
         agent = FakeAgent()
         cog = hac.HomeAssistant(bot=None, settings=settings(), agent=agent)
         inter = interaction(THEA)
-        inter.channel = types.SimpleNamespace(id=7, guild=object())
+        inter.channel = types.SimpleNamespace(id=42, guild=object())
         inter.response.defer = mock.AsyncMock()
         inter.followup = types.SimpleNamespace(send=mock.AsyncMock())
         await hac.HomeAssistant.think.callback(cog, inter, "will it rain?")
-        self.assertEqual(agent.calls, [("discord:7", "will it rain?", "Thea")])
+        self.assertEqual(agent.calls, [("discord:42", "will it rain?", "Thea")])
         self.assertEqual(agent.thinks, [True])
         self.assertEqual(agent.toggles, {})
 
@@ -361,7 +372,7 @@ def chat_message(channel, content="turn off the fan\nplease", thread=None, threa
     msg = types.SimpleNamespace(
         author=types.SimpleNamespace(id=THEA, bot=False, display_name="Thea"),
         guild=channel.guild, channel=channel, mentions=[], content=content,
-        replies=[], thread_calls=[])
+        replies=[], thread_calls=[], id=1000)
 
     async def reply(content, view=None, allowed_mentions=None):
         msg.replies.append(content)
@@ -451,6 +462,102 @@ class ThreadTests(unittest.IsolatedAsyncioTestCase):
         with mock.patch.object(hac, "make_confirm", quick_confirm):
             await self.cog(agent).on_message(msg)
         self.assertTrue(any("unlock the door" in str(m) for m in thread.sent), thread.sent)
+
+
+def said(author_id, content, name="Thea", id=0):
+    return types.SimpleNamespace(id=id, content=content,
+                                 author=types.SimpleNamespace(id=author_id, display_name=name))
+
+
+class HistoryAgent(FakeAgent):
+    def __init__(self, known=()):
+        super().__init__()
+        self.known, self.remembered = set(known), []
+
+    def has_history(self, cid):
+        return cid in self.known
+
+    def remember(self, cid, turns):
+        self.remembered.append((cid, turns))
+
+
+class FakeThread(Place):
+    def __init__(self, messages, starter=None, error=None):
+        super().__init__(50, parent_id=42)
+        self.messages, self.error = messages, error
+        parent = types.SimpleNamespace()
+
+        async def fetch_message(mid):
+            if starter is None:
+                raise hac.discord.NotFound(types.SimpleNamespace(status=404, reason="nf"), "gone")
+            return starter
+        parent.fetch_message = fetch_message
+        self.parent = parent
+
+    def history(self, limit):
+        if self.error:
+            raise self.error
+        newest_first = list(reversed(self.messages))[:limit]
+
+        async def gen():
+            for m in newest_first:
+                yield m
+        return gen()
+
+
+class RestoreTests(unittest.IsolatedAsyncioTestCase):
+    def test_thread_turns_keeps_the_conversation_only(self):
+        answer = """It's 21 degrees.
+-# ✅ sensor.read
+-# 1.2 s"""
+        msgs = [said(THEA, "<@999> how warm is it?"), said(BOT.id, answer),
+                said(BOT.id, "Allow **unlock the door**?"), said(1, "random person", "Bob"),
+                said(BOT.id, "||thinking||"), said(BOT.id, "Home Assistant isn't responding."),
+                said(THEA, "thanks"), said(BOT.id, "part one"), said(BOT.id, "part two")]
+        self.assertEqual(hac.thread_turns(msgs, BOT.id, frozenset({THEA})), [
+            ("user", "Thea: how warm is it?"), ("assistant", "It's 21 degrees."),
+            ("user", "Thea: thanks"), ("assistant", "part one" + chr(10) + "part two")])
+
+    def cog(self, agent):
+        cog = hac.HomeAssistant(types.SimpleNamespace(user=BOT), settings(), agent=agent)
+        cog.started = True
+        return cog
+
+    async def test_a_forgotten_thread_is_read_back_with_its_starter(self):
+        agent = HistoryAgent()
+        thread = FakeThread([said(BOT.id, "Fan off.", id=2), said(THEA, "and the lamp", id=1000)],
+                            starter=said(THEA, "turn off the fan", id=50))
+        await self.cog(agent).on_message(chat_message(thread, content="and the lamp"))
+        self.assertEqual(agent.remembered, [("discord:50", [
+            ("user", "Thea: turn off the fan"), ("assistant", "Fan off.")])])
+        self.assertEqual(agent.calls[0][1], "and the lamp")
+
+    async def test_a_remembered_thread_is_not_read_again(self):
+        agent = HistoryAgent(known={"discord:50"})
+        thread = FakeThread([], error=AssertionError("should not read"))
+        await self.cog(agent).on_message(chat_message(thread, content="hi"))
+        self.assertEqual(agent.remembered, [])
+
+    async def test_an_unreadable_thread_still_gets_an_answer(self):
+        agent = HistoryAgent()
+        err = hac.discord.Forbidden(types.SimpleNamespace(status=403, reason="no"), "Missing Access")
+        thread = FakeThread([], error=err)
+        with self.assertLogs("homeassistant", "WARNING"):
+            await self.cog(agent).on_message(chat_message(thread, content="hi"))
+        self.assertEqual(agent.remembered, [])
+        self.assertEqual(len(agent.calls), 1)
+
+    async def test_a_new_thread_is_not_read_back(self):
+        agent = HistoryAgent()
+        await self.cog(agent).on_message(chat_message(Place(42), thread=Place(50, parent_id=42)))
+        self.assertEqual(agent.remembered, [])
+
+    async def test_slash_commands_outside_the_channel_point_to_it(self):
+        cog = self.cog(FakeAgent())
+        inter = interaction(THEA)
+        inter.channel = types.SimpleNamespace(id=7, guild=object())
+        await hac.HomeAssistant.think.callback(cog, inter, None)
+        self.assertEqual(inter.response.send_message.call_args.args[0], "I only answer in <#42>.")
 
 
 if __name__ == "__main__":

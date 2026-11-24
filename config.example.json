@@ -54,6 +54,7 @@
     "homeassistant": {
         "_note": "Off until homeassistant is in cogs. Needs the ha-agent package (pip install -e, see DESIGN.md 7.10) and Ollama on this PC.",
         "allowed_user_ids": [151408413744693248],
+        "dm_user_ids": [151408413744693248],
         "channel_id": 0,
         "ha_token": "",
         "_ha_token_note": "Leave ha_token blank to use the HA_TOKEN environment variable (recommended).",

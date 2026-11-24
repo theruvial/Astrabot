@@ -95,6 +95,35 @@ class SupervisorTests(unittest.TestCase):
         self.wait_for(lambda: self.crash_log().count("Starting bot") == 2)
         self.assertFalse(self.saw("Crash 1"))
 
+    def test_shutdown_during_a_start_leaves_no_orphan(self):
+        # shutdown() landing between the spawn and _proc being set used to find
+        # no process, so the new bot ran on with nothing to stop it.
+        spawned = []
+
+        class Racy(Supervisor):
+            def _spawn(self, env):
+                proc = super()._spawn(env)
+                spawned.append(proc)
+                self.shutdown_flags_only()
+                return proc
+
+            def shutdown_flags_only(self):
+                with self._lock:  # what shutdown() does, minus the join
+                    self._closing = True
+                    self._want_running = False
+                    assert self._proc is None
+                self._wake.set()
+
+        (self.root / "logs").mkdir()
+        sup = Racy(lambda *_: None, "racy", self.root,
+                   [sys.executable, "-c", "import time; time.sleep(60)"], self.root / "logs")
+        started = time.monotonic()
+        sup._run()  # returns once it sees _closing
+        self.assertLess(time.monotonic() - started, 15)
+        self.assertEqual(len(spawned), 1)
+        self.assertIsNotNone(spawned[0].poll(), "the started process is still running")
+        self.assertIsNone(sup._proc)
+
     def test_reload_site_refused_when_bot_is_down(self):
         self.run_bot('print("bye")\n')
         self.wait_for(lambda: "exit code 0" in self.crash_log())

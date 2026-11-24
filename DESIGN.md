@@ -360,7 +360,7 @@ Details: `docs/CONSOLE.md`.
 - "Pull + Restart" pulls Astrabot, absLogin and the wiki repo (not AstraThought; use Restart Classifier). Every start frees the service's port first.
 - Decisions panel: last 50 classifier decisions, refreshed on classifier log events, not polled.
 - Watchdog (on by default; `--no-watchdog`): if a service's watcher thread is dead on two checks 15 s apart (after a 2 min grace), it restarts the whole console, at most 3 times an hour (`logs/watchdog_restarts.json`), then gives up and alerts the owner via the flag file.
-- Closing the window stops everything. Do not run hand-started copies of the services alongside it.
+- Closing the window stops everything, including a service caught mid-start: `Supervisor._run_once` checks `_closing` under `_lock` right after the spawn and stops the new process itself if `shutdown()` already ran (fixed 2026-11-24; it used to orphan that process). Do not run hand-started copies of the services alongside it.
 
 ---
 
@@ -395,10 +395,11 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 ## 11. Testing
 
-- Run from the repo root: `py -3.14 -m unittest discover -s tests` (353 tests on `feature/ha-agent-cog`, 2026-11-24). **Known failure:** `test_astra_console`'s `test_manual_restart_is_not_a_crash` fails on 2026-11-24 with a temp-folder cleanup error (a bot subprocess still holding `bot.log` after `shutdown()`, which waits 10 s for the thread and gives up); it fails on `master` too, passes when run alone, and passed in some full runs that day. Looks like a race between `restart()` spawning the new bot and `shutdown()` in the supervisor; not investigated. Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
+- Run from the repo root: `py -3.14 -m unittest discover -s tests` (354 tests, all passing on master 2026-11-24). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
 - Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`, `test_homeassistant`.
 - The Automated Librarian has its own suites: `cd automated-librarian && python3 -m unittest discover -s tests` (46 tests, all passing on the Ubuntu server with Python 3.12 on 2026-11-21). The root run above does not collect them, and they have not been run on the Windows host.
 - No tests yet for `music.py`, `clip.py` (beyond imports), `moderation.py` or the legacy cogs.
+- `test_manual_restart_is_not_a_crash` used to fail with a 10 s join timeout and a PermissionError on `bot.log`: tearDown's `shutdown()` landed between the bot's spawn and `_proc` being set, leaving an orphan bot. Fixed in `astra_console.py`, not the test; `test_shutdown_during_a_start_leaves_no_orphan` forces that window every run.
 - Windows quirk: SQLite keeps files open, so temp dirs in tests use `ignore_cleanup_errors=True`; a rare temp-cleanup error on a full run passes on rerun.
 - Test values only: tests use made-up codes and keys (`test-invite-code`, fake ABS/Transmission servers). Never put real ones in tests.
 
@@ -421,7 +422,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 3. Confirm bot token reset and ABS API key rotation.
 4. Decide whether ordinary requests-site accounts get a password or email link login.
 5. Webhook vs polling for self-update: awaiting Thea's choice; do not build.
-6. Home Assistant agent cog: built 2026-11-24 (§7.10, branch `feature/ha-agent-cog`). To go live, Thea sets `HA_TOKEN`, adds `"homeassistant"` to `"cogs"` (and an optional `channel_id`), and restarts; try `fake_ha: true` first to see the buttons.
+6. Home Assistant agent cog: built 2026-11-24 (§7.10, merged into master). To go live, Thea sets `HA_TOKEN`, adds `"homeassistant"` to `"cogs"` (and an optional `channel_id`), and restarts; try `fake_ha: true` first to see the buttons.
 7. Possible cleanups: tighten intents; add tests for music/clip/moderation; a `requirements.txt`; the old fallback `cogs/portfolio.html` still says "directed".
 8. Two bot "web UI listening" lines 16 s apart were seen in `logs/bot.log` on 2026-11-17 09:58; not investigated (possible double start or reload).
 9. Dragonwilds server build choice (newer 26419371 vs old 26161880) is open (see `docs/HANDOFF-2026-11-10.md`).
@@ -435,12 +436,18 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
 
-### 2026-11-24 — Claude Code (Opus 5.5), thinking toggle for the Home Assistant cog (branch `feature/ha-agent-cog`, committed, not merged)
+### 2026-11-24 — Claude Code (Opus 5.5), Golurk Console shutdown race fixed (branch `fix/console-restart-race`, merged into master and pushed)
+
+- **Why:** `test_manual_restart_is_not_a_crash` was failing on master and on feature branches. Thea asked for the real cause, fixed in the console.
+- **What:** `Supervisor._run_once` sets `_proc` only after the spawn. A `shutdown()` in that window saw no process, so the new bot ran on unwatched. The window close could leave an orphan bot that way, and the test's tearDown hit it every run. Now `_run_once` takes `_lock` after the spawn: if `_closing` is set it stops and reaps the process and returns, otherwise it publishes `_proc`. One of the two sides always sees the other. New regression test `test_shutdown_during_a_start_leaves_no_orphan` (fails on the old code after 60 s, passes in 0.3 s). Full suite 322/322, three runs.
+- **Still open:** `restart()` has a similar window (a restart request landing mid-spawn may be lost; harmless, the bot just isn't restarted). Not changed.
+
+### 2026-11-24 — Claude Code (Opus 5.5), thinking toggle for the Home Assistant cog (branch `feature/ha-agent-cog`, merged into master and pushed)
 - The agent's `COG_GUIDE.md` gained a required thinking section. Added `/think [message]` (toggle, on/off, or think once), `think=` passed through to `agent.chat`, 🧠 in the footer and the reasoning as a truncated spoiler message (§7.10). The guide also moved HA's default URL to port 80; the cog leaves that to the agent, only §1.2 changed.
-- Tests: 8 more in `tests/test_homeassistant.py` (32). Full suite 353, all passing except `test_manual_restart_is_not_a_crash`, which fails the same way on untouched `master` today (§11).
+- Tests: 8 more in `tests/test_homeassistant.py` (32). Full suite 353, all passing except `test_manual_restart_is_not_a_crash`, which failed the same way on untouched `master`; fixed the same day by the shutdown race entry above.
 - Not tested live (no HA token on the host, cog not in `"cogs"`).
 
-### 2026-11-24 — Claude Code (Opus 5.5), Home Assistant agent cog (branch `feature/ha-agent-cog`, committed, not merged)
+### 2026-11-24 — Claude Code (Opus 5.5), Home Assistant agent cog (branch `feature/ha-agent-cog`, merged into master and pushed)
 - New `cogs/homeassistant.py` from the ha-agent repo's `COG_GUIDE.md`: allowlisted DMs / channel / mentions go to `ha_agent`, replies with an action footer, Allow/Deny confirm buttons only the asker can press (60 s, never auto-approve), friendly errors, `/ha ask|reset|reload`, `fake_ha` dev mode. Details in §7.10.
 - `ha_agent` installed editable into `py -3.14` on the host. `config.example.json` gained a `homeassistant` block. Not in `DEFAULT_COGS`.
 - Tests: `tests/test_homeassistant.py` (24, fake agent, no Discord/HA/Ollama); full suite 345 passing. Found while testing: a View's own timeout never fires unless discord.py registered the view through a real send, so the confirm deadline uses `asyncio.wait_for`.

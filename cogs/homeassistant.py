@@ -403,9 +403,11 @@ def error_text(exc: BaseException) -> str:
         return "Home Assistant isn't responding."
     if isinstance(exc, asyncio.TimeoutError):
         return "That took too long, try again."
+    # ha_agent raises LLMError ("Model server ..." for Strata, "Ollama ..." for Ollama); older
+    # versions raised a plain RuntimeError starting with "Ollama".
     if isinstance(exc, aiohttp.ClientConnectorError) or (
-            isinstance(exc, RuntimeError) and str(exc).startswith("Ollama")):
-        return "The local model isn't running. Start Ollama on Golurk."
+            isinstance(exc, RuntimeError) and str(exc).startswith(("Model server", "Ollama"))):
+        return "The local model isn't running. Start Strata on Golurk."
     return "Something went wrong talking to the house. It's in the bot log."
 
 

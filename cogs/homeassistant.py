@@ -218,11 +218,13 @@ def agent_place(channel, channel_id: int) -> str | None:
 
 
 def _bot_noise(text: str) -> bool:
-    """Bot messages that aren't the agent's answers: prompts, errors, notices."""
+    """Bot messages that aren't the agent's answers: prompts, errors, notices,
+    and finished-timer messages (``deliver_timer``; the agent writes them)."""
     return (text.startswith(("Allow **", "||", "Thinking is now", "Home Assistant isn't",
                              "The local model isn't", "That took too long",
                              "Something went wrong talking", "The house agent",
-                             "The ha_agent package", "No Home Assistant token")))
+                             "The ha_agent package", "No Home Assistant token",
+                             "⏰ Timer done")))
 
 
 def thread_turns(messages, bot_id: int, allowed) -> list[tuple[str, str]]:

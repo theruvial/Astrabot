@@ -439,13 +439,13 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
 
-### 2026-11-25 — Claude Code (Opus 5.5), AstraThought classifier on the CPU (AstraThought branch `feat/classifier-on-cpu`, commit ba50926, not merged)
+### 2026-11-25 — Claude Code (Opus 5.5), AstraThought classifier on the CPU (AstraThought branch `feat/classifier-on-cpu`, commit ba50926, merged into main and pushed)
 
 - **Why:** Thea asked to move AstraThought off the GPU.
 - **What (in `C:\codingShit\AstraThought`, not this repo):** `classifier_service.py` takes `--device` / `ASTRATHOUGHT_DEVICE` (default `cpu`) and passes it to `SetFitModel.from_pretrained`; `/health` and the startup log show the device. 3 new tests (51 passing). Checked with the real model: loads on the CPU in about 18 s, scores two messages in 0.28 s, 0 MB of GPU memory. No console change needed. Training is unchanged.
-- **Not done:** not merged; takes effect after the merge and a Restart Classifier in the Golurk Console.
+- **Not done:** takes effect after a Restart Classifier in the Golurk Console.
 
-### 2026-11-25 — Claude Code (Opus 5.5), Home Assistant cog: timers, llm_url, two modes (branch `feature/ha-cog-timers`, not merged)
+### 2026-11-25 — Claude Code (Opus 5.5), Home Assistant cog: timers, llm_url, two modes (branch `feature/ha-cog-timers`, merged into master and pushed)
 
 - **Why:** Thea added the agent's updated brief as `docs/AGENT_COG_DESIGN.md`. Compared with master, the cog was missing timers (`on_timer`), had no `llm_url` setting, and still expected a `home` mode the agent folded into general.
 - **What:** `timer_target` + `HomeAssistant.deliver_timer` (waits for Discord, fetches archived threads, falls back to the owner's DMs when the place is gone, never pings or raises); `agent.on_timer` set in `_build_agent`; `llm_url` config key; `MODE_NAMES` fallback without `home`; the mode-names test follows `MODE_NAMES`. 12 new tests (69 in `test_homeassistant`); full suite 391 passing. See §7.10. The brief itself (`docs/AGENT_COG_DESIGN.md`) is in the main checkout, untracked; not part of this branch.

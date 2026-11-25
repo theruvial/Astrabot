@@ -281,7 +281,7 @@ Full behaviour: `docs/README_tasks.md`. Classifier: `README_classifier.md` in th
 - Every 5 minutes (`SYNC_MINUTES`) and on each change: rewrite `data/TODO.md` if changed, and delete #todo messages for tasks done on the wiki.
 - Commands: `/task_add`, `/task_list`, `/task_start`, `/task_done`, `/task_edit`, `/task_delete`, `/todo` (mcdungeons only, ephemeral markdown file), `/task_stats`.
 - Needs `WIKI_API_KEY`, the classifier running, and Manage Threads in #human-intervention.
-- Model: SetFit `tasks-AstraThought-v2`; latest scores in the 2026-11-11 change-log entry.
+- Model: SetFit `tasks-AstraThought-v2`; latest scores in the 2026-11-11 change-log entry. The service runs it on the CPU (since 2026-11-25, AstraThought branch `feat/classifier-on-cpu`; `ASTRATHOUGHT_DEVICE=cuda` puts it back on the GPU), leaving the GTX 1070 to the local LLMs. Training still uses the GPU.
 
 ### 7.3 Wiki (`cogs/wiki.py`)
 
@@ -438,6 +438,12 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 ## 14. Change log
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
+
+### 2026-11-25 — Claude Code (Opus 5.5), AstraThought classifier on the CPU (AstraThought branch `feat/classifier-on-cpu`, commit ba50926, not merged)
+
+- **Why:** Thea asked to move AstraThought off the GPU.
+- **What (in `C:\codingShit\AstraThought`, not this repo):** `classifier_service.py` takes `--device` / `ASTRATHOUGHT_DEVICE` (default `cpu`) and passes it to `SetFitModel.from_pretrained`; `/health` and the startup log show the device. 3 new tests (51 passing). Checked with the real model: loads on the CPU in about 18 s, scores two messages in 0.28 s, 0 MB of GPU memory. No console change needed. Training is unchanged.
+- **Not done:** not merged; takes effect after the merge and a Restart Classifier in the Golurk Console.
 
 ### 2026-11-25 — Claude Code (Opus 5.5), Home Assistant cog: timers, llm_url, two modes (branch `feature/ha-cog-timers`, not merged)
 

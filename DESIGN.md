@@ -445,7 +445,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
 
-### 2026-11-25 — Claude Code (Opus 5.5), Home Assistant cog: `/ha reload` reloads the agent's code (branch `fix/ha-reload-code`, not merged)
+### 2026-11-25 — Claude Code (Opus 5.5), Home Assistant cog: `/ha reload` reloads the agent's code (branch `fix/ha-reload-code`, merged into master and pushed)
 
 - **Why:** Thea found that only a full bot restart picked up agent changes. `/ha reload` only called `agent.reload_catalog()` (re-read HA's actions); the 2026-11-24 module-dropping in `cog_unload` was in master, but nothing in normal use ever reloaded `cogs.homeassistant` (the console's reload flag only covers the site and portfolio cogs, self-update only reacts to Astrabot pulls, and `/reloadcog` needs the guild Admin role).
 - **What:** `/ha reload` now calls `bot.reload_extension("cogs.homeassistant")` and reports from the new cog (`reload_report`: action count, agent off with the reason, or HA not reachable yet). A failed load keeps the old code (discord.py rollback) and says so. 4 new tests (74 in `test_homeassistant`); full suite 424 passing. Checked with a real, unconnected `commands.Bot`: after the command the cog is a new object, `ha_agent` is a new module, the cog's `HAAgent` is the new class, `/ha` is still registered; it read 293 actions from the real HA (read-only).

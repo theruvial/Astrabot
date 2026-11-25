@@ -445,6 +445,10 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
 
+### 2026-11-25 — Claude Code (Opus 5.5), `docs/AGENT_COG_DESIGN.md` committed (master)
+
+- **What:** Thea's brief for the Home Assistant agent cog (how the Discord cog talks to the `ha_agent` package in `C:\codingShit\ha-agent`), which the cog in §7.10 was checked against, is now tracked. Environment variable names only, no values.
+
 ### 2026-11-25 — Claude Code (Opus 5.5), Golurk Console: expanded Librarian pane cut off (branch `fix/console-librarian-height`, merged into master and pushed)
 
 - **Why:** Thea saw that expanding the Automated Librarian with the Strata pane open left it a sliver.

@@ -41,14 +41,19 @@ thinks for that one message without touching the setting. A reply that was
 thought about gets a brain in its footer and its reasoning, cut short, as a
 spoiler in a last message.
 
-Modes (the agent's, one model with three prompts): ``general`` (default:
-questions, web lookups, math; hands house messages to ``home`` and coding to
-``code`` by itself), ``home`` (Home Assistant) and ``code`` (answers only).
+Modes (the agent's, one model with two prompts): ``general`` (default: the
+house, questions, web lookups, math, notes, timers; hands coding to ``code``
+by itself) and ``code`` (answers only). ``home`` is an old alias of general.
 Per conversation, so per thread, and reset to general on restart. ``/mode``
 shows it, ``/mode <name>`` sets it, ``/code <message>`` uses code mode once.
-The footer says which mode answered ("🏠 home (auto)" when general handed it
+The footer says which mode answered ("💻 code (auto)" when general handed it
 over) and how many non-house tool calls ran (web lookups, device reads). Long
 code replies are split without breaking their code blocks.
+
+Timers: the agent's ``set_timer`` calls back ``deliver_timer`` when one ends,
+which posts "⏰ Timer done ..." in the thread, channel or DM that set it (the
+owner's DMs if that place is gone). The agent saves timers and re-arms them on
+start, so they survive restarts.
 
 Risky actions (restart, unlock, open covers, add-on/backup/update actions) are
 decided by the agent, which awaits a ``confirm(summary)`` function before
@@ -68,6 +73,8 @@ Configuration (``config.json`` ``"homeassistant"`` object):
   A long-lived Home Assistant token; never commit it or log it.
 - ``ha_url``, ``ollama_url``, ``model``: blank = the agent's own defaults or its
   ``HA_URL`` / ``OLLAMA_URL`` / ``HA_AGENT_MODEL`` environment variables.
+- ``llm_url``: blank = the agent's default (Strata, ``HA_AGENT_LLM_URL``). A
+  URL ending in ``/v1`` is spoken to as OpenAI-compatible.
 - ``timeout_seconds`` (default 180): safety net around one answer.
 - ``fake_ha`` (default false): dev mode. Swaps in the agent repo's
   ``tests/fake_ha.py`` Home Assistant, which records actions instead of running
@@ -109,7 +116,7 @@ except ImportError:  # no package, or one from before modes
     DEFAULT_MODE, MODES = "general", {}
 
 # Names for the /mode choices; the agent's own list wins when it has one.
-MODE_NAMES = list(MODES) or ["general", "home", "code"]
+MODE_NAMES = list(MODES) or ["general", "code"]  # "home" is now an alias of general
 MODE_ICONS = {"general": "\U0001f4ac", "home": "\U0001f3e0", "code": "\U0001f4bb"}
 FENCE = "```"
 
@@ -165,6 +172,7 @@ def load_settings(cfg, env=None) -> dict:
         "ha_token": text("ha_token") or (env.get("HA_TOKEN") or "").strip() or None,
         "ha_url": text("ha_url"),
         "ollama_url": text("ollama_url"),
+        "llm_url": text("llm_url"),
         "model": text("model"),
         "timeout": timeout,
         "history_turns": history_turns,
@@ -264,6 +272,23 @@ def conversation_id(channel, user) -> str:
     if getattr(channel, "guild", None) is None:
         return f"discord:dm:{user.id}"
     return f"discord:{channel.id}"
+
+
+def timer_target(cid: str) -> tuple[str, int] | None:
+    """Where a finished timer goes: ``("dm", user id)``, ``("channel", id)``
+    (a channel or thread) or None for an id this cog didn't make.
+
+    The reverse of ``conversation_id``: the agent hands back the id of the
+    conversation that set the timer.
+    """
+    kind, _, rest = (cid or "").removeprefix("discord:").rpartition(":")
+    if not (cid or "").startswith("discord:") or not rest.isdigit():
+        return None
+    if kind == "dm":
+        return "dm", int(rest)
+    if kind == "":
+        return "channel", int(rest)
+    return None
 
 
 # ----------------------------------------------------------------- replies --
@@ -532,9 +557,13 @@ class HomeAssistant(commands.Cog):
         if not token:
             self.problem = "No Home Assistant token: set HA_TOKEN on Golurk."
             return None
+        urls = {"llm_url": s["llm_url"]} if s.get("llm_url") else {}  # older agents: no llm_url
         agent = HAAgent(ha_url=s["ha_url"], ha_token=token,
                         ollama_url=s["ollama_url"], model=s["model"],
-                        history_turns=s.get("history_turns", 6))
+                        history_turns=s.get("history_turns", 6), **urls)
+        # Set after creation, not as a constructor argument, so agents from before
+        # timers still build. The agent looks it up each time a timer ends.
+        agent.on_timer = self.deliver_timer
         if s["fake_ha"]:
             agent.ha = _load_fake_ha(s["fake_ha_path"])()
             agent.home.ha = agent.ha
@@ -578,6 +607,59 @@ class HomeAssistant(commands.Cog):
         self.started = True
         log.info("Home Assistant agent ready")
         return True
+
+    # -- timers --
+
+    async def deliver_timer(self, cid: str, text: str) -> None:
+        """The agent's ``on_timer``: post "⏰ Timer done ..." where it was set.
+
+        Runs as the timer's own task. Saved timers that ended while the bot was
+        down fire as soon as the agent starts, which is before Discord is
+        connected, hence the wait. Never raises: a failed send is logged.
+        """
+        target = timer_target(cid)
+        if target is None:
+            log.warning("Timer for an unknown conversation %r: %s", cid, text)
+            return
+        try:
+            await self.bot.wait_until_ready()
+            where = await self._timer_destination(*target)
+        except Exception:  # noqa: BLE001
+            log.exception("Couldn't find where timer %r goes", cid)
+            where = None
+        if where is None:
+            # The thread, channel or user is gone: a timer should never vanish
+            # silently, so it goes to the owner's DMs instead.
+            log.warning("Timer for %r has nowhere to go; sending it to the owner", cid)
+            try:
+                where = await self._timer_destination("dm", self._owner_for_timers())
+            except Exception:  # noqa: BLE001
+                log.exception("Couldn't reach the owner for timer %r", cid)
+                return
+            if where is None:
+                return
+        try:
+            await where.send(text, allowed_mentions=NO_PINGS)
+        except Exception:  # noqa: BLE001
+            log.exception("Couldn't send timer message to %r", cid)
+
+    def _owner_for_timers(self) -> int:
+        """Who gets timers that lost their place: the first DM user, else the owner."""
+        dm_users = sorted(self.settings.get("dm_users") or ())
+        return dm_users[0] if dm_users else DEFAULT_OWNER_ID
+
+    async def _timer_destination(self, kind: str, ident: int):
+        """The Messageable for a timer: the user (DMs) or channel/thread, or None."""
+        if kind == "dm":
+            user = self.bot.get_user(ident)
+            return user or await self.bot.fetch_user(ident)
+        channel = self.bot.get_channel(ident)
+        if channel is None:  # archived threads aren't cached
+            try:
+                channel = await self.bot.fetch_channel(ident)
+            except (discord.NotFound, discord.Forbidden):
+                return None
+        return channel
 
     # -- one answer --
 

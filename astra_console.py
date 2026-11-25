@@ -826,6 +826,10 @@ def main():
 
     def fit_page(_event=None):
         page_state["job"] = None
+        # Tk works out requested sizes in its own idle pass, which can run
+        # after this one: without this, expanding a pane read the old (smaller)
+        # height and the bottom of the Astrabot group was cut off.
+        grid.update_idletasks()
         width, height = page_canvas.winfo_width(), page_canvas.winfo_height()
         need = grid.winfo_reqheight()
         tall = max(height, need)

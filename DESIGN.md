@@ -439,7 +439,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
 
-### 2026-11-25 — Claude Code (Opus 5.5), Home Assistant cog: timer messages left out of thread restore (branch `fix/ha-timer-restore`, not merged)
+### 2026-11-25 — Claude Code (Opus 5.5), Home Assistant cog: timer messages left out of thread restore (branch `fix/ha-timer-restore`, merged into master and pushed)
 
 - **Why:** found while re-checking the cog against `docs/AGENT_COG_DESIGN.md`: after a restart, `thread_turns` would have turned a "⏰ Timer done" message into an assistant turn, glued onto the previous answer. The brief says to hand back only the conversation.
 - **What:** `_bot_noise` also matches the agent's "⏰ Timer done" prefix. 1 new test (70 in `test_homeassistant`); full suite 392 passing.

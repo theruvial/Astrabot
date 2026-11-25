@@ -31,8 +31,12 @@ first message in a thread re-reads the thread from Discord and hands it back
 with ``agent.remember`` (``thread_turns`` drops footers, confirm prompts,
 reasoning and error notices). If the bot can't create threads there (needs
 "Create Public Threads"), it answers in the channel instead. ``/ha ask`` works
-like a message where message content is off; ``/ha reset`` and ``/ha reload``
-manage memory and the action list.
+like a message where message content is off; ``/ha reset`` forgets the
+conversation. ``/ha reload`` reloads this whole extension (``reload_extension``):
+``cog_unload`` drops ``ha_agent`` from ``sys.modules``, so the new cog imports the
+agent's current code from its editable install, builds and starts a fresh agent and
+re-reads Home Assistant's actions. Agent memory starts fresh (threads re-read
+themselves on their next message); a load that fails leaves the old code running.
 
 Thinking (Qwen reasons first: smarter, about 3x slower, off by default) is
 per conversation and lives in the agent, so it resets to off on restart.
@@ -436,6 +440,20 @@ def error_text(exc: BaseException) -> str:
             isinstance(exc, RuntimeError) and str(exc).startswith(("Model server", "Ollama"))):
         return "The local model isn't running. Start Strata on Golurk."
     return "Something went wrong talking to the house. It's in the bot log."
+
+
+def reload_report(cog) -> str:
+    """What ``/ha reload`` says about the freshly loaded cog. Pure."""
+    if cog is None:
+        return "The house agent's cog didn't come back after the reload. It's in the bot log."
+    if cog.agent is None:
+        return f"Reloaded the code, but the house agent is off: {cog.problem or 'see the bot log.'}"
+    if not cog.started:
+        return ("Reloaded the house agent's code, but Home Assistant isn't reachable yet. "
+                "It will try again on the next message.")
+    catalog = getattr(cog.agent, "catalog", None)
+    count = len(getattr(catalog, "entries", ()) or ())
+    return f"Reloaded the house agent's code and {count} Home Assistant actions."
 
 
 # ------------------------------------------------------------ confirmation --
@@ -859,23 +877,28 @@ class HomeAssistant(commands.Cog):
             self.agent.forget(conversation_id(interaction.channel, interaction.user))
         await interaction.response.send_message("Forgot this conversation.", ephemeral=True)
 
-    @ha.command(name="reload", description="Re-read Home Assistant's actions (after adding an integration).")
+    @ha.command(name="reload",
+                description="Reload the house agent's code and re-read Home Assistant's actions.")
     async def reload(self, interaction: discord.Interaction):
+        """Reload this extension, which re-imports ha_agent (see cog_unload).
+
+        Until 2026-11-25 this only re-read the action list, so agent changes
+        needed a bot restart. ``self`` is the old cog once the reload is done:
+        the report reads the new one from the bot."""
         if await self._refuse(interaction):
             return
-        if self.agent is None:
-            await interaction.response.send_message(self.problem or "The house agent is off.",
-                                                    ephemeral=True)
-            return
         await interaction.response.defer(ephemeral=True, thinking=True)
+        bot, name = self.bot, self.qualified_name
         try:
-            count = await self.agent.reload_catalog()
-        except Exception as exc:  # noqa: BLE001
-            log.exception("Reloading Home Assistant's actions failed")
-            await interaction.followup.send(error_text(exc), ephemeral=True)
+            await bot.reload_extension(__name__)
+        except Exception:  # noqa: BLE001 -- discord.py rolled back to the old code
+            log.exception("Reloading the Home Assistant cog failed; the old code is still running")
+            await interaction.followup.send(
+                "The reload failed, so the old code is still running. It's in the bot log.",
+                ephemeral=True)
             return
-        self.started = True
-        await interaction.followup.send(f"Loaded {count} Home Assistant actions.", ephemeral=True)
+        log.info("Home Assistant cog and ha_agent reloaded by /ha reload")
+        await interaction.followup.send(reload_report(bot.get_cog(name)), ephemeral=True)
 
 
 async def setup(bot):

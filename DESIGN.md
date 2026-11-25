@@ -445,7 +445,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
 
-### 2026-11-25 — Claude Code (Opus 5.5), Golurk Console: expanded Librarian pane cut off (branch `fix/console-librarian-height`, not merged)
+### 2026-11-25 — Claude Code (Opus 5.5), Golurk Console: expanded Librarian pane cut off (branch `fix/console-librarian-height`, merged into master and pushed)
 
 - **Why:** Thea saw that expanding the Automated Librarian with the Strata pane open left it a sliver.
 - **What:** the scrolling page read the grid's requested height before Tk had recomputed it, so the page kept the old, smaller height and clipped the bottom of the Astrabot group. `fit_page` now calls `update_idletasks()` first. Smoke run (collapse, then expand the Librarian): group height 800 of 800 needed, against 664 before the fix. Full suite 420 passing; no unit test, since it is Tk layout timing.

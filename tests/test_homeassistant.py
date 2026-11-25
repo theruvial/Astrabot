@@ -790,5 +790,63 @@ class TimerDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("llm_url", agent.kwargs)
 
 
+
+class ReloadTests(unittest.IsolatedAsyncioTestCase):
+    """/ha reload reloads the extension (and so ha_agent), not just the action list."""
+
+    def cog(self, agent, **over):
+        return hac.HomeAssistant(bot=None, settings=settings(**over), agent=agent)
+
+    def started_cog(self, entries=3):
+        agent = FakeAgent()
+        agent.catalog = types.SimpleNamespace(entries=list(range(entries)))
+        cog = self.cog(agent)
+        cog.started = True
+        return cog
+
+    def test_report(self):
+        self.assertIn("5 Home Assistant actions", hac.reload_report(self.started_cog(5)))
+        off = self.cog(None)
+        off.problem = "No Home Assistant token: set HA_TOKEN on Golurk."
+        self.assertIn("HA_TOKEN", hac.reload_report(off))
+        self.assertIn("isn't reachable", hac.reload_report(self.cog(FakeAgent())))
+        self.assertIn("didn't come back", hac.reload_report(None))
+
+    def inter(self):
+        inter = interaction(THEA)
+        inter.channel = types.SimpleNamespace(id=42, guild=object())
+        inter.response.defer = mock.AsyncMock()
+        inter.followup = types.SimpleNamespace(send=mock.AsyncMock())
+        return inter
+
+    async def test_reload_reloads_the_extension_and_reports_the_new_cog(self):
+        new = self.started_cog(7)
+        bot = types.SimpleNamespace(reload_extension=mock.AsyncMock(),
+                                    get_cog=mock.Mock(return_value=new))
+        old = hac.HomeAssistant(bot=bot, settings=settings(), agent=FakeAgent())
+        inter = self.inter()
+        await hac.HomeAssistant.reload.callback(old, inter)
+        bot.reload_extension.assert_awaited_once_with("cogs.homeassistant")
+        bot.get_cog.assert_called_once_with(old.qualified_name)
+        self.assertIn("7 Home Assistant actions", inter.followup.send.call_args.args[0])
+
+    async def test_reload_works_while_the_agent_is_off(self):
+        bot = types.SimpleNamespace(reload_extension=mock.AsyncMock(),
+                                    get_cog=mock.Mock(return_value=self.started_cog()))
+        old = hac.HomeAssistant(bot=bot, settings=settings(), agent=None)
+        await hac.HomeAssistant.reload.callback(old, self.inter())
+        bot.reload_extension.assert_awaited_once()
+
+    async def test_a_failed_reload_says_the_old_code_still_runs(self):
+        bot = types.SimpleNamespace(reload_extension=mock.AsyncMock(side_effect=RuntimeError("x")),
+                                    get_cog=mock.Mock())
+        old = hac.HomeAssistant(bot=bot, settings=settings(), agent=FakeAgent())
+        inter = self.inter()
+        with self.assertLogs("homeassistant", "ERROR"):
+            await hac.HomeAssistant.reload.callback(old, inter)
+        self.assertIn("old code is still running", inter.followup.send.call_args.args[0])
+        bot.get_cog.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

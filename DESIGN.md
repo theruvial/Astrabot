@@ -404,7 +404,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 ## 11. Testing
 
-- Run from the repo root: `py -3.14 -m unittest discover -s tests` (420 tests, all passing on `feature/console-strata` 2026-11-25). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
+- Run from the repo root: `py -3.14 -m unittest discover -s tests` (420 tests, all passing on master 2026-11-25). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
 - Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`, `test_homeassistant`, `test_console_terminal`.
 - The Automated Librarian has its own suites: `cd automated-librarian && python3 -m unittest discover -s tests` (46 tests, all passing on the Ubuntu server with Python 3.12 on 2026-11-21). The root run above does not collect them, and they have not been run on the Windows host.
 - No tests yet for `music.py`, `clip.py` (beyond imports), `moderation.py` or the legacy cogs.
@@ -445,12 +445,12 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
 
-### 2026-11-25 — Claude Code (Opus 5.5), Golurk Console: Strata monitor pane, per-pane Restart, scrolling, pop-out (branch `feature/console-strata`, not merged)
+### 2026-11-25 — Claude Code (Opus 5.5), Golurk Console: Strata monitor pane, per-pane Restart, scrolling, pop-out (branch `feature/console-strata`, merged into master and pushed)
 
 - **Why:** Thea asked for the restart buttons next to their panes, the whole interactive Strata monitor inside the console with start/stop/restart, a scrollable window that looks good, and a pop-out with a reattach button.
 - **What:** new `console_terminal.py` (ConPTY + pyte terminal widget) and `console_strata.py` (plan-guarded Strata runtime calls); Strata pane, header Restart buttons, scrollable page with row minimum heights and dark scrollbars, Pop out / Reattach in `astra_console.py`; layout helpers in `console_services.py` (§8). 25 new tests in `test_console_terminal`, layout tests updated; full suite 420 passing.
 - **Checked:** smoke runs of the real window with service starts stubbed: the monitor renders, follows resizes, quits on `q`; pop-out and reattach keep the same monitor PID; nothing left running after close. Strata start/stop/restart were only exercised with `--plan` and scripted replies, never live.
-- **Not done:** not merged; first live use of Stop/Restart should be watched. Seen once in a smoke run: the page opened scrolled ~20% down (probably a stray wheel event while the test window sat over Thea's screen); not reproduced.
+- **Not done:** first live use of Stop/Restart should be watched. Seen once in a smoke run: the page opened scrolled ~20% down (probably a stray wheel event while the test window sat over Thea's screen); not reproduced.
 
 ### 2026-11-25 — Claude Code (Opus 5.5), Home Assistant cog: timer messages left out of thread restore (branch `fix/ha-timer-restore`, merged into master and pushed)
 

@@ -544,6 +544,13 @@ class RestoreTests(unittest.IsolatedAsyncioTestCase):
             ("user", "Thea: how warm is it?"), ("assistant", "It's 21 degrees."),
             ("user", "Thea: thanks"), ("assistant", "part one" + chr(10) + "part two")])
 
+    def test_timer_messages_are_not_agent_answers(self):
+        msgs = [said(THEA, "set a timer for the pasta"), said(BOT.id, "Timer set for 10 minutes."),
+                said(BOT.id, "⏰ Timer done: pasta (Thea). It ended at 1830 while I was offline.")]
+        self.assertEqual(hac.thread_turns(msgs, BOT.id, frozenset({THEA})), [
+            ("user", "Thea: set a timer for the pasta"),
+            ("assistant", "Timer set for 10 minutes.")])
+
     def cog(self, agent):
         cog = hac.HomeAssistant(types.SimpleNamespace(user=BOT), settings(), agent=agent)
         cog.started = True

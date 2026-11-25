@@ -1,7 +1,7 @@
 """Helpers for the Golurk Console's extra services. No tkinter in here.
 
-The console has five built-in windows (bot, site, absLogin, wiki and
-classifier) that are always there. Anything you add in Settings is a
+The console has built-in windows (bot, site, absLogin, wiki, classifier,
+portfolio, librarian and the Strata terminal) that are always there. Anything you add in Settings is a
 "service": a program, a PowerShell command or a batch file that the
 console starts, watches and restarts, with a pane of its own that can
 be removed again. This module holds what those services need, so it is
@@ -36,11 +36,13 @@ STARTUP_NAME = "Golurk Console.bat"
 IS_WINDOWS = os.name == "nt"
 
 # The windows that are part of the console and cannot be removed.
-BUILTIN_PANES = ("bot", "site", "absLogin", "wiki", "classifier", "portfolio", "librarian")
+BUILTIN_PANES = ("bot", "site", "absLogin", "wiki", "classifier", "portfolio", "librarian",
+                 "strata")
 BUILTIN_TITLES = {"bot": "Bot", "site": "Site (13380)", "absLogin": "absLogin (13381)",
                   "wiki": "Wiki (13382)", "classifier": "Classifier (13383)",
                   "portfolio": "Portfolio (13384)",
-                  "librarian": "Automated Librarian (Ubuntu server)"}
+                  "librarian": "Automated Librarian (Ubuntu server)",
+                  "strata": "Strata (8080)"}
 # The seven built-in windows live together in one collapsible group.
 GROUP_KEY = "astrabot"
 GROUP_TITLE = "Astrabot"
@@ -50,8 +52,15 @@ BUILTIN_CELLS = {"bot": (0, 0, 1), "site": (0, 1, 1), "absLogin": (1, 0, 1),
                  "librarian": (3, 0, 2)}
 # Shorter rows inside the group (the rest get 3).
 SHORT_ROWS = {BUILTIN_CELLS["classifier"][0], BUILTIN_CELLS["librarian"][0]}
-# Added services sit in the outer grid under the group (row 0 is the group).
-FIRST_CUSTOM_ROW = 1
+# The Strata pane (an embedded terminal running the Strata monitor, see
+# console_terminal.py) is not part of Astrabot: it sits in the outer grid
+# right under the group, full width, and gets more room than a log pane
+# because the monitor is a full-screen program.
+STRATA_KEY = "strata"
+OUTER_CELLS = {STRATA_KEY: (1, 0, 2)}
+STRATA_WEIGHT = 10
+# Added services sit in the outer grid under the group and the Strata pane.
+FIRST_CUSTOM_ROW = 2
 
 DEFAULT_CONSOLE_NAME = "Golurk Console"
 
@@ -66,11 +75,18 @@ DEFAULT_CONFIG = {
     # The Automated Librarian pane tails the librarian's journal on the Ubuntu
     # server over SSH (key login, no password). A blank host turns it off.
     "librarian": {"host": "thea-server", "unit": "automated-librarian"},
+    # The local Strata LLM server: its CLI folder and the launch profile the
+    # pane's Start / Stop / Restart act on (see console_strata.py). A blank
+    # dir turns the Strata pane off.
+    "strata": {"dir": str(Path(os.environ.get("LOCALAPPDATA", "")) / "Strata" / "terminal"
+                          / "current"),
+               "profile": "launch-iq1_m-32k"},
 }
 
 # Safe to put in the remote shell command: an SSH alias or address, a unit name.
 LIBRARIAN_HOST = re.compile(r"^[A-Za-z0-9_.@-]+$")
 LIBRARIAN_UNIT = re.compile(r"^[A-Za-z0-9_.@-]+$")
+STRATA_PROFILE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 DEFAULT_SERVICE = {
     "name": "", "title": "", "run_as": "program", "command": "", "cwd": "",
@@ -142,6 +158,13 @@ def merge_config(user) -> dict:
         librarian.update({k: str(v or "").strip() for k, v in cfg["librarian"].items()
                           if k in librarian})
     cfg["librarian"] = librarian
+    strata = dict(DEFAULT_CONFIG["strata"])
+    if isinstance(cfg["strata"], dict):
+        strata.update({k: str(v or "").strip() for k, v in cfg["strata"].items()
+                       if k in strata})
+    if not STRATA_PROFILE.match(strata["profile"]):
+        strata["profile"] = DEFAULT_CONFIG["strata"]["profile"]
+    cfg["strata"] = strata
     cfg["startup_delay_seconds"] = max(0, _int(cfg["startup_delay_seconds"], 0))
     cfg["console_name"] = str(cfg["console_name"] or DEFAULT_CONSOLE_NAME)
     return cfg
@@ -327,6 +350,7 @@ def pane_cells(custom_keys) -> dict:
     own grid). Added services fill two to a row in the outer grid, under
     the group, in the order they were added."""
     cells = dict(BUILTIN_CELLS)
+    cells.update(OUTER_CELLS)
     for index, key in enumerate(custom_keys):
         cells[key] = (FIRST_CUSTOM_ROW + index // 2, index % 2, 1)
     return cells
@@ -371,15 +395,50 @@ def inner_row_weights(collapsed) -> dict:
 def outer_row_weights(custom_keys, collapsed) -> dict:
     """Vertical room for the Astrabot group (row 0) and each row of added
     services. Pure. A collapsed group, or a row of collapsed services,
-    gets none; an open group gets what its panes need."""
+    gets none; an open group gets what its panes need. The Strata pane
+    (row 1) gets STRATA_WEIGHT."""
     weights = {0: 0 if collapsed.get(GROUP_KEY) else sum(inner_row_weights(collapsed).values())}
     for key, (row, _col, _span) in pane_cells(custom_keys).items():
         if key in BUILTIN_CELLS:
             continue
         weights.setdefault(row, 0)
         if not collapsed.get(key):
-            weights[row] = 3
+            weights[row] = STRATA_WEIGHT if key == STRATA_KEY else 3
     return weights
+
+
+# The pane area scrolls (2026-11-25): every open row keeps at least this many
+# pixels, header included, so a small window scrolls instead of squashing
+# panes to a few lines. A tall window still stretches rows by their weights.
+PANE_MIN_HEIGHT = 230
+SHORT_MIN_HEIGHT = 170
+# The Strata monitor needs about 38 rows of Consolas 10 to show its Overview.
+STRATA_MIN_HEIGHT = 640
+
+
+def inner_row_minsizes(collapsed) -> dict:
+    """Minimum pixel height of each row inside the Astrabot group. Pure.
+    A row whose panes are all collapsed needs nothing (its headers still
+    take their own room)."""
+    sizes: dict[int, int] = {}
+    for key, (row, _col, _span) in BUILTIN_CELLS.items():
+        sizes.setdefault(row, 0)
+        if not collapsed.get(key):
+            sizes[row] = SHORT_MIN_HEIGHT if row in SHORT_ROWS else PANE_MIN_HEIGHT
+    return sizes
+
+
+def outer_row_minsizes(custom_keys, collapsed) -> dict:
+    """Minimum pixel height of each outer row. Pure. Row 0 (the group) sizes
+    itself from its inner rows, so it needs no minimum of its own."""
+    sizes = {0: 0}
+    for key, (row, _col, _span) in pane_cells(custom_keys).items():
+        if key in BUILTIN_CELLS:
+            continue
+        sizes.setdefault(row, 0)
+        if not collapsed.get(key):
+            sizes[row] = STRATA_MIN_HEIGHT if key == STRATA_KEY else PANE_MIN_HEIGHT
+    return sizes
 
 
 # -- start at login ---------------------------------------------------------------

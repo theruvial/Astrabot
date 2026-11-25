@@ -95,6 +95,8 @@ console.example.json    tracked template of console.json
 astra_console.py        Golurk Console (tkinter), supervisors, watchdog, decisions panel
 console_services.py     pure helpers for console extra services and console.json
 console_settings.py     the console's Settings window
+console_terminal.py     embedded terminal for the console (ConPTY via pywinpty + pyte screen)
+console_strata.py       Strata runtime start/stop/restart for the console (plan-guarded)
 startConsole.bat        pulls repos, opens the console (the normal way to run everything)
 startBot.bat            plain launcher: pulls, starts absLogin, runs bot with crash restarts
 startBot.sh             empty (unused)
@@ -206,7 +208,7 @@ Known non-secret host values: guild `454792201633792001`, requests channel `1565
 - **Crash handling (both):** output appended to `logs\bot.log` (UTF-8); each start/stop with exit code in `logs\crashes.log`; restart after 10 s; stop after 5 crashes in a row; exit code 0 stops normally. The console also logs `logs\wiki.log`, `logs\absLogin.log`, `logs\classifier.log`.
 - **Piped Python:** always `-u` and `PYTHONIOENCODING=utf-8`, or prints are buffered and emoji crash cp1252.
 - **Going live:** a push to `master` reaches the host when the self-updater pulls it (cogs only, §7.8) or on "Pull + Restart" / a relaunch. `bot.py`, `startup_cogs.py`, `config.py` and launcher changes need a full restart. `config.json` changes need a restart (or a cog reload for cog-specific keys).
-- **Restart Site / Restart Portfolio** in the console write the cog name to `logs\reload_cog.flag`; `cogs/moderation.py` polls it every 2 s and calls `reload_extension`. Reloading audiobooks re-runs `cog_load`, which clears and re-posts the requests channel.
+- The **Restart** buttons on the Site and Portfolio panes in the console write the cog name to `logs\reload_cog.flag`; `cogs/moderation.py` polls it every 2 s and calls `reload_extension`. Reloading audiobooks re-runs `cog_load`, which clears and re-posts the requests channel.
 - **Watchdog alerts:** the console writes `logs\watchdog_alert.flag`; moderation DMs the owner its text.
 - **Databases:** `audiobooks.db` (requests site) and `thi.db` (legacy) are untracked. Never switch branches in a way that would replace them; schema migrations back the file up first (`audiobooks.db.pre-*.bak`).
 - **No process killing at launcher start** (Thea's choice). The console frees each service's port before starting it.
@@ -354,13 +356,17 @@ Carries messages between Discord and Thea's local Home Assistant agent. The agen
 
 ---
 
-## 8. Golurk Console (`astra_console.py`, `console_services.py`, `console_settings.py`)
+## 8. Golurk Console (`astra_console.py`, `console_services.py`, `console_settings.py`, `console_terminal.py`, `console_strata.py`)
 
 Details: `docs/CONSOLE.md`.
+- Each pane's **Restart** button sits on its own header (since 2026-11-25); the top bar keeps only Watchdog, Pull + Restart and Settings.
+- The pane area scrolls (a Canvas holding the grid, dark arrowless ttk scrollbars). Rows have minimum heights (`PANE_MIN_HEIGHT` 230, `SHORT_MIN_HEIGHT` 170, `STRATA_MIN_HEIGHT` 640 in `console_services.py`), so a short window scrolls instead of squashing panes. The wheel scrolls a log pane until it hits its end, then the page.
+- **Strata pane** (full width under the Astrabot group, built 2026-11-25): runs the real interactive `strata.py monitor` (a Textual TUI) in a pseudo-console. `console_terminal.TerminalSession` spawns it with pywinpty (ConPTY) and feeds its output to a pyte screen on a reader thread; `TerminalView` draws only changed rows into a tk Text every 66 ms and sends keys and (when the program asks for it) SGR mouse reports back. Needs `pywinpty` and `pyte` in `py -3.14` (installed on the host); without them, or without Strata, the pane says what is missing. Font: Cascadia Mono when installed, because Consolas has no one-cell block glyphs and the monitor's sparklines broke its boxes. **Pop out** moves the same monitor process into its own window (the session moves between views, the PID stays); **Reattach** or closing that window brings it back. Closing the console stops the monitor only: Strata keeps running in its own host process.
+- Strata **Start / Stop / Restart** (`console_strata.StrataControl`, one action at a time, in the background): plain `runtime start`; Stop and Restart first run `--plan --json`, then act with `--if-owner-id` / `--if-instance-id` from that plan; Restart adds `--startup-wait 600`, refuses a `source_switch` or nothing running, and allows a launch-file migration only with `--if-source-sha256` of the planned candidate. Stop asks for confirmation. Only state, readiness and API URL from the replies are shown (never IDs or tokens); messages go to the header note and `logs/strata.log`. `console.json` `"strata": {"dir", "profile"}` (defaults: `%LOCALAPPDATA%\Strata\terminal\current`, `launch-iq1_m-32k`; profile checked against a strict pattern).
 - Seven built-in panes in a collapsible "Astrabot" group: bot, audiobook site (log lines from `audiobooks*`/`aiohttp*` loggers), absLogin, wiki backend, classifier, portfolio (from `portfolio` logger), and (since 2026-11-22, full width at the bottom) the **Automated Librarian**. Each has Start/Restart/Stop and crash handling (10 s restart, give up after 5, a 60 s run resets the streak). Built-ins cannot be removed.
-- The Automated Librarian pane does not run the librarian (it lives on the Ubuntu server): `LibrarianSupervisor` runs `ssh -o BatchMode=yes thea-server` with `systemctl --user is-active automated-librarian` then `journalctl --user -u automated-librarian -f -n 30` (`librarian_command` in `console_services.py`). It needs key login from this PC to the server (`~/.ssh/config` alias `thea-server`; works as of 2026-11-22). `console.json` `"librarian": {"host", "unit"}` changes it; a blank host turns it off; host and unit are checked against a strict pattern before going into the remote command. "Restart Librarian" reconnects. Its reconnect policy is its own `_retry_delay`: 10, 20, 40 s ... capped at 5 min, never giving up (a lost connection is usually a reboot or a network blip; the base `Supervisor._retry_delay` hook was added for it). Not in the watchdog.
+- The Automated Librarian pane does not run the librarian (it lives on the Ubuntu server): `LibrarianSupervisor` runs `ssh -o BatchMode=yes thea-server` with `systemctl --user is-active automated-librarian` then `journalctl --user -u automated-librarian -f -n 30` (`librarian_command` in `console_services.py`). It needs key login from this PC to the server (`~/.ssh/config` alias `thea-server`; works as of 2026-11-22). `console.json` `"librarian": {"host", "unit"}` changes it; a blank host turns it off; host and unit are checked against a strict pattern before going into the remote command. Its Restart button reconnects. Its reconnect policy is its own `_retry_delay`: 10, 20, 40 s ... capped at 5 min, never giving up (a lost connection is usually a reboot or a network blip; the base `Supervisor._retry_delay` hook was added for it). Not in the watchdog.
 - Settings adds extra services (program, PowerShell, batch; env, working folder, stop commands, start at login), saved in `console.json`; those can be removed. The Dragonwilds dedicated server (`C:\Servers\Dragonwilds`) is one.
-- "Pull + Restart" pulls Astrabot, absLogin and the wiki repo (not AstraThought; use Restart Classifier). Every start frees the service's port first.
+- "Pull + Restart" pulls Astrabot, absLogin and the wiki repo (not AstraThought; use the Classifier pane's Restart). Every start frees the service's port first.
 - Decisions panel: last 50 classifier decisions, refreshed on classifier log events, not polled.
 - Watchdog (on by default; `--no-watchdog`): if a service's watcher thread is dead on two checks 15 s apart (after a 2 min grace), it restarts the whole console, at most 3 times an hour (`logs/watchdog_restarts.json`), then gives up and alerts the owner via the flag file.
 - Closing the window stops everything, including a service caught mid-start: `Supervisor._run_once` checks `_closing` under `_lock` right after the spawn and stops the new process itself if `shutdown()` already ran (fixed 2026-11-24; it used to orphan that process). Do not run hand-started copies of the services alongside it.
@@ -398,8 +404,8 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 ## 11. Testing
 
-- Run from the repo root: `py -3.14 -m unittest discover -s tests` (354 tests, all passing on master 2026-11-24). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
-- Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`, `test_homeassistant`.
+- Run from the repo root: `py -3.14 -m unittest discover -s tests` (420 tests, all passing on `feature/console-strata` 2026-11-25). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
+- Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`, `test_homeassistant`, `test_console_terminal`.
 - The Automated Librarian has its own suites: `cd automated-librarian && python3 -m unittest discover -s tests` (46 tests, all passing on the Ubuntu server with Python 3.12 on 2026-11-21). The root run above does not collect them, and they have not been run on the Windows host.
 - No tests yet for `music.py`, `clip.py` (beyond imports), `moderation.py` or the legacy cogs.
 - `test_manual_restart_is_not_a_crash` used to fail with a 10 s join timeout and a PermissionError on `bot.log`: tearDown's `shutdown()` landed between the bot's spawn and `_proc` being set, leaving an orphan bot. Fixed in `astra_console.py`, not the test; `test_shutdown_during_a_start_leaves_no_orphan` forces that window every run.
@@ -438,6 +444,13 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 ## 14. Change log
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
+
+### 2026-11-25 — Claude Code (Opus 5.5), Golurk Console: Strata monitor pane, per-pane Restart, scrolling, pop-out (branch `feature/console-strata`, not merged)
+
+- **Why:** Thea asked for the restart buttons next to their panes, the whole interactive Strata monitor inside the console with start/stop/restart, a scrollable window that looks good, and a pop-out with a reattach button.
+- **What:** new `console_terminal.py` (ConPTY + pyte terminal widget) and `console_strata.py` (plan-guarded Strata runtime calls); Strata pane, header Restart buttons, scrollable page with row minimum heights and dark scrollbars, Pop out / Reattach in `astra_console.py`; layout helpers in `console_services.py` (§8). 25 new tests in `test_console_terminal`, layout tests updated; full suite 420 passing.
+- **Checked:** smoke runs of the real window with service starts stubbed: the monitor renders, follows resizes, quits on `q`; pop-out and reattach keep the same monitor PID; nothing left running after close. Strata start/stop/restart were only exercised with `--plan` and scripted replies, never live.
+- **Not done:** not merged; first live use of Stop/Restart should be watched. Seen once in a smoke run: the page opened scrolled ~20% down (probably a stray wheel event while the test window sat over Thea's screen); not reproduced.
 
 ### 2026-11-25 — Claude Code (Opus 5.5), Home Assistant cog: timer messages left out of thread restore (branch `fix/ha-timer-restore`, merged into master and pushed)
 

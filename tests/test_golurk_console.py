@@ -110,9 +110,11 @@ class LayoutTests(unittest.TestCase):
 
     def test_added_services_fill_two_per_row_underneath(self):
         cells = cs.pane_cells(["a", "b", "c"])
-        self.assertEqual(cells["a"], (1, 0, 1))
-        self.assertEqual(cells["b"], (1, 1, 1))
-        self.assertEqual(cells["c"], (2, 0, 1))
+        # Row 1 of the outer grid is the Strata pane, full width.
+        self.assertEqual(cells["strata"], (1, 0, 2))
+        self.assertEqual(cells["a"], (2, 0, 1))
+        self.assertEqual(cells["b"], (2, 1, 1))
+        self.assertEqual(cells["c"], (3, 0, 1))
 
     def test_a_row_of_collapsed_panes_gives_its_room_back(self):
         self.assertEqual(cs.inner_row_weights({}), {0: 3, 1: 3, 2: 2, 3: 2})
@@ -129,13 +131,38 @@ class LayoutTests(unittest.TestCase):
 
     def test_added_services_sit_below_the_group(self):
         weights = cs.outer_row_weights(["a", "b", "c"], {"a": True, "b": True})
-        self.assertEqual(weights, {0: 10, 1: 0, 2: 3})
-        self.assertEqual(cs.outer_row_weights(["a"], {"astrabot": True}), {0: 0, 1: 3})
+        self.assertEqual(weights, {0: 10, 1: 10, 2: 0, 3: 3})
+        self.assertEqual(cs.outer_row_weights(["a"], {"astrabot": True}), {0: 0, 1: 10, 2: 3})
 
-    def test_the_built_in_windows_are_the_seven_we_ship(self):
+    def test_open_rows_keep_a_minimum_height_so_the_page_scrolls(self):
+        self.assertEqual(cs.inner_row_minsizes({}),
+                         {0: cs.PANE_MIN_HEIGHT, 1: cs.PANE_MIN_HEIGHT,
+                          2: cs.SHORT_MIN_HEIGHT, 3: cs.SHORT_MIN_HEIGHT})
+        self.assertEqual(cs.inner_row_minsizes({"bot": True, "site": True})[0], 0)
+        self.assertEqual(cs.outer_row_minsizes(["a"], {}),
+                         {0: 0, 1: cs.STRATA_MIN_HEIGHT, 2: cs.PANE_MIN_HEIGHT})
+        self.assertEqual(cs.outer_row_minsizes(["a"], {"strata": True, "a": True}),
+                         {0: 0, 1: 0, 2: 0})
+
+    def test_the_strata_pane_gives_its_room_back_when_collapsed(self):
+        self.assertEqual(cs.outer_row_weights([], {"strata": True}), {0: 10, 1: 0})
+
+    def test_the_built_in_windows_are_the_eight_we_ship(self):
         self.assertEqual(set(cs.BUILTIN_PANES),
                          {"bot", "site", "absLogin", "wiki", "classifier", "portfolio",
-                          "librarian"})
+                          "librarian", "strata"})
+        # A service called "strata" must not take the Strata pane's place.
+        self.assertEqual(cs.service_name({"name": "strata"}), "svc_strata")
+
+    def test_strata_settings_default_and_are_checked(self):
+        cfg = cs.merge_config({})["strata"]
+        self.assertTrue(cfg["dir"].endswith(os.path.join("Strata", "terminal", "current")))
+        self.assertEqual(cfg["profile"], "launch-iq1_m-32k")
+        cfg = cs.merge_config({"strata": {"profile": "x; rm", "dir": ""}})["strata"]
+        self.assertEqual(cfg["profile"], "launch-iq1_m-32k")
+        self.assertEqual(cfg["dir"], "")
+        self.assertEqual(cs.merge_config({"strata": "nope"})["strata"],
+                         cs.DEFAULT_CONFIG["strata"])
 
 
 class LibrarianPaneTests(unittest.TestCase):

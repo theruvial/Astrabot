@@ -1,8 +1,10 @@
 """Golurk Console (the Astrabot console): run the bot, site, wiki, absLogin,
-classifier and portfolio, plus any services you add, and watch their output.
+classifier, portfolio, the Automated Librarian's journal and the Strata
+monitor, plus any services you add, and watch their output.
 
-Every window has an arrow on its header that collapses it. The six
-built-in windows can never be removed. Settings adds your own services
+Every window has an arrow on its header that collapses it, and its own
+Restart button. The page scrolls when the window is too short for the
+panes' minimum heights. The built-in windows can never be removed. Settings adds your own services
 (a program, a PowerShell command or a batch file); those get a pane of
 their own with Start, Restart, Stop and Remove, and are saved in console.json
 (see console_services.py and console_settings.py).
@@ -15,12 +17,16 @@ runs. The classifier runs from the AstraThought checkout with that
 repo's venv, so it can load the SetFit model the bot itself cannot.
 
 The audiobook site is hosted by the audiobooks cog, so it only runs
-while the bot does: "Restart Bot" restarts it too. "Restart Site"
-reloads that cog in the running bot (through logs/reload_cog.flag, see
+while the bot does: the bot's Restart restarts it too. The Site pane's
+Restart reloads that cog in the running bot (through logs/reload_cog.flag, see
 cogs/moderation.py) and, like any load of that cog, rebuilds the
 requests channel. The portfolio site (13384) is hosted by the portfolio cog
-the same way: its pane shows that cog's log lines, and "Restart Portfolio"
+the same way: its pane shows that cog's log lines, and its Restart
 reloads just that cog.
+
+The Strata pane embeds the interactive Strata monitor in a pseudo-console
+(console_terminal.py) with Start/Stop/Restart through plan-guarded runtime
+calls (console_strata.py), and can pop out into its own window.
 
 The right-hand Decisions panel lists the classifier service's final
 decisions (most recent first, up to 50), with a search box and an
@@ -33,7 +39,7 @@ training label and takes effect at once through the overrides file.
 
 "Pull + Restart" fast-forwards every repo, then restarts the bot,
 wiki backend and absLogin. It does not pull AstraThought, so it does
-not restart the classifier; use "Restart Classifier" for that. If any
+not restart the classifier; use the Classifier pane's Restart for that. If any
 pull fails nothing is restarted.
 
 Crash handling matches startBot.bat: restart after 10 seconds, give up
@@ -56,16 +62,21 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+import console_strata
+import console_terminal
 from console_services import (
-    BUILTIN_PANES,
+    BUILTIN_CELLS,
     BUILTIN_TITLES,
+    STRATA_KEY,
     build_saved_config,
     clean_service,
     command_to_argv,
     load_console_config,
     GROUP_KEY,
     GROUP_TITLE,
+    inner_row_minsizes,
     inner_row_weights,
+    outer_row_minsizes,
     outer_row_weights,
     pane_cells,
     librarian_command,
@@ -712,7 +723,7 @@ def classifier_supervisor(emit):
 
 def main():
     import tkinter as tk
-    from tkinter import messagebox
+    from tkinter import messagebox, ttk
 
     # Material Design dark theme, same tokens as the audiobook
     # requests site (cogs/audiobooks_web.py): background #141218,
@@ -733,6 +744,24 @@ def main():
 
     def emit(stream, line):
         lines.put((stream, line))
+
+    # Dark, arrowless scrollbars in the theme's colours. The native Windows
+    # scrollbar ignores colours, so these are ttk ones on the "clam" theme
+    # (nothing else in the console uses ttk, so the theme change is safe).
+    style = ttk.Style(root)
+    style.theme_use("clam")
+    style.layout("Dark.Vertical.TScrollbar", [("Vertical.Scrollbar.trough", {
+        "sticky": "ns", "children": [("Vertical.Scrollbar.thumb",
+                                      {"expand": "1", "sticky": "nswe"})]})])
+    style.configure("Dark.Vertical.TScrollbar", background=chip_bg, troughcolor=bg,
+                    bordercolor=bg, lightcolor=chip_bg, darkcolor=chip_bg, arrowsize=10,
+                    gripcount=0, relief="flat")
+    style.map("Dark.Vertical.TScrollbar", background=[("pressed", accent), ("active", outline)])
+
+    def vscroll(parent, command):
+        extra = {"command": command} if command else {}
+        return ttk.Scrollbar(parent, orient="vertical", **extra,
+                             style="Dark.Vertical.TScrollbar")
 
     supervisor = BotSupervisor(emit)
     wiki = wiki_supervisor(emit)
@@ -768,13 +797,8 @@ def main():
         widget.pack(side="left", padx=(10, 0), pady=10)
         return widget
 
-    button("Restart Bot", lambda: in_background(supervisor.restart))
-    button("Restart Site", supervisor.reload_site)
-    button("Restart Portfolio", supervisor.reload_portfolio)
-    button("Restart absLogin", lambda: in_background(abs_login.restart))
-    button("Restart Wiki", lambda: in_background(wiki.restart))
-    button("Restart Classifier", lambda: in_background(classifier.restart))
-    button("Restart Librarian", lambda: in_background(librarian.restart))
+    # Each service's Restart sits on its own pane's header (2026-11-25); the
+    # top bar keeps only what acts on the whole console.
     watchdog_button = button("Watchdog: Off", lambda: toggle_watchdog())
     pull_button = button("Pull + Restart", pull)
     button("Settings", lambda: open_settings_window())
@@ -783,8 +807,75 @@ def main():
 
     body = tk.Frame(root, bg=bg)
     body.pack(fill="both", expand=True)
-    grid = tk.Frame(body, bg=bg)
-    grid.pack(side="left", fill="both", expand=True, padx=6, pady=(0, 6))
+    # The pane area scrolls: the panes live in `grid`, a frame inside a
+    # canvas. The frame is always at least as tall as the canvas, so a tall
+    # window stretches the rows as before; when the rows' minimum heights
+    # (console_services.*_row_minsizes) need more, the page scrolls and the
+    # scrollbar appears.
+    page = tk.Frame(body, bg=bg)
+    page.pack(side="left", fill="both", expand=True, padx=6, pady=(0, 6))
+    page.rowconfigure(0, weight=1)
+    page.columnconfigure(0, weight=1)
+    page_canvas = tk.Canvas(page, bg=bg, highlightthickness=0, bd=0, yscrollincrement=40)
+    page_canvas.grid(row=0, column=0, sticky="nsew")
+    page_scroll = vscroll(page, page_canvas.yview)
+    page_canvas.configure(yscrollcommand=page_scroll.set)
+    grid = tk.Frame(page_canvas, bg=bg)
+    page_window = page_canvas.create_window((0, 0), window=grid, anchor="nw")
+    page_state = {"scrolls": False, "job": None}
+
+    def fit_page(_event=None):
+        page_state["job"] = None
+        width, height = page_canvas.winfo_width(), page_canvas.winfo_height()
+        need = grid.winfo_reqheight()
+        tall = max(height, need)
+        page_canvas.itemconfigure(page_window, width=width, height=tall)
+        page_canvas.configure(scrollregion=(0, 0, width, tall))
+        scrolls = need > height + 1
+        if scrolls != page_state["scrolls"]:
+            page_state["scrolls"] = scrolls
+            if scrolls:
+                page_scroll.grid(row=0, column=1, sticky="ns", padx=(4, 0))
+            else:
+                page_scroll.grid_remove()
+                page_canvas.yview_moveto(0)
+
+    def refit_page():
+        if page_state["job"] is None:
+            page_state["job"] = root.after_idle(fit_page)
+
+    page_canvas.bind("<Configure>", fit_page)
+
+    def scroll_page(steps):
+        if page_state["scrolls"]:
+            page_canvas.yview_scroll(steps, "units")
+
+    def wheel_steps(event):
+        return -1 if event.delta > 0 else 1
+
+    def on_page_wheel(event):
+        """The wheel scrolls the page anywhere in the main window, except
+        over the Decisions list and the Strata monitor, which take it
+        themselves."""
+        widget = event.widget
+        if isinstance(widget, str) or widget.winfo_toplevel() is not root:
+            return
+        if str(widget).startswith(str(sidebar)) or isinstance(widget, tk.Text):
+            return
+        scroll_page(wheel_steps(event))
+
+    def on_box_wheel(event, box):
+        """A log pane scrolls itself until it reaches its top or bottom, then
+        hands the wheel to the page, like a browser."""
+        steps = wheel_steps(event)
+        top, bottom = box.yview()
+        if (steps < 0 and top > 0) or (steps > 0 and bottom < 1):
+            box.yview_scroll(steps * 3, "units")
+        else:
+            scroll_page(steps)
+        return "break"
+
+    root.bind_all("<MouseWheel>", on_page_wheel, add="+")
     grid.columnconfigure(0, weight=1, uniform="pane")
     grid.columnconfigure(1, weight=1, uniform="pane")
 
@@ -794,6 +885,8 @@ def main():
     panes = {}
     custom = {}
     boxes = {}
+    # The Strata monitor's own window while it is popped out (see pop_out).
+    popout = {"window": None, "view": None}
     grid_rows = {"used": 0}
     arrow_open, arrow_shut = "\u25be ", "\u25b8 "
 
@@ -838,28 +931,43 @@ def main():
 
     def place_panes():
         cells = pane_cells(list(custom))
-        inner = inner_row_weights(cfg["collapsed"])
-        outer = outer_row_weights(list(custom), cfg["collapsed"])
+        shut = layout_collapsed()
+        inner = inner_row_weights(shut)
+        outer = outer_row_weights(list(custom), shut)
         group.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=4, pady=(4, 0))
         for key, entry in panes.items():
             row, column, span = cells[key]
             entry["frame"].grid(row=row, column=column, columnspan=span,
                                 sticky="nsew", padx=4, pady=4)
+        inner_min = inner_row_minsizes(shut)
+        outer_min = outer_row_minsizes(list(custom), shut)
         for row, weight in inner.items():
-            inner_grid.rowconfigure(row, weight=weight)
+            inner_grid.rowconfigure(row, weight=weight, minsize=inner_min.get(row, 0))
         total = max(outer) + 1
         for row in range(max(grid_rows["used"], total)):
-            grid.rowconfigure(row, weight=outer.get(row, 0))
+            grid.rowconfigure(row, weight=outer.get(row, 0), minsize=outer_min.get(row, 0))
         grid_rows["used"] = total
+        refit_page()
+
+    def layout_collapsed():
+        """cfg["collapsed"], plus the Strata pane while its monitor is popped
+        out: the pane folds to its header so it gives its room back."""
+        shut = dict(cfg["collapsed"])
+        if popout["window"] is not None:
+            shut[STRATA_KEY] = True
+        return shut
 
     def show_collapsed(key):
         entry = panes[key]
-        collapsed = bool(cfg["collapsed"].get(key))
+        collapsed = bool(layout_collapsed().get(key))
         if collapsed:
             entry["content"].pack_forget()
         else:
             entry["content"].pack(fill="both", expand=True)
-        entry["toggle"].configure(text=(arrow_shut if collapsed else arrow_open) + entry["title"])
+        title = entry["title"]
+        if key == STRATA_KEY and popout["window"] is not None:
+            title += "  (popped out)"
+        entry["toggle"].configure(text=(arrow_shut if collapsed else arrow_open) + title)
 
     def toggle_pane(key):
         if cfg["collapsed"].get(key):
@@ -870,7 +978,9 @@ def main():
         place_panes()
         save_settings_quietly()
 
-    def pane(key, title, buttons=(), parent=None):
+    def pane_frame(key, title, buttons=(), parent=None):
+        """A pane's frame and header (arrow + title, buttons on the right).
+        Buttons are listed right to left. Returns (frame, head, content)."""
         frame = tk.Frame(parent or grid, bg=bg)
         head = tk.Frame(frame, bg=bg)
         head.pack(fill="x")
@@ -883,14 +993,19 @@ def main():
                       activebackground=card, relief="flat", font=("Segoe UI", 9),
                       padx=8).pack(side="right", padx=(4, 0))
         content = tk.Frame(frame, bg=bg)
-        scroll = tk.Scrollbar(content)
+        panes[key] = {"frame": frame, "content": content, "toggle": toggle, "title": title}
+        return frame, head, content
+
+    def pane(key, title, buttons=(), parent=None):
+        _frame, _head, content = pane_frame(key, title, buttons, parent)
+        scroll = vscroll(content, None)
         scroll.pack(side="right", fill="y")
         box = tk.Text(content, bg=card, fg=text_colour, insertbackground=text_colour,
                       relief="flat", wrap="word", state="disabled", width=1, height=1,
                       font=("Consolas", 10), yscrollcommand=scroll.set)
         box.pack(side="left", fill="both", expand=True)
         scroll.configure(command=box.yview)
-        panes[key] = {"frame": frame, "content": content, "toggle": toggle, "title": title}
+        box.bind("<MouseWheel>", lambda e, b=box: on_box_wheel(e, b))
         boxes[key] = box
         show_collapsed(key)
         return box
@@ -932,9 +1047,167 @@ def main():
     # Bot first, then the servers in port order. The classifier gets a
     # shorter row of its own at the bottom: its log is the thought
     # process, worth watching, but quieter than the bot.
-    for key in BUILTIN_PANES:
-        pane(key, BUILTIN_TITLES[key], parent=inner_grid)
+    restart_actions = {
+        "bot": lambda: in_background(supervisor.restart),
+        "site": supervisor.reload_site,
+        "absLogin": lambda: in_background(abs_login.restart),
+        "wiki": lambda: in_background(wiki.restart),
+        "classifier": lambda: in_background(classifier.restart),
+        "portfolio": supervisor.reload_portfolio,
+        "librarian": lambda: in_background(librarian.restart),
+    }
+    for key in BUILTIN_CELLS:
+        pane(key, BUILTIN_TITLES[key], buttons=[("Restart", restart_actions[key])],
+             parent=inner_grid)
     show_group_collapsed()
+
+    # -- Strata pane: the real Strata monitor in an embedded terminal ----
+    # (console_terminal.py), with Start / Stop / Restart for the server
+    # itself (console_strata.py). The server is not the console's child:
+    # closing the console closes the monitor and leaves Strata running.
+    strata_cfg = cfg["strata"]
+    strata_state = {"busy": None, "view": None}
+    strata_log = ROOT / "logs" / "strata.log"
+
+    def strata_say(text):
+        line = f"[{datetime.now():%H:%M:%S}] {text}"
+        try:
+            (ROOT / "logs").mkdir(exist_ok=True)
+            with open(strata_log, "a", encoding="utf-8") as handle:
+                handle.write(f"{datetime.now():%Y-%m-%d} {line}\n")
+        except OSError:
+            pass
+        lines.put((STRATA_KEY, line))
+
+    strata = console_strata.StrataControl(strata_cfg["dir"], strata_cfg["profile"], strata_say)
+
+    def make_monitor(rows, cols):
+        session = console_terminal.TerminalSession(
+            console_strata.monitor_argv(strata_cfg["dir"]), strata_cfg["dir"], rows, cols,
+            on_exit=lambda: lines.put(("__monitor_ended__", None)))
+        session.start()
+        return session
+
+    def monitor_view():
+        """The view showing the monitor: the pop-out window's when open."""
+        return popout["view"] or strata_state["view"]
+
+    def open_monitor():
+        view = monitor_view()
+        if view is None:
+            return
+        try:
+            view.start()  # replaces any monitor still open
+            view.text.focus_set()
+        except Exception as exc:
+            view.stop()
+            view.show_message(f"Could not open the Strata monitor: {exc}")
+
+    def strata_action(name, work, reopen):
+        if strata_state["busy"]:
+            strata_say(f"Still busy with {strata_state['busy']}; try again when it finishes.")
+            return
+        strata_state["busy"] = name
+
+        def run():
+            try:
+                work()
+            except Exception as exc:
+                strata_say(f"{name} failed: {exc}")
+            finally:
+                strata_state["busy"] = None
+            if reopen:
+                lines.put(("__monitor_reopen__", None))
+
+        in_background(run)
+
+    def strata_stop():
+        if messagebox.askyesno("Stop Strata", "Stop the Strata server? The Home Assistant "
+                                              "agent has no model until it starts again."):
+            strata_action("Stop", strata.stop, reopen=False)
+
+    def pop_out():
+        """Move the running monitor into a window of its own. The program
+        keeps running: only the view drawing it changes."""
+        docked = strata_state["view"]
+        if docked is None:
+            return
+        if popout["window"] is not None:
+            popout["window"].lift()
+            popout["window"].focus_force()
+            return
+        win = tk.Toplevel(root, bg=bg)
+        win.title(f"Strata monitor - {cfg['console_name']}")
+        win.geometry("1180x760")
+        win.minsize(500, 300)
+        bar = tk.Frame(win, bg=topbar)
+        bar.pack(fill="x")
+        tk.Label(bar, text="Strata (8080)", bg=topbar, fg=accent,
+                 font=("Segoe UI", 11, "bold")).pack(side="left", padx=12, pady=8)
+        tk.Button(bar, text="Reattach", command=reattach, bg=accent, fg=on_primary,
+                  activebackground=text_colour, relief="flat", padx=14, pady=4,
+                  font=("Segoe UI", 10, "bold")).pack(side="right", padx=(6, 10), pady=8)
+        for label, command in strata_buttons[1:]:  # Monitor, Stop, Restart, Start
+            tk.Button(bar, text=label, command=command, bg=chip_bg, fg=text_colour,
+                      activebackground=card, relief="flat", font=("Segoe UI", 9),
+                      padx=8).pack(side="right", padx=(4, 0), pady=8)
+        note = tk.Label(bar, text="", bg=topbar, fg=secondary, anchor="w",
+                        font=("Segoe UI", 9))
+        note.pack(side="left", fill="x", expand=True, padx=(4, 0))
+        holder = tk.Frame(win, bg=bg)
+        holder.pack(fill="both", expand=True, padx=6, pady=6)
+        view = console_terminal.TerminalView(holder, make_monitor)
+        popout.update(window=win, view=view, note=note)
+        # Closing the window is the same as Reattach, never "stop the monitor".
+        win.protocol("WM_DELETE_WINDOW", reattach)
+        session = docked.detach()
+        if session is not None and session.alive:
+            view.attach(session)
+        else:
+            win.after(300, open_monitor)
+        view.text.focus_set()
+        show_collapsed(STRATA_KEY)
+        place_panes()
+
+    def reattach():
+        """Put the monitor back in its pane and close the pop-out window."""
+        win, view = popout["window"], popout["view"]
+        if win is None:
+            return
+        session = view.detach()
+        popout.update(window=None, view=None, note=None)
+        win.destroy()
+        show_collapsed(STRATA_KEY)
+        place_panes()
+        docked = strata_state["view"]
+        if session is not None and session.alive:
+            docked.attach(session)
+        elif session is not None:
+            session.close()
+        if not docked.running:
+            root.after(300, open_monitor)
+
+    strata_buttons = [("Pop out", pop_out),
+                      ("Monitor", open_monitor),
+                      ("Stop", strata_stop),
+                      ("Restart", lambda: strata_action("Restart", strata.restart, True)),
+                      ("Start", lambda: strata_action("Start", strata.start, True))]
+    _sframe, strata_head, strata_content = pane_frame(STRATA_KEY, BUILTIN_TITLES[STRATA_KEY],
+                                                      strata_buttons)
+    strata_note = tk.Label(strata_head, text="", bg=bg, fg=secondary, anchor="w",
+                           font=("Segoe UI", 9))
+    strata_note.pack(side="left", padx=(10, 0), fill="x", expand=True)
+    strata_missing = (console_terminal.available()
+                      or ("" if console_strata.is_installed(strata_cfg["dir"]) else
+                          f"Strata not found in {strata_cfg['dir'] or '(no folder set)'}; "
+                          "set strata.dir in console.json."))
+    if strata_missing:
+        tk.Label(strata_content, text=strata_missing, bg=card, fg=secondary, anchor="nw",
+                 justify="left", font=("Segoe UI", 10), wraplength=900).pack(
+                     fill="both", expand=True)
+    else:
+        strata_state["view"] = console_terminal.TerminalView(strata_content, make_monitor)
+    show_collapsed(STRATA_KEY)
     for spec in cfg["services"]:
         add_custom(spec, start=False)
     place_panes()
@@ -1002,7 +1275,7 @@ def main():
     note.pack(fill="x")
 
     list_canvas = tk.Canvas(decisions_body, bg=bg, highlightthickness=0)
-    list_scroll = tk.Scrollbar(decisions_body, command=list_canvas.yview)
+    list_scroll = vscroll(decisions_body, list_canvas.yview)
     list_scroll.pack(side="right", fill="y")
     list_canvas.pack(side="left", fill="both", expand=True)
     list_canvas.configure(yscrollcommand=list_scroll.set)
@@ -1016,6 +1289,7 @@ def main():
     def scroll_decisions(event):
         steps = -1 if event.delta > 0 else 1
         list_canvas.yview_scroll(steps, "units")
+        return "break"
 
     def bind_wheel(widget):
         widget.bind("<MouseWheel>", scroll_decisions)
@@ -1191,6 +1465,23 @@ def main():
             if stream == "__decision_note__":
                 note.configure(text=line)
                 continue
+            if stream == STRATA_KEY:
+                strata_note.configure(text=line)
+                if popout["window"] is not None:
+                    popout["note"].configure(text=line)
+                continue
+            if stream == "__monitor_reopen__":
+                open_monitor()
+                continue
+            if stream == "__monitor_ended__":
+                view = monitor_view()
+                if view is not None and not view.running:
+                    ended = (f"[{datetime.now():%H:%M:%S}] The monitor closed. "
+                             "Press Monitor to open it again.")
+                    strata_note.configure(text=ended)
+                    if popout["window"] is not None:
+                        popout["note"].configure(text=ended)
+                continue
             if stream == "classifier":
                 if should_fetch_decisions(line):
                     trigger_decisions_fetch()
@@ -1303,7 +1594,10 @@ def main():
         if messagebox.askokcancel(cfg["console_name"],
                                   "Closing this window stops the bot, site, wiki, "
                                   "absLogin and classifier, and every service you "
-                                  "added. Close?"):
+                                  "added. Strata keeps running. Close?"):
+            for view in (popout["view"], strata_state["view"]):
+                if view is not None:
+                    view.stop()  # the monitor only; Strata keeps running
             everything = [supervisor, wiki, abs_login, classifier, librarian, *custom.values()]
             # In parallel: a service with a clean-stop command can take a while.
             stoppers = [threading.Thread(target=s.shutdown, daemon=True) for s in everything]
@@ -1332,6 +1626,8 @@ def main():
         emit("librarian", "Off: console.json has no valid librarian host and unit.")
     render_decisions()
     drain()
+    if strata_state["view"] is not None:
+        root.after(800, open_monitor)
     # The classifier may already be running (started by an earlier
     # console), in which case no "Starting" line will ever arrive.
     trigger_decisions_fetch()

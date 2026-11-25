@@ -14,16 +14,41 @@ with one pane of live output for each.
 - Services you add appear below the Astrabot group, each with its own pane.
 - Which windows are collapsed is remembered in `console.json`.
 - **Site** and **Portfolio** show the log lines of the audiobooks and portfolio
-  cogs, which run inside the bot. **Restart Site** and **Restart Portfolio**
-  reload just that cog; **Restart Bot** restarts both.
+  cogs, which run inside the bot. The **Restart** buttons on Site and Portfolio
+  reload just that cog; Bot's **Restart** restarts both.
 - **Automated Librarian** shows the librarian that runs on the Ubuntu server. It
   connects with `ssh thea-server` (key login, no password prompt), prints whether
   the `automated-librarian` service is active, then follows its journal live.
-  **Restart Librarian** reconnects; it does not restart the librarian itself. To use
+  Its **Restart** reconnects; it does not restart the librarian itself. To use
   another host or unit, or to turn the pane off (blank host), add to `console.json`:
   `"librarian": {"host": "thea-server", "unit": "automated-librarian"}`.
 - The seven built-in windows can never be removed. Only services you added have a
   **Remove** button (and Settings only enables Remove for those).
+
+## Restart buttons and scrolling
+
+- Every pane has its own **Restart** button on its header. The top bar keeps
+  **Watchdog**, **Pull + Restart** and **Settings**.
+- The panes keep a minimum height; when the window is too short for them the
+  page scrolls (mouse wheel or the scrollbar on the right). The wheel scrolls a
+  log pane first, then the page once that pane reaches its end.
+
+## Strata
+
+- The **Strata (8080)** pane runs the real Strata monitor, the same one you get
+  from `strata.py monitor`. Click it and type: keys and mouse go to the monitor.
+  `q` closes the monitor without stopping Strata; **Monitor** opens it again.
+- **Start**, **Restart** and **Stop** run `strata.py runtime ...`. Stop and Restart
+  first ask Strata for a plan and then only act on the instance that plan named,
+  so they never stop a different run by mistake. Stop asks you first. Messages
+  show next to the buttons and in `logs/strata.log`.
+- **Pop out** moves the monitor into its own window (the same monitor keeps
+  running). **Reattach**, or closing that window, puts it back in the pane.
+- Closing the console closes the monitor only; Strata keeps running.
+- Needs `pywinpty` and `pyte` (`py -3.14 -m pip install pywinpty pyte`). Cascadia
+  Mono is used when installed, so the monitor's charts line up.
+- Another Strata folder or profile: add to `console.json`
+  `"strata": {"dir": "C:\\...\\Strata\\terminal\\current", "profile": "launch-iq1_m-32k"}`.
 
 ## Adding a service
 

@@ -121,9 +121,11 @@ class ReplyTests(unittest.TestCase):
         cases = {
             hac.HAError("401 token secret-ish"): "Home Assistant isn't responding.",
             asyncio.TimeoutError(): "That took too long, try again.",
-            RuntimeError("Ollama error 500: {}"): "The local model isn't running. Start Ollama on Golurk.",
+            RuntimeError("Ollama error 500: {}"): "The local model isn't running. Start Strata on Golurk.",
+            RuntimeError("Model server error 500: engine stopped"):
+                "The local model isn't running. Start Strata on Golurk.",
             aiohttp.ClientConnectorError(mock.Mock(), OSError("refused")):
-                "The local model isn't running. Start Ollama on Golurk.",
+                "The local model isn't running. Start Strata on Golurk.",
         }
         for exc, want in cases.items():
             self.assertEqual(hac.error_text(exc), want)
@@ -196,7 +198,7 @@ class AnswerTests(unittest.IsolatedAsyncioTestCase):
         cog = self.cog(FakeAgent(chat=boom))
         with self.assertLogs("homeassistant", "ERROR"):
             parts = await cog.answer("c", "hi", message().author, no_confirm)
-        self.assertEqual(parts, ["The local model isn't running. Start Ollama on Golurk."])
+        self.assertEqual(parts, ["The local model isn't running. Start Strata on Golurk."])
 
     async def test_the_timeout_is_a_safety_net(self):
         async def slow(*_):

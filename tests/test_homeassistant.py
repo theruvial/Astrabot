@@ -659,7 +659,7 @@ class ModeTests(unittest.IsolatedAsyncioTestCase):
         cog = self.cog(ModeAgent())
         inter = self.inter()
         await hac.HomeAssistant.mode.callback(cog, inter, "chef")
-        self.assertIn("general, home, code", inter.response.send_message.call_args.args[0])
+        self.assertIn(", ".join(hac.MODE_NAMES), inter.response.send_message.call_args.args[0])
 
     async def test_code_command_uses_code_mode_once(self):
         agent = ModeAgent()
@@ -675,6 +675,112 @@ class ModeTests(unittest.IsolatedAsyncioTestCase):
         cog.started = True
         await cog.answer("c", "hi", message().author, no_confirm)
         self.assertEqual(agent.modes_used, [None])
+
+
+class TimerTargetTests(unittest.TestCase):
+    def test_ids_map_back_to_where_they_came_from(self):
+        self.assertEqual(hac.timer_target("discord:123"), ("channel", 123))
+        self.assertEqual(hac.timer_target("discord:dm:5"), ("dm", 5))
+
+    def test_ids_this_cog_did_not_make_are_none(self):
+        for cid in ("", "discord:", "discord:x", "discord:dm:", "terminal:1", "discord:a:1"):
+            self.assertIsNone(hac.timer_target(cid), cid)
+
+    def test_round_trip_with_conversation_id(self):
+        user = types.SimpleNamespace(id=THEA)
+        thread = types.SimpleNamespace(id=77, guild=object())
+        dm = types.SimpleNamespace(id=1, guild=None)
+        self.assertEqual(hac.timer_target(hac.conversation_id(thread, user)), ("channel", 77))
+        self.assertEqual(hac.timer_target(hac.conversation_id(dm, user)), ("dm", THEA))
+
+
+class TimerBot:
+    """Just the bits of discord.py's Bot that timer delivery uses."""
+
+    def __init__(self, channels=(), users=(), fetchable=()):
+        self.channels = {c.id: c for c in channels}
+        self.users = {u.id: u for u in users}
+        self.fetchable = {c.id: c for c in fetchable}
+        self.wait_until_ready = mock.AsyncMock()
+
+    def get_channel(self, ident):
+        return self.channels.get(ident)
+
+    def get_user(self, ident):
+        return self.users.get(ident)
+
+    async def fetch_channel(self, ident):
+        if ident in self.fetchable:
+            return self.fetchable[ident]
+        raise hac.discord.NotFound(mock.Mock(status=404), "Unknown Channel")
+
+    async def fetch_user(self, ident):
+        raise hac.discord.NotFound(mock.Mock(status=404), "Unknown User")
+
+
+def sendable(ident):
+    return types.SimpleNamespace(id=ident, send=mock.AsyncMock())
+
+
+class TimerDeliveryTests(unittest.IsolatedAsyncioTestCase):
+    def cog(self, bot):
+        return hac.HomeAssistant(bot=bot, settings=settings(), agent=FakeAgent())
+
+    async def test_a_thread_timer_lands_in_the_thread_without_pings(self):
+        thread = sendable(77)
+        bot = TimerBot(channels=[thread])
+        await self.cog(bot).deliver_timer("discord:77", "⏰ Timer done: pasta (Thea)")
+        bot.wait_until_ready.assert_awaited()
+        thread.send.assert_awaited_once_with("⏰ Timer done: pasta (Thea)",
+                                             allowed_mentions=hac.NO_PINGS)
+
+    async def test_an_archived_thread_is_fetched(self):
+        thread = sendable(77)
+        await self.cog(TimerBot(fetchable=[thread])).deliver_timer("discord:77", "done")
+        thread.send.assert_awaited_once()
+
+    async def test_a_dm_timer_goes_to_the_user(self):
+        thea = sendable(THEA)
+        await self.cog(TimerBot(users=[thea])).deliver_timer(f"discord:dm:{THEA}", "done")
+        thea.send.assert_awaited_once()
+
+    async def test_a_deleted_thread_falls_back_to_the_owners_dms(self):
+        thea = sendable(THEA)
+        with self.assertLogs("homeassistant", "WARNING"):
+            await self.cog(TimerBot(users=[thea])).deliver_timer("discord:77", "done")
+        thea.send.assert_awaited_once_with("done", allowed_mentions=hac.NO_PINGS)
+
+    async def test_nowhere_at_all_is_logged_not_raised(self):
+        with self.assertLogs("homeassistant", "WARNING"):
+            await self.cog(TimerBot()).deliver_timer("discord:77", "done")
+
+    async def test_an_unknown_id_is_logged_not_sent(self):
+        with self.assertLogs("homeassistant", "WARNING"):
+            await self.cog(TimerBot()).deliver_timer("terminal:1", "done")
+
+    async def test_a_failed_send_never_raises(self):
+        thread = sendable(77)
+        thread.send.side_effect = RuntimeError("discord down")
+        with self.assertLogs("homeassistant", "ERROR"):
+            await self.cog(TimerBot(channels=[thread])).deliver_timer("discord:77", "done")
+
+    def test_the_built_agent_reports_timers_to_the_cog(self):
+        class Built:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+        with mock.patch.object(hac, "HAAgent", Built):
+            cog = hac.HomeAssistant(bot=None, settings=settings(ha_token="t", llm_url="http://x/v1"))
+            agent = cog._build_agent()
+        self.assertEqual(agent.on_timer, cog.deliver_timer)
+        self.assertEqual(agent.kwargs["llm_url"], "http://x/v1")
+
+    def test_llm_url_left_out_when_blank(self):
+        class Built:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+        with mock.patch.object(hac, "HAAgent", Built):
+            agent = hac.HomeAssistant(bot=None, settings=settings(ha_token="t"))._build_agent()
+        self.assertNotIn("llm_url", agent.kwargs)
 
 
 if __name__ == "__main__":

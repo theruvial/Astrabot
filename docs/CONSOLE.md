@@ -49,6 +49,12 @@ with one pane of live output for each.
   Mono is used when installed, so the monitor's charts line up.
 - Another Strata folder or profile: add to `console.json`
   `"strata": {"dir": "C:\\...\\Strata\\terminal\\current", "profile": "launch-iq1_m-32k"}`.
+- The model on another PC: set `"ssh"` in that block to its SSH alias (key login,
+  e.g. `"laptop"` from `~/.ssh/config`). The pane, titled **Strata (laptop)**, then
+  watches that server through an SSH tunnel (local port `tunnel_port`, default
+  18080, to the server's `port`, default 8080), and Start / Stop / Restart are
+  hidden: they only act on this PC's Strata. **Monitor** reopens the tunnel if it
+  dropped; ssh's error goes to the header note and `logs/strata_tunnel.log`.
 
 ## Remote feed (phone)
 

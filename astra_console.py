@@ -51,6 +51,7 @@ same crash handling as the bot.
 """
 
 import json
+import atexit
 import os
 import queue
 import re
@@ -1088,10 +1089,25 @@ def main():
         lines.put((STRATA_KEY, line))
 
     strata = console_strata.StrataControl(strata_cfg["dir"], strata_cfg["profile"], strata_say)
+    # The model may run on another PC (strata.ssh): the monitor then watches
+    # it through an SSH tunnel, and Start / Stop / Restart (this PC only) are
+    # left off the pane.
+    strata_remote = console_strata.remote_of(strata_cfg)
+    tunnel = (console_strata.Tunnel(strata_remote["host"], strata_remote["port"],
+                                    strata_remote["tunnel_port"],
+                                    log_path=ROOT / "logs" / "strata_tunnel.log")
+              if strata_remote else None)
+    strata_title = (f"Strata ({strata_remote['host']})" if strata_remote
+                    else BUILTIN_TITLES[STRATA_KEY])
+    if tunnel is not None:
+        # Also when the console ends some other way than on_close; a tunnel
+        # left by a hard crash is reused by the next console (Tunnel.ensure).
+        atexit.register(tunnel.stop)
 
     def make_monitor(rows, cols):
+        url = tunnel.url if tunnel is not None else None
         session = console_terminal.TerminalSession(
-            console_strata.monitor_argv(strata_cfg["dir"]), strata_cfg["dir"], rows, cols,
+            console_strata.monitor_argv(strata_cfg["dir"], url), strata_cfg["dir"], rows, cols,
             on_exit=lambda: lines.put(("__monitor_ended__", None)))
         session.start()
         return session
@@ -1100,9 +1116,25 @@ def main():
         """The view showing the monitor: the pop-out window's when open."""
         return popout["view"] or strata_state["view"]
 
-    def open_monitor():
+    def open_monitor(tunnel_ready=False):
         view = monitor_view()
         if view is None:
+            return
+        if tunnel is not None and not tunnel_ready:
+            # Open (or check) the tunnel off the Tk thread, then come back.
+            if not view.running:
+                view.show_message(f"Opening the SSH tunnel to {strata_remote['host']}...")
+
+            def connect():
+                try:
+                    tunnel.ensure()
+                except Exception as exc:
+                    strata_say(str(exc))
+                    lines.put(("__monitor_tunnel_failed__", str(exc)))
+                    return
+                lines.put(("__monitor_tunnel__", None))
+
+            in_background(connect)
             return
         try:
             view.start()  # replaces any monitor still open
@@ -1150,7 +1182,7 @@ def main():
         win.minsize(500, 300)
         bar = tk.Frame(win, bg=topbar)
         bar.pack(fill="x")
-        tk.Label(bar, text="Strata (8080)", bg=topbar, fg=accent,
+        tk.Label(bar, text=strata_title, bg=topbar, fg=accent,
                  font=("Segoe UI", 11, "bold")).pack(side="left", padx=12, pady=8)
         tk.Button(bar, text="Reattach", command=reattach, bg=accent, fg=on_primary,
                   activebackground=text_colour, relief="flat", padx=14, pady=4,
@@ -1196,12 +1228,12 @@ def main():
             root.after(300, open_monitor)
 
     strata_buttons = [("Pop out", pop_out),
-                      ("Monitor", open_monitor),
-                      ("Stop", strata_stop),
-                      ("Restart", lambda: strata_action("Restart", strata.restart, True)),
-                      ("Start", lambda: strata_action("Start", strata.start, True))]
-    _sframe, strata_head, strata_content = pane_frame(STRATA_KEY, BUILTIN_TITLES[STRATA_KEY],
-                                                      strata_buttons)
+                      ("Monitor", open_monitor)]
+    if tunnel is None:  # they act on this PC's Strata only
+        strata_buttons += [("Stop", strata_stop),
+                           ("Restart", lambda: strata_action("Restart", strata.restart, True)),
+                           ("Start", lambda: strata_action("Start", strata.start, True))]
+    _sframe, strata_head, strata_content = pane_frame(STRATA_KEY, strata_title, strata_buttons)
     strata_note = tk.Label(strata_head, text="", bg=bg, fg=secondary, anchor="w",
                            font=("Segoe UI", 9))
     strata_note.pack(side="left", padx=(10, 0), fill="x", expand=True)
@@ -1481,6 +1513,14 @@ def main():
             if stream == "__monitor_reopen__":
                 open_monitor()
                 continue
+            if stream == "__monitor_tunnel__":
+                open_monitor(tunnel_ready=True)
+                continue
+            if stream == "__monitor_tunnel_failed__":
+                view = monitor_view()
+                if view is not None and not view.running:
+                    view.show_message(f"{line}\nPress Monitor to try again.")
+                continue
             if stream == "__monitor_ended__":
                 view = monitor_view()
                 if view is not None and not view.running:
@@ -1560,6 +1600,8 @@ def main():
         lines.put(("bot", f"[{datetime.now():%H:%M:%S}] Watchdog: lost {names}. "
                           "Stopping everything and restarting the console."))
         stop_remote()  # clients get 1001 and the new console can take the port
+        if tunnel is not None:
+            tunnel.stop()  # frees the tunnel port for the new console
         try:
             with CRASH_LOG_LOCK, open(ROOT / "logs" / "crashes.log", "a",
                                       encoding="utf-8") as handle:
@@ -1642,6 +1684,8 @@ def main():
             for stopper in stoppers:
                 stopper.join(timeout=90)
             stop_remote()
+            if tunnel is not None:
+                tunnel.stop()
             root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)

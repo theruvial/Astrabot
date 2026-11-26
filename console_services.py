@@ -75,12 +75,18 @@ DEFAULT_CONFIG = {
     # The Automated Librarian pane tails the librarian's journal on the Ubuntu
     # server over SSH (key login, no password). A blank host turns it off.
     "librarian": {"host": "thea-server", "unit": "automated-librarian"},
-    # The local Strata LLM server: its CLI folder and the launch profile the
-    # pane's Start / Stop / Restart act on (see console_strata.py). A blank
-    # dir turns the Strata pane off.
+    # The Strata LLM server: this PC's Strata CLI folder (the monitor runs
+    # from it) and the launch profile the pane's Start / Stop / Restart act on
+    # (see console_strata.py). A blank dir turns the Strata pane off.
+    # "ssh": an SSH alias (key login) of another PC that serves the model. Set,
+    # the monitor watches that server through an SSH tunnel (Strata only
+    # monitors remote servers over HTTPS or a local tunnel): local
+    # "tunnel_port" -> the server's "port", and Start / Stop / Restart are
+    # hidden because they only act on this PC's Strata. Blank = this PC.
     "strata": {"dir": str(Path(os.environ.get("LOCALAPPDATA", "")) / "Strata" / "terminal"
                           / "current"),
-               "profile": "launch-iq1_m-32k"},
+               "profile": "launch-iq1_m-32k",
+               "ssh": "", "port": "8080", "tunnel_port": "18080"},
     # The remote feed (console_remote.py, protocol in docs/CONSOLE_REMOTE.md):
     # one literal IP to listen on (blank = off). Leave token blank and set
     # GOLURK_REMOTE_TOKEN instead, so it stays out of this Drive-synced file.

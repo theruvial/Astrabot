@@ -24,12 +24,25 @@ Strata's JSON can carry credentials, so the console never shows it raw:
 
 The folder and profile come from console.json's ``strata`` block (see
 console_services.DEFAULT_CONFIG). A blank folder turns the pane off.
+
+Remote server (2026-11-25): when the model runs on another PC, ``strata.ssh``
+names it (an SSH alias with key login). Strata refuses to monitor a remote
+server over plain HTTP ("remote monitoring requires HTTPS or a local SSH
+tunnel"), so ``Tunnel`` keeps ``ssh -N -L 127.0.0.1:<tunnel_port>:127.0.0.1:
+<port>`` running and the monitor gets ``--url http://127.0.0.1:<tunnel_port>``.
+The Windows Strata still runs the monitor (the remote checkout lacks the
+monitor's libraries). Start / Stop / Restart stay local-only, so the console
+hides them in that mode.
 """
 
 from __future__ import annotations
 
 import json
+import re
+import socket
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -54,9 +67,143 @@ def runtime_argv(folder, profile, action, *extra) -> list[str]:
             "--profile", profile, *extra, "--json"]
 
 
-def monitor_argv(folder) -> list[str]:
-    """The interactive monitor. It finds the running launch by itself. Pure."""
-    return [str(python_of(folder)), "strata.py", "monitor"]
+def monitor_argv(folder, url=None) -> list[str]:
+    """The interactive monitor. Without ``url`` it finds this PC's running
+    launch by itself; with one (the tunnel) it watches that server. Pure."""
+    argv = [str(python_of(folder)), "strata.py", "monitor"]
+    return argv + ["--url", url] if url else argv
+
+
+# An SSH alias or address only: never starts with "-", so it can't be read as
+# an ssh option.
+SSH_HOST = re.compile(r"^[A-Za-z0-9_.@][A-Za-z0-9_.@-]*$")
+
+
+def _port(text, default):
+    try:
+        value = int(str(text).strip())
+    except (TypeError, ValueError):
+        return default
+    return value if 0 < value < 65536 else default
+
+
+def remote_of(strata_cfg) -> dict | None:
+    """``{"host", "port", "tunnel_port"}`` when console.json's strata block
+    names a remote server (``ssh``), else None. A host that isn't a plain
+    alias or address counts as none. Pure."""
+    host = str((strata_cfg or {}).get("ssh") or "").strip()
+    if not host or not SSH_HOST.match(host):
+        return None
+    return {"host": host,
+            "port": _port(strata_cfg.get("port"), 8080),
+            "tunnel_port": _port(strata_cfg.get("tunnel_port"), 18080)}
+
+
+def tunnel_argv(host, port, tunnel_port) -> list[str]:
+    """``ssh`` forwarding 127.0.0.1:tunnel_port here to 127.0.0.1:port there.
+
+    BatchMode: key login only, never a password prompt nobody can see.
+    ExitOnForwardFailure: a taken local port fails at once instead of
+    leaving an ssh with no tunnel. ServerAlive: a dead link ends ssh within
+    about 45 s, so the console knows to reopen it. Pure."""
+    return ["ssh", "-N", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
+            "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3",
+            "-L", f"127.0.0.1:{tunnel_port}:127.0.0.1:{port}", "--", host]
+
+
+def port_open(port, host="127.0.0.1", timeout=0.5) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+class Tunnel:
+    """One ``ssh -L`` process, opened on demand and closed with the console.
+
+    ``ensure()`` blocks (call it from a worker thread) until the local port
+    accepts connections, or raises RuntimeError with ssh's reason. If the
+    port already answers before this Tunnel opened anything (an ssh left by
+    a console that crashed), that one is used. ``popen``, ``probe`` and
+    ``sleep`` are replaceable for the tests."""
+
+    def __init__(self, host, port, tunnel_port, log_path=None, wait=10.0,
+                 popen=subprocess.Popen, probe=port_open, sleep=time.sleep):
+        self.host, self.port, self.tunnel_port = host, port, tunnel_port
+        self.log_path = Path(log_path) if log_path else None
+        self.wait = wait
+        self.popen, self.probe, self.sleep = popen, probe, sleep
+        self.proc = None
+        self.lock = threading.Lock()
+
+    @property
+    def url(self) -> str:
+        return f"http://127.0.0.1:{self.tunnel_port}"
+
+    @property
+    def alive(self) -> bool:
+        return self.proc is not None and self.proc.poll() is None
+
+    def _reason(self):
+        """ssh's last stderr line from the log, if any."""
+        if self.log_path is None:
+            return ""
+        try:
+            text = self.log_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return ""
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        return lines[-1] if lines else ""
+
+    def ensure(self):
+        with self.lock:
+            if self.alive or (self.proc is None and self.probe(self.tunnel_port)):
+                return
+            self.proc = None
+            log = None
+            if self.log_path is not None:
+                self.log_path.parent.mkdir(parents=True, exist_ok=True)
+                log = open(self.log_path, "w", encoding="utf-8")
+            try:
+                self.proc = self.popen(
+                    tunnel_argv(self.host, self.port, self.tunnel_port),
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                    stderr=log or subprocess.DEVNULL, creationflags=NO_WINDOW)
+            except OSError as exc:
+                raise RuntimeError(f"Could not run ssh for the Strata tunnel: {exc}") from exc
+            finally:
+                if log is not None:
+                    log.close()  # the child keeps its own handle
+            waited = 0.0
+            while waited < self.wait:
+                if self.proc.poll() is not None:
+                    self.proc = None
+                    reason = self._reason()
+                    raise RuntimeError(f"The SSH tunnel to {self.host} closed"
+                                       + (f": {reason}" if reason else "."))
+                if self.probe(self.tunnel_port):
+                    return
+                self.sleep(0.2)
+                waited += 0.2
+            self._stop_locked()
+            raise RuntimeError(f"The SSH tunnel to {self.host} didn't open within "
+                               f"{self.wait:.0f} s.")
+
+    def _stop_locked(self):
+        proc, self.proc = self.proc, None
+        if proc is None or proc.poll() is not None:
+            return
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+    def stop(self):
+        """Close the tunnel this Tunnel opened (never one it only reused)."""
+        with self.lock:
+            self._stop_locked()
 
 
 def parse_reply(stdout) -> dict | None:

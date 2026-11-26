@@ -204,5 +204,117 @@ class StrataControlTests(unittest.TestCase):
         self.assertIn("could not run Strata", self.said[-1])
 
 
+class StrataRemoteTests(unittest.TestCase):
+    """The model on another PC: config, the ssh tunnel and the monitor's --url."""
+
+    def test_remote_of(self):
+        self.assertIsNone(strata.remote_of({"ssh": ""}))
+        self.assertIsNone(strata.remote_of({}))
+        self.assertIsNone(strata.remote_of({"ssh": "-oProxyCommand=calc"}))
+        self.assertIsNone(strata.remote_of({"ssh": "laptop; rm -rf ~"}))
+        self.assertEqual(strata.remote_of({"ssh": " laptop ", "port": "8080",
+                                           "tunnel_port": "18080"}),
+                         {"host": "laptop", "port": 8080, "tunnel_port": 18080})
+        self.assertEqual(strata.remote_of({"ssh": "me@192.168.4.29", "port": "x",
+                                           "tunnel_port": "70000"}),
+                         {"host": "me@192.168.4.29", "port": 8080, "tunnel_port": 18080})
+
+    def test_monitor_argv_adds_the_url_only_when_given(self):
+        self.assertEqual(strata.monitor_argv(r"C:\S")[1:], ["strata.py", "monitor"])
+        self.assertEqual(strata.monitor_argv(r"C:\S", "http://127.0.0.1:18080")[1:],
+                         ["strata.py", "monitor", "--url", "http://127.0.0.1:18080"])
+
+    def test_tunnel_argv(self):
+        argv = strata.tunnel_argv("laptop", 8080, 18080)
+        self.assertEqual(argv[0], "ssh")
+        self.assertIn("BatchMode=yes", argv)
+        self.assertIn("ExitOnForwardFailure=yes", argv)
+        self.assertEqual(argv[-3:], ["127.0.0.1:18080:127.0.0.1:8080", "--", "laptop"])
+
+    class FakeProc:
+        def __init__(self, code=None):
+            self.code = code
+            self.terminated = False
+
+        def poll(self):
+            return self.code
+
+        def terminate(self):
+            self.terminated = True
+            self.code = 1
+
+        def wait(self, timeout=None):
+            return self.code
+
+        def kill(self):
+            self.code = -9
+
+    def tunnel(self, probe_answers, proc=None, log_path=None):
+        answers = list(probe_answers)
+        started = []
+
+        def popen(argv, **kwargs):
+            started.append(argv)
+            return proc if proc is not None else self.FakeProc()
+
+        t = strata.Tunnel("laptop", 8080, 18080, log_path=log_path, wait=1.0, popen=popen,
+                          probe=lambda port: answers.pop(0) if answers else True,
+                          sleep=lambda s: None)
+        return t, started
+
+    def test_ensure_opens_ssh_and_waits_for_the_port(self):
+        t, started = self.tunnel([False, False, False, True])
+        t.ensure()
+        self.assertEqual(len(started), 1)
+        self.assertTrue(t.alive)
+        self.assertEqual(t.url, "http://127.0.0.1:18080")
+        t.ensure()  # already open: no second ssh
+        self.assertEqual(len(started), 1)
+        proc = t.proc
+        t.stop()
+        self.assertTrue(proc.terminated)
+        self.assertFalse(t.alive)
+
+    def test_a_port_that_already_answers_is_reused_and_left_alone(self):
+        t, started = self.tunnel([True])
+        t.ensure()
+        self.assertEqual(started, [])
+        t.stop()  # nothing of ours to close
+
+    def test_ssh_that_exits_reports_its_reason(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / "tunnel.log"
+            proc = self.FakeProc(code=255)
+
+            def popen(argv, stderr=None, **kwargs):
+                stderr.write("theruvial@laptop: Permission denied (publickey).\n")
+                return proc
+
+            t = strata.Tunnel("laptop", 8080, 18080, log_path=log, wait=1.0, popen=popen,
+                              probe=lambda port: False, sleep=lambda s: None)
+            with self.assertRaises(RuntimeError) as caught:
+                t.ensure()
+        self.assertIn("Permission denied", str(caught.exception))
+        self.assertIsNone(t.proc)
+
+    def test_a_tunnel_that_never_opens_times_out_and_is_closed(self):
+        proc = self.FakeProc()
+        t, _ = self.tunnel([False] * 100, proc=proc)
+        with self.assertRaises(RuntimeError) as caught:
+            t.ensure()
+        self.assertIn("didn't open", str(caught.exception))
+        self.assertTrue(proc.terminated)
+
+    def test_missing_ssh_is_a_clear_error(self):
+        def popen(argv, **kwargs):
+            raise FileNotFoundError("ssh")
+
+        t = strata.Tunnel("laptop", 8080, 18080, popen=popen, probe=lambda port: False)
+        with self.assertRaises(RuntimeError) as caught:
+            t.ensure()
+        self.assertIn("Could not run ssh", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

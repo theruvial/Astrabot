@@ -406,7 +406,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 ## 11. Testing
 
-- Run from the repo root: `py -3.14 -m unittest discover -s tests` (449 tests, all passing on `feature/console-remote` 2026-11-25). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
+- Run from the repo root: `py -3.14 -m unittest discover -s tests` (449 tests, all passing on master after merging `feature/console-remote` 2026-11-25). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
 - Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`, `test_homeassistant`, `test_console_terminal`, `test_console_remote`.
 - The Automated Librarian has its own suites: `cd automated-librarian && python3 -m unittest discover -s tests` (46 tests, all passing on the Ubuntu server with Python 3.12 on 2026-11-21). The root run above does not collect them, and they have not been run on the Windows host.
 - No tests yet for `music.py`, `clip.py` (beyond imports), `moderation.py` or the legacy cogs.
@@ -448,7 +448,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
 
-### 2026-11-25 — Claude Code (Opus 5.5), Golurk Console remote feed, protocol v1 (branch `feature/console-remote`, not merged)
+### 2026-11-25 — Claude Code (Opus 5.5), Golurk Console remote feed, protocol v1 (branch `feature/console-remote`, merged into master and pushed 2026-11-25)
 
 - **Why:** Thea wrote the v1 contract for a watch-only phone app (pane states, live lines, replay, heartbeat for a dead-man alert).
 - **What:** new `console_remote.py` (settings check, bearer auth, `Hub` ring buffers and seq, `TapQueue`, aiohttp app, `RemoteFeed` thread); `console.json` `remote` block (`console_services.py`, blank bind = off); `astra_console.py` taps the line queue, builds `remote_status()`, starts the feed after startup and stops it in `on_close` and `restart_console`. The protocol is in `docs/CONSOLE_REMOTE.md` (§8). 25 tests in `test_console_remote` (aiohttp test server, no Tk); full suite 449 passing.

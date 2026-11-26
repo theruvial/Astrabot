@@ -372,6 +372,7 @@ Details: `docs/CONSOLE.md`.
 - Decisions panel: last 50 classifier decisions, refreshed on classifier log events, not polled.
 - Watchdog (on by default; `--no-watchdog`): if a service's watcher thread is dead on two checks 15 s apart (after a 2 min grace), it restarts the whole console, at most 3 times an hour (`logs/watchdog_restarts.json`), then gives up and alerts the owner via the flag file.
 - **Remote feed** (`console_remote.py`, protocol v1 in `docs/CONSOLE_REMOTE.md`, built 2026-11-25): watch-only HTTP `GET /status` and WebSocket `GET /ws?boot=&since=` for the phone app; pane states plus every pane's lines (500 per pane replayed, one `seq` per console run). Off unless `console.json` `"remote": {"bind", "port", "token"}` has one literal IP in `bind` (never `0.0.0.0`/`::`); the token comes from `GOLURK_REMOTE_TOKEN` (preferred, keeps it off the Drive) or `remote.token`, at least 32 characters, `Authorization: Bearer` only, constant-time compare, bare 401 otherwise. Why it is off (bad bind, short or missing token, address not on this PC) goes to the Bot pane. The console's line queue is a `TapQueue`, so every `(stream, line)`, also direct `lines.put` calls, reaches the hub from any thread; the server runs on its own thread and asyncio loop and never touches Tk; `__` streams and `strata` notes are never sent. Stopped in `on_close` and before a Watchdog relaunch. Port 13386; the firewall rule is Thea's to add.
+  - **Screens** (2026-11-25, still protocol 1): `screen` frames mirror the Strata pane's monitor grid to the phone (watch-only, never resized for it). The console hands the hub the live `TerminalSession` from the Tk thread (`Hub.set_screen` on open/end with the header note when there is none, `Hub.screen_moved` on pop out/reattach). A server-loop task samples once a second, only while a client is connected: `sample_screen` copies every row with `screen_runs` under `session.lock` and never reads or clears `screen.dirty` (the Tk view's). Full frame after `replay_done` (the last-sent grid, so diffs line up), changed rows only after that, full again on a new size/session/view, `running: false` once when it stops. Not buffered, no seq.
 - Closing the window stops everything, including a service caught mid-start: `Supervisor._run_once` checks `_closing` under `_lock` right after the spawn and stops the new process itself if `shutdown()` already ran (fixed 2026-11-24; it used to orphan that process). Do not run hand-started copies of the services alongside it.
 
 ---
@@ -407,7 +408,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 ## 11. Testing
 
-- Run from the repo root: `py -3.14 -m unittest discover -s tests` (459 tests, all passing on master after merging `feature/strata-remote-monitor` 2026-11-25). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
+- Run from the repo root: `py -3.14 -m unittest discover -s tests` (469 tests, all passing on `feature/console-remote-screen` 2026-11-25). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
 - Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`, `test_homeassistant`, `test_console_terminal`, `test_console_remote`.
 - The Automated Librarian has its own suites: `cd automated-librarian && python3 -m unittest discover -s tests` (46 tests, all passing on the Ubuntu server with Python 3.12 on 2026-11-21). The root run above does not collect them, and they have not been run on the Windows host.
 - No tests yet for `music.py`, `clip.py` (beyond imports), `moderation.py` or the legacy cogs.
@@ -448,6 +449,12 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 ## 14. Change log
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
+
+### 2026-11-25 — Claude Code (Opus 5.5), Golurk Console remote feed: Strata monitor screens for the phone (branch `feature/console-remote-screen`, not merged)
+
+- **Why:** hand-over from the Golurk Console Mobile session: the app (branch `feature/strata-screen` of the mobile repo) shows the Strata monitor; its PROTOCOL.md "Screens" section is the contract.
+- **What:** `console_remote`: `sample_screen`, `screen_message`, `Hub.set_screen` / `screen_moved` / `screen_initial` / `screen_frames` / `push_screens`, a once-a-second sampling task in `build_app` (`screen_every`), the full frame queued right after `replay_done`. `astra_console`: hands the session to the hub when the monitor opens, ends, pops out or reattaches, and the "not opened yet" / missing note at startup. `docs/CONSOLE_REMOTE.md` has the Screens section and the server-side notes (the session comes through `set_screen`, not `monitor_view()` read from the server thread). 10 new tests (fake session on a real `pyte.Screen`, no Tk or pty); full suite 469 passing. Smoke run against the real console and the laptop's monitor: one full 35x119 frame, every row's runs add up to `cols`, then partial frames with only the changed rows.
+- **State:** committed on `feature/console-remote-screen`, not merged.
 
 ### 2026-11-25 — Claude Code (Opus 5.5), Golurk Console: Strata pane monitors the laptop's server (branch `feature/strata-remote-monitor`, merged into master and pushed 2026-11-25)
 

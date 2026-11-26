@@ -273,6 +273,182 @@ def free_port():
         return s.getsockname()[1]
 
 
+def fake_session(cols=20, rows=5, hide_cursor=True):
+    """A TerminalSession stand-in: a real pyte screen, a lock, alive. No pty."""
+    import pyte
+    screen = pyte.Screen(cols, rows)
+    stream = pyte.Stream(screen)
+    session = types.SimpleNamespace(screen=screen, stream=stream, lock=threading.Lock(),
+                                    alive=True)
+    if hide_cursor:
+        stream.feed("\x1b[?25l")
+    return session
+
+
+def draw(session, text):
+    with session.lock:
+        session.stream.feed(text)
+
+
+class ScreenTests(unittest.TestCase):
+    """Screen frames: sampling, diffs, and when a full frame is due. No Tk, no pty."""
+
+    def test_sample_copies_every_row_as_runs_and_leaves_dirty_alone(self):
+        import console_terminal as term
+        session = fake_session()
+        draw(session, "\x1b[31mred\x1b[0m ok")
+        session.screen.dirty.update({0, 3})
+        dirty = set(session.screen.dirty)
+        sample = cr.sample_screen(session)
+        self.assertEqual(session.screen.dirty, dirty)  # the Tk view's, untouched
+        self.assertEqual((sample["rows"], sample["cols"], sample["cursor"]), (5, 20, None))
+        self.assertEqual(len(sample["grid"]), 5)
+        self.assertEqual(sample["grid"][0][0], ["red", term.NAMED["red"], term.DEFAULT_BG, False])
+        for row in sample["grid"]:
+            self.assertEqual(sum(len(run[0]) for run in row), 20)
+        self.assertIsNone(cr.sample_screen(None))
+        session.alive = False
+        self.assertIsNone(cr.sample_screen(session))
+
+    def test_a_visible_cursor_is_reported_and_drawn_reversed(self):
+        import console_terminal as term
+        session = fake_session(hide_cursor=False)
+        draw(session, "ab")
+        sample = cr.sample_screen(session)
+        self.assertEqual(sample["cursor"], [0, 2])
+        self.assertIn([" ", term.DEFAULT_BG, term.DEFAULT_FG, False], sample["grid"][0])
+
+    def test_message_shapes(self):
+        self.assertEqual(cr.screen_message("strata", "Strata (laptop)", None, note="closed"),
+                         {"type": "screen", "key": "strata", "title": "Strata (laptop)",
+                          "running": False, "note": "closed"})
+        sample = cr.sample_screen(fake_session(rows=3))
+        full = cr.screen_message("strata", "S", sample)
+        self.assertTrue(full["full"])
+        self.assertEqual(sorted(full["lines"]), ["0", "1", "2"])
+        part = cr.screen_message("strata", "S", sample, full=False, changed=[1])
+        self.assertEqual((part["full"], list(part["lines"])), (False, ["1"]))
+
+    def test_frames_full_then_changed_rows_then_nothing_while_idle(self):
+        hub, session = cr.Hub(), fake_session()
+        hub.set_screen("strata", session, "Strata (laptop)")
+        first = hub.screen_frames()
+        self.assertEqual(len(first), 1)
+        self.assertTrue(first[0]["running"] and first[0]["full"])
+        self.assertEqual(hub.screen_frames(), [])          # idle: nothing
+        draw(session, "\x1b[3;1Hhello")
+        part = hub.screen_frames()
+        self.assertEqual(len(part), 1)
+        self.assertFalse(part[0]["full"])
+        self.assertEqual(list(part[0]["lines"]), ["2"])
+        self.assertEqual(part[0]["lines"]["2"][0][0].rstrip(), "hello")
+        self.assertEqual(hub.screen_frames(), [])
+
+    def test_a_new_size_a_move_or_a_new_session_means_a_full_frame(self):
+        hub, session = cr.Hub(), fake_session()
+        hub.set_screen("strata", session, "S")
+        hub.screen_frames()
+        with session.lock:
+            session.screen.resize(8, 30)
+        frame = hub.screen_frames()[0]
+        self.assertTrue(frame["full"])
+        self.assertEqual((frame["rows"], frame["cols"], len(frame["lines"])), (8, 30, 8))
+        hub.screen_moved("strata")                       # pop out / reattach
+        self.assertTrue(hub.screen_frames()[0]["full"])
+        hub.set_screen("strata", fake_session(), "S")    # monitor restarted
+        self.assertTrue(hub.screen_frames()[0]["full"])
+
+    def test_running_false_once_when_the_monitor_stops(self):
+        hub, session = cr.Hub(), fake_session()
+        hub.set_screen("strata", session, "S")
+        hub.screen_frames()
+        session.alive = False                            # ended, console not told yet
+        stopped = hub.screen_frames()
+        self.assertEqual([f["running"] for f in stopped], [False])
+        self.assertEqual(hub.screen_frames(), [])
+        hub.set_screen("strata", None, "S", "The monitor closed.")
+        again = hub.screen_frames()                      # the console's note follows
+        self.assertEqual(again[0].get("note"), "The monitor closed.")
+        self.assertEqual(hub.screen_frames(), [])
+
+    def test_a_new_client_gets_the_last_sent_grid_so_the_next_diff_applies(self):
+        hub, session = cr.Hub(), fake_session()
+        hub.set_screen("strata", session, "S")
+        hub.screen_frames()                              # others were sent the blank grid
+        draw(session, "\x1b[2;1Hnew")                    # changes after that sample
+        initial = hub.screen_initial()[0]
+        self.assertTrue(initial["full"])
+        self.assertEqual(initial["lines"]["1"][0][0].strip(), "")   # still the sent grid
+        diff = hub.screen_frames()[0]
+        self.assertEqual(list(diff["lines"]), ["1"])
+        self.assertEqual(diff["lines"]["1"][0][0].rstrip(), "new")
+
+    def test_push_only_to_ready_clients_and_only_while_someone_is_connected(self):
+        hub, session = cr.Hub(), fake_session()
+        hub.set_screen("strata", session, "S")
+        hub.push_screens()
+        self.assertEqual(hub.screen_sent, {})            # nobody connected: no sampling
+
+        async def run():
+            ready, waiting = cr.Client(), cr.Client()
+            ready.screens = True
+            hub.clients.update({ready, waiting})
+            hub.push_screens()
+            return ready, waiting
+
+        ready, waiting = asyncio.run(run())
+        self.assertEqual([pane for pane, _ in ready.items], [cr.SCREEN])
+        self.assertEqual(list(waiting.items), [])
+
+
+class ScreenProtocolTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.hub = cr.Hub()
+        self.session = fake_session()
+        draw(self.session, "Strata monitor")
+        self.hub.set_screen("strata", self.session, "Strata (laptop)")
+        app = cr.build_app(self.hub, TOKEN, lambda: statuses(), heartbeat=5, check=0.05,
+                           screen_every=0.05)
+        self.client = TestClient(TestServer(app))
+        await self.client.start_server()
+
+    async def asyncTearDown(self):
+        await self.client.close()
+
+    async def until(self, ws, kind, timeout=3):
+        while True:
+            msg = await ws.receive(timeout=timeout)
+            self.assertEqual(msg.type, WSMsgType.TEXT, msg)
+            message = msg.json()
+            if message["type"] == kind:
+                return message
+
+    async def test_full_frame_after_replay_done_then_live_diffs(self):
+        ws = await self.client.ws_connect("/ws", headers=AUTH)
+        await self.until(ws, "replay_done")
+        full = await self.until(ws, "screen")
+        self.assertEqual((full["key"], full["title"], full["running"], full["full"]),
+                         ("strata", "Strata (laptop)", True, True))
+        self.assertEqual(len(full["lines"]), 5)
+        self.assertEqual(full["lines"]["0"][0][0].rstrip(), "Strata monitor")
+        # Drawn from another thread, as the pty reader does.
+        threading.Thread(target=draw, args=(self.session, "\x1b[4;1Hlive")).start()
+        diff = await self.until(ws, "screen")
+        self.assertFalse(diff["full"])
+        self.assertEqual(list(diff["lines"]), ["3"])
+        self.assertEqual(diff["lines"]["3"][0][0].rstrip(), "live")
+        await ws.close()
+
+    async def test_a_console_without_a_monitor_says_so(self):
+        self.hub.set_screen("strata", None, "Strata (laptop)", "The monitor hasn't opened yet.")
+        ws = await self.client.ws_connect("/ws", headers=AUTH)
+        await self.until(ws, "replay_done")
+        frame = await self.until(ws, "screen")
+        self.assertEqual(frame, {"type": "screen", "key": "strata", "title": "Strata (laptop)",
+                                 "running": False, "note": "The monitor hasn't opened yet."})
+        await ws.close()
+
+
 class FeedThreadTests(unittest.TestCase):
     def test_runs_on_its_own_thread_and_stop_frees_the_port(self):
         said = []

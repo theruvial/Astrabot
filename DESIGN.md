@@ -408,7 +408,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 ## 11. Testing
 
-- Run from the repo root: `py -3.14 -m unittest discover -s tests` (469 tests, all passing on `feature/console-remote-screen` 2026-11-25). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
+- Run from the repo root: `py -3.14 -m unittest discover -s tests` (469 tests, all passing on master after merging `feature/console-remote-screen` 2026-11-25). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
 - Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`, `test_homeassistant`, `test_console_terminal`, `test_console_remote`.
 - The Automated Librarian has its own suites: `cd automated-librarian && python3 -m unittest discover -s tests` (46 tests, all passing on the Ubuntu server with Python 3.12 on 2026-11-21). The root run above does not collect them, and they have not been run on the Windows host.
 - No tests yet for `music.py`, `clip.py` (beyond imports), `moderation.py` or the legacy cogs.
@@ -450,11 +450,11 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
 
-### 2026-11-25 — Claude Code (Opus 5.5), Golurk Console remote feed: Strata monitor screens for the phone (branch `feature/console-remote-screen`, not merged)
+### 2026-11-25 — Claude Code (Opus 5.5), Golurk Console remote feed: Strata monitor screens for the phone (branch `feature/console-remote-screen`, merged into master and pushed 2026-11-25)
 
 - **Why:** hand-over from the Golurk Console Mobile session: the app (branch `feature/strata-screen` of the mobile repo) shows the Strata monitor; its PROTOCOL.md "Screens" section is the contract.
 - **What:** `console_remote`: `sample_screen`, `screen_message`, `Hub.set_screen` / `screen_moved` / `screen_initial` / `screen_frames` / `push_screens`, a once-a-second sampling task in `build_app` (`screen_every`), the full frame queued right after `replay_done`. `astra_console`: hands the session to the hub when the monitor opens, ends, pops out or reattaches, and the "not opened yet" / missing note at startup. `docs/CONSOLE_REMOTE.md` has the Screens section and the server-side notes (the session comes through `set_screen`, not `monitor_view()` read from the server thread). 10 new tests (fake session on a real `pyte.Screen`, no Tk or pty); full suite 469 passing. Smoke run against the real console and the laptop's monitor: one full 35x119 frame, every row's runs add up to `cols`, then partial frames with only the changed rows.
-- **State:** committed on `feature/console-remote-screen`, not merged.
+- **State:** merged into master (82d9ac3) and pushed.
 
 ### 2026-11-25 — Claude Code (Opus 5.5), Golurk Console: Strata pane monitors the laptop's server (branch `feature/strata-remote-monitor`, merged into master and pushed 2026-11-25)
 

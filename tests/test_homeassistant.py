@@ -874,5 +874,287 @@ class ReloadTests(unittest.IsolatedAsyncioTestCase):
         bot.get_cog.assert_not_called()
 
 
+# ------------------------------------------------------------------- steps --
+
+def thought_call(thinking="I should check the fan.", calls=None):
+    return {"type": "model", "thinking": thinking, "seconds": 4.21, "input_tokens": 2314,
+            "output_tokens": 156,
+            "calls": [{"id": "c1", "name": "status", "args": {"target": "Bed Fan"}}]
+            if calls is None else calls}
+
+
+def result(call_id="c1", name="status", ok=True, text="Bed Fan: on 40%"):
+    return {"type": "tool", "id": call_id, "name": name, "ok": ok, "result": text,
+            "seconds": 0.12}
+
+
+class Outbox:
+    def __init__(self, failures=0):
+        self.messages, self.failures = [], failures
+
+    async def __call__(self, content):
+        if self.failures:
+            self.failures -= 1
+            raise RuntimeError("Discord said no")
+        self.messages.append(content)
+
+
+class StepMessageTests(unittest.TestCase):
+    def test_reasoning_then_the_calls_as_in_langchat(self):
+        self.assertEqual(hac.step_messages(thought_call("First.\n\nSecond.")), [
+            "\U0001f4ad **Thinking**\nFirst.\n\nSecond.",
+            "\U0001f527 Calling: **status**"])
+        two = thought_call("", calls=[{"id": "a", "name": "calc", "args": {}},
+                                      {"id": "b", "name": "web_search", "args": {}}])
+        self.assertEqual(hac.step_messages(two),
+                         ["\U0001f527 Calling: **calc, web\\_search**"])
+
+    def test_result_cards(self):
+        self.assertEqual(hac.step_messages(result(), {"target": "Bed Fan"}),
+                         ['\U0001f527 **`status`** — `target="Bed Fan"`\n'
+                          '```\nBed Fan: on 40%\n```'])
+        failed = hac.step_messages(result(ok=False, text="error: no such device"))[0]
+        self.assertEqual(failed, "❌ **`status`** failed\n```\nerror: no such device\n```")
+        self.assertIn("(no output)", hac.step_messages(result(text=""))[0])
+
+    def test_arguments_are_one_clipped_line(self):
+        summary = hac.args_summary({"text": "a`b\nc", "n": 3, "skip": "", "opts": {"p": 5}})
+        self.assertEqual(summary, 'text="a\'b ⏎ c", n=3, opts={"p": 5}')
+        self.assertLessEqual(len(hac.args_summary({f"k{i}": "x" * 200 for i in range(9)})),
+                             hac.STEP_ARGS_LIMIT + 1)
+
+    def test_a_result_is_cut_at_500_and_cannot_close_its_block(self):
+        card = hac.step_messages(result(text="```\n" + "y" * 5000))[0]
+        self.assertEqual(card.count("```"), 2)
+        self.assertTrue(card.endswith("...\n```"))
+        self.assertLess(len(card), hac.STEP_SNIPPET + 80)
+
+    def test_long_reasoning_is_split_with_a_header_on_every_part(self):
+        text = "```python\n" + "print('a line of code here')\n" * 150 + "```\n" + "word " * 500
+        parts = hac.step_messages(thought_call(text, calls=[]))
+        self.assertGreater(len(parts), 2)
+        for part in parts:
+            self.assertTrue(part.startswith(hac.THINKING_HEADER), part[:40])
+            self.assertLessEqual(len(part), hac.STEP_PAGE_LIMIT)
+            self.assertEqual(part.count("```") % 2, 0)
+        huge = "".join(hac.thinking_messages("z" * 100_000))
+        self.assertLess(len(huge), hac.STEP_THINKING_LIMIT + 600)
+
+    def test_notes_and_events_with_nothing_to_show(self):
+        self.assertEqual(hac.step_messages({"type": "note", "text": "Switched to code mode."}),
+                         ["\U0001f501 Switched to code mode."])
+        self.assertEqual(hac.step_messages(thought_call("", calls=[])), [])
+        self.assertEqual(hac.step_messages({"type": "something new"}), [])
+
+    def test_only_a_real_on_step_parameter_counts(self):
+        class New:
+            async def chat(self, cid, text, on_step=None):
+                pass
+
+        self.assertTrue(hac.accepts_steps(New()))
+        self.assertFalse(hac.accepts_steps(FakeAgent()))   # **kw is not enough
+        self.assertFalse(hac.accepts_steps(None))
+
+    def test_show_steps_setting(self):
+        self.assertTrue(hac.load_settings({}, env={})["show_steps"])
+        off = {"homeassistant": {"show_steps": False}}
+        self.assertFalse(hac.load_settings(off, env={})["show_steps"])
+
+    def test_no_step_message_is_read_back_as_an_answer(self):
+        events = [thought_call("thought " * 600), result(), result(ok=False),
+                  {"type": "note", "text": "Switched to code mode."}]
+        posted = [m for e in events for m in hac.step_messages(e, {"a": 1})]
+        posted += ["⏳ Still working… (20s)",
+                   hac._card_head("❌", "use", " not run", None)]
+        msgs = ([said(THEA, "how is the fan?")] + [said(BOT.id, m) for m in posted]
+                + [said(BOT.id, "It's on.")])
+        self.assertEqual(hac.thread_turns(msgs, BOT.id, frozenset({THEA})),
+                         [("user", "Thea: how is the fan?"), ("assistant", "It's on.")])
+
+
+class StepFeedTests(unittest.IsolatedAsyncioTestCase):
+    async def test_each_step_is_its_own_message_in_order(self):
+        box = Outbox()
+        feed = hac.StepFeed(box)
+        feed.add(thought_call())
+        feed.add(result())
+        await feed.close()
+        self.assertEqual([m[:2] for m in box.messages],
+                         ["\U0001f4ad ", "\U0001f527 ", "\U0001f527 "])
+        self.assertIn('target="Bed Fan"', box.messages[2])  # args come from the call
+        self.assertTrue(feed.showed_thinking())
+
+    async def test_adding_never_waits_for_discord(self):
+        release, sent = asyncio.Event(), []
+
+        async def slow(content):
+            await release.wait()
+            sent.append(content)
+
+        feed = hac.StepFeed(slow)
+        for _ in range(5):
+            feed.add(result())          # returns at once although nothing can be sent
+        self.assertEqual(sent, [])
+        release.set()
+        await feed.close()
+        self.assertEqual(len(sent), 5)
+
+    async def test_a_call_with_no_result_is_marked_not_run(self):
+        box = Outbox()
+        feed = hac.StepFeed(box)
+        feed.add(thought_call("", calls=[{"id": "a", "name": "calc", "args": {}},
+                                         {"id": "b", "name": "use", "args": {"action": "x"}}]))
+        feed.add(result("a", "calc"))
+        await feed.close()
+        self.assertEqual(box.messages[-1], '❌ **`use`** not run — `action="x"`')
+
+    async def test_a_quiet_stretch_says_still_working_then_waits_for_the_gap(self):
+        box = Outbox()
+        feed = hac.StepFeed(box, heartbeat=0.02, gap=60)
+        feed.start()
+        await asyncio.sleep(0.15)
+        await feed.close()
+        self.assertEqual(len(box.messages), 1, box.messages)
+        self.assertTrue(box.messages[0].startswith("⏳ Still working"))
+
+    async def test_the_first_still_working_comes_after_one_quiet_interval(self):
+        box = Outbox()
+        feed = hac.StepFeed(box, heartbeat=0.2, gap=60)
+        feed.start()
+        await asyncio.sleep(0.3)             # one interval has passed, not two
+        await feed.close()
+        self.assertEqual(box.messages, ["\u23f3 Still working\u2026 (0.2s)"])
+
+    async def test_no_still_working_while_busy_paused_or_closed(self):
+        box = Outbox()
+        feed = hac.StepFeed(box, heartbeat=0.05, gap=0)
+        feed.start()
+        for _ in range(6):
+            await asyncio.sleep(0.015)
+            feed.add({"type": "something new"})   # activity, nothing to post
+        await feed.pause()                        # waiting for Allow / Deny
+        await asyncio.sleep(0.15)
+        await feed.close()
+        await asyncio.sleep(0.1)
+        self.assertEqual(box.messages, [])
+
+    async def test_a_failed_post_is_dropped_and_keeps_the_spoiler(self):
+        box = Outbox(failures=1)
+        feed = hac.StepFeed(box)
+        with self.assertLogs("homeassistant", "WARNING"):
+            feed.add(thought_call())
+            await feed.close()
+        self.assertEqual(box.messages, ["\U0001f527 Calling: **status**",
+                                        "❌ **`status`** not run — `target=\"Bed Fan\"`"])
+        self.assertFalse(feed.showed_thinking())
+
+    async def test_a_bad_event_is_logged_not_raised(self):
+        feed = hac.StepFeed(Outbox())
+        with self.assertLogs("homeassistant", "ERROR"):
+            feed.add(None)
+        await feed.close()
+
+
+class StepAgent(FakeAgent):
+    """An agent that reports steps, as AGENT_STEPS_DESIGN.md describes."""
+
+    def __init__(self, events=(), error=None, ask=False):
+        super().__init__()
+        self.events, self.error, self.ask = list(events), error, ask
+        self.on_step_seen = []
+
+    async def chat(self, cid, text, confirm, speaker, think=None, on_step=None, **kw):
+        self.on_step_seen.append(on_step)
+        for event in self.events:
+            if on_step:
+                on_step(event)
+        if self.ask:
+            await confirm("unlock the door")
+            if on_step:
+                on_step({"type": "note", "text": "after the prompt"})
+        if self.error:
+            raise self.error
+        out = reply()
+        out.thought, out.thinking = True, "I should check the fan."
+        return out
+
+
+class StepPlace(Place):
+    """A channel or thread that also records the send flags."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.flags = []
+
+    async def send(self, content, view=None, allowed_mentions=None, **flags):
+        self.flags.append(flags)
+        self.sent.append(content)
+        return content
+
+
+class StepAnswerTests(unittest.IsolatedAsyncioTestCase):
+    def cog(self, agent, **over):
+        cog = hac.HomeAssistant(types.SimpleNamespace(user=BOT), settings(**over), agent=agent)
+        cog.started = True
+        return cog
+
+    async def test_steps_come_before_the_answer_in_the_thread_without_pinging(self):
+        agent = StepAgent([thought_call(), result()])
+        thread = StepPlace(50, parent_id=42)
+        await self.cog(agent).on_message(chat_message(Place(42), thread=thread))
+        self.assertEqual(len(thread.sent), 4, thread.sent)
+        self.assertTrue(thread.sent[0].startswith(hac.THINKING_HEADER))
+        self.assertTrue(thread.sent[3].startswith("Done it."))
+        self.assertEqual(thread.flags[:3], [{"silent": True, "suppress_embeds": True}] * 3)
+        self.assertNotIn("Reasoning (tap to show)", "".join(thread.sent))
+
+    async def test_turned_off_keeps_the_spoiler_and_asks_for_no_steps(self):
+        agent = StepAgent([thought_call()])
+        cog = self.cog(agent, show_steps=False)
+        self.assertIsNone(cog._step_feed(Outbox()))
+        parts = await cog.answer("c", "hi", message().author, no_confirm)
+        self.assertIn("Reasoning (tap to show)", parts[-1])
+        self.assertEqual(agent.on_step_seen, [None])
+
+    async def test_an_older_agent_gets_no_on_step_and_keeps_the_spoiler(self):
+        def old(*_):
+            out = reply()
+            out.thought, out.thinking = True, "hmm"
+            return out
+
+        agent, box = FakeAgent(chat=old), Outbox()
+        cog = self.cog(agent)
+        parts = await cog.answer("c", "hi", message().author, no_confirm,
+                                 steps=cog._step_feed(box))
+        self.assertIn("Reasoning (tap to show)", parts[-1])
+        self.assertEqual(box.messages, [])
+
+    async def test_steps_are_posted_even_when_the_answer_fails(self):
+        box = Outbox()
+        cog = self.cog(StepAgent([thought_call()], error=asyncio.TimeoutError()))
+        with self.assertLogs("homeassistant", "ERROR"):
+            parts = await cog.answer("c", "hi", message().author, no_confirm,
+                                     steps=cog._step_feed(box))
+        self.assertEqual(parts, ["That took too long, try again."])
+        self.assertTrue(box.messages[-1].startswith("❌ **`status`** not run"))
+
+    async def test_a_confirm_prompt_sits_between_the_steps(self):
+        agent = StepAgent([thought_call(), result()], ask=True)
+        thread = StepPlace(50, parent_id=42)
+
+        def quick_confirm(send, owner_id):
+            async def confirm(summary):
+                await send(f"Allow {summary}?", None)
+                return False
+            return confirm
+
+        with mock.patch.object(hac, "make_confirm", quick_confirm):
+            await self.cog(agent).on_message(chat_message(Place(42), thread=thread))
+        self.assertEqual(len(thread.sent), 6, thread.sent)
+        self.assertTrue(thread.sent[3].startswith("Allow "))
+        self.assertIn("after the prompt", thread.sent[4])
+        self.assertTrue(thread.sent[5].startswith("Done it."))
+
+
 if __name__ == "__main__":
     unittest.main()

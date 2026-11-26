@@ -24,6 +24,17 @@ without it.
 Replay without gaps or repeats: a new client registers for live lines first,
 then takes the buffer snapshot (which records the last seq); live lines with a
 seq at or below that are dropped, since the replay already had them.
+
+Screens (added 2026-11-25, still protocol 1): the Strata pane's monitor grid,
+sent as ``screen`` frames. The console hands the hub the live
+``TerminalSession`` with ``Hub.set_screen`` (on open and end) and
+``Hub.screen_moved`` (pop out / reattach), from the Tk thread; the hub keeps
+only that reference. Once a second, and only while a client is connected, the
+server loop copies every row under ``session.lock`` (``sample_screen``; it
+never reads or clears ``screen.dirty``, which is the Tk view's) and diffs
+against the grid it last sent. Everything that compares and stores grids runs
+on the server loop alone, so a new client's full frame (the last-sent grid)
+and the next diff always line up. Not buffered, no seq, never replayed.
 """
 
 from __future__ import annotations
@@ -39,6 +50,8 @@ import threading
 import time
 from collections import deque
 
+from console_terminal import screen_runs
+
 PROTOCOL = 1
 DEFAULT_PORT = 13386
 MIN_TOKEN_LENGTH = 32
@@ -50,6 +63,8 @@ MAX_BEHIND = 5000           # queued messages before a client is closed with 101
 WS_PING_SECONDS = 30
 CLOSE_GOING_AWAY = 1001
 CLOSE_TRY_AGAIN = 1013
+SCREEN_SECONDS = 1          # screens are sampled at most this often
+SCREEN = "__screen__"       # Client.items marker: the item is a whole screen frame
 
 # Built-in panes in protocol order. Site and portfolio are cogs inside the bot:
 # they show the bot's state and clients do not alert on them.
@@ -162,6 +177,7 @@ class Client:
         self.items: deque = deque()
         self.event = asyncio.Event()
         self.overflow = False
+        self.screens = False   # has had its full screen frames; diffs only after
 
     def push(self, pane, line):
         if self.overflow:
@@ -171,6 +187,41 @@ class Client:
             self.overflow = True
             self.items.clear()
         self.event.set()
+
+
+def sample_screen(session) -> dict | None:
+    """``{"rows", "cols", "cursor", "grid"}`` copied from a TerminalSession, or
+    None when it isn't running. Takes ``session.lock`` (the reader thread feeds
+    the screen under it) and never touches ``screen.dirty``. ``grid`` is one
+    list of ``[text, fg, bg, bold]`` runs per row, ``screen_runs`` output with
+    the cursor cell drawn reversed, as the console shows it."""
+    if session is None or not getattr(session, "alive", False):
+        return None
+    with session.lock:
+        screen = session.screen
+        rows, cols = screen.lines, screen.columns
+        cursor = screen.cursor
+        cursor_at = None if cursor.hidden else [cursor.y, cursor.x]
+        grid = [[list(run) for run in screen_runs(
+                    screen.buffer[r], cols,
+                    cursor.x if cursor_at is not None and r == cursor.y else None)]
+                for r in range(rows)]
+    return {"rows": rows, "cols": cols, "cursor": cursor_at, "grid": grid}
+
+
+def screen_message(key, title, sample, full=True, changed=None, note=None) -> dict:
+    """One ``screen`` frame. ``sample`` None = not running (with ``note``).
+    ``changed``: the row numbers for a partial frame. Pure."""
+    if sample is None:
+        frame = {"type": "screen", "key": key, "title": title, "running": False}
+        if note:
+            frame["note"] = note
+        return frame
+    rows = range(sample["rows"]) if full else changed
+    return {"type": "screen", "key": key, "title": title, "running": True,
+            "rows": sample["rows"], "cols": sample["cols"], "full": full,
+            "cursor": sample["cursor"],
+            "lines": {str(r): sample["grid"][r] for r in rows}}
 
 
 class Hub:
@@ -185,6 +236,81 @@ class Hub:
         self.lock = threading.Lock()
         self.loop: asyncio.AbstractEventLoop | None = None
         self.clients: set[Client] = set()
+        # key -> {"session", "title", "note", "gen"}; written from the Tk
+        # thread under self.lock. gen goes up whenever a full frame is due.
+        self.screens: dict[str, dict] = {}
+        # key -> what was last sent ({"gen", "sample"}); server loop only.
+        self.screen_sent: dict[str, dict] = {}
+
+    # -- screens: the console's side (any thread) --
+    def set_screen(self, key, session, title, note=None) -> None:
+        """The pane's terminal session now (None: no monitor open, ``note``
+        says why). A new session, or none, always means a full frame."""
+        with self.lock:
+            old = self.screens.get(key, {})
+            self.screens[key] = {"session": session, "title": title, "note": note,
+                                 "gen": old.get("gen", 0) + 1}
+
+    def screen_moved(self, key) -> None:
+        """Same session, new view (pop out / reattach): send a full frame."""
+        with self.lock:
+            if key in self.screens:
+                self.screens[key]["gen"] += 1
+
+    def _screen_sources(self):
+        with self.lock:
+            return [(key, dict(src)) for key, src in self.screens.items()]
+
+    # -- screens: the server loop's side --
+    def screen_initial(self) -> list[dict]:
+        """Full frames for a client that just finished its replay: the grid
+        last sent to the others (so the next diff applies), or a fresh sample
+        when nobody had one."""
+        frames = []
+        for key, src in self._screen_sources():
+            sent = self.screen_sent.get(key)
+            if sent is None or sent["gen"] != src["gen"]:
+                sent = self.screen_sent[key] = {"gen": src["gen"],
+                                                "sample": sample_screen(src["session"])}
+            frames.append(screen_message(key, src["title"], sent["sample"], note=src["note"]))
+        return frames
+
+    def screen_frames(self) -> list[dict]:
+        """What changed since the last call, as frames for every ready client:
+        a full frame for a new or moved session or a new size, changed rows
+        otherwise, ``running: false`` once when the monitor stops, nothing
+        while the screen is idle."""
+        frames = []
+        for key, src in self._screen_sources():
+            sample = sample_screen(src["session"])
+            sent = self.screen_sent.get(key)
+            self.screen_sent[key] = {"gen": src["gen"], "sample": sample}
+            last = sent["sample"] if sent else None
+            if sample is None:
+                if sent is None or last is not None or sent["gen"] != src["gen"]:
+                    frames.append(screen_message(key, src["title"], None, note=src["note"]))
+                continue
+            if (sent is None or last is None or sent["gen"] != src["gen"]
+                    or (last["rows"], last["cols"]) != (sample["rows"], sample["cols"])):
+                frames.append(screen_message(key, src["title"], sample))
+                continue
+            changed = [r for r in range(sample["rows"]) if sample["grid"][r] != last["grid"][r]]
+            if changed or sample["cursor"] != last["cursor"]:
+                frames.append(screen_message(key, src["title"], sample, full=False,
+                                             changed=changed))
+        return frames
+
+    def push_screens(self) -> None:
+        """One sampling tick (server loop): diffs to every ready client. With
+        nobody connected nothing is sampled and the last-sent grids are
+        dropped, so the next client starts from a fresh sample."""
+        if not self.clients:
+            self.screen_sent.clear()
+            return
+        for frame in self.screen_frames():
+            for client in list(self.clients):
+                if client.screens:
+                    client.push(SCREEN, frame)
 
     def publish(self, stream, text) -> None:
         """Called from any thread. Never raises into the console."""
@@ -250,7 +376,8 @@ class TapQueue(queue.Queue):
 
 # -- the server ---------------------------------------------------------------------
 def build_app(hub: Hub, token: str, status_fn, console_name: str = "Golurk Console",
-              heartbeat: float = HEARTBEAT_SECONDS, check: float = STATUS_CHECK_SECONDS):
+              heartbeat: float = HEARTBEAT_SECONDS, check: float = STATUS_CHECK_SECONDS,
+              screen_every: float = SCREEN_SECONDS):
     """The aiohttp application. ``status_fn()`` returns the pane list (see
     ``pane_entries``); it runs on the server loop and must not touch Tk."""
     from aiohttp import WSMsgType, web
@@ -304,6 +431,11 @@ def build_app(hub: Hub, token: str, status_fn, console_name: str = "Golurk Conso
             for pane, lines in replay:
                 await ws.send_json({"type": "replay", "pane": pane, "lines": lines})
             await ws.send_json({"type": "replay_done", "last_seq": last_seq})
+            # Queued, not sent here, and marked ready in the same step (no await
+            # between), so no screen diff can slip in before the full frame.
+            for frame in hub.screen_initial():
+                client.push(SCREEN, frame)
+            client.screens = True
             while not ws.closed and not reader.done():
                 try:
                     await asyncio.wait_for(client.event.wait(), check)
@@ -315,6 +447,9 @@ def build_app(hub: Hub, token: str, status_fn, console_name: str = "Golurk Conso
                     break
                 while client.items and not ws.closed:
                     pane, line = client.items.popleft()
+                    if pane == SCREEN:
+                        await ws.send_json(line)
+                        continue
                     if line["seq"] <= last_seq:
                         continue  # already in the replay
                     await ws.send_json({"type": "line", "pane": pane, **line})
@@ -333,11 +468,23 @@ def build_app(hub: Hub, token: str, status_fn, console_name: str = "Golurk Conso
             reader.cancel()
         return ws
 
-    async def attach_loop(_app):
-        hub.loop = asyncio.get_running_loop()
+    async def sample_screens():
+        while True:
+            await asyncio.sleep(screen_every)
+            try:
+                hub.push_screens()
+            except Exception:  # noqa: BLE001 -- a bad sample must not end the loop
+                pass
 
-    async def close_sockets(_app):
+    async def attach_loop(app_):
+        hub.loop = asyncio.get_running_loop()
+        app_["screens"] = asyncio.create_task(sample_screens())
+
+    async def close_sockets(app_):
         hub.loop = None
+        task = app_.get("screens")
+        if task is not None:
+            task.cancel()
         for ws in list(sockets):
             await ws.close(code=CLOSE_GOING_AWAY, message=b"console closing")
 

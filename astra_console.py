@@ -1110,6 +1110,7 @@ def main():
             console_strata.monitor_argv(strata_cfg["dir"], url), strata_cfg["dir"], rows, cols,
             on_exit=lambda: lines.put(("__monitor_ended__", None)))
         session.start()
+        remote_hub.set_screen(STRATA_KEY, session, strata_title)  # the phone's copy
         return session
 
     def monitor_view():
@@ -1203,6 +1204,7 @@ def main():
         session = docked.detach()
         if session is not None and session.alive:
             view.attach(session)
+            remote_hub.screen_moved(STRATA_KEY)
         else:
             win.after(300, open_monitor)
         view.text.focus_set()
@@ -1222,6 +1224,7 @@ def main():
         docked = strata_state["view"]
         if session is not None and session.alive:
             docked.attach(session)
+            remote_hub.screen_moved(STRATA_KEY)
         elif session is not None:
             session.close()
         if not docked.running:
@@ -1241,6 +1244,8 @@ def main():
                       or ("" if console_strata.is_installed(strata_cfg["dir"]) else
                           f"Strata not found in {strata_cfg['dir'] or '(no folder set)'}; "
                           "set strata.dir in console.json."))
+    remote_hub.set_screen(STRATA_KEY, None, strata_title,
+                          strata_missing or "The monitor hasn't opened yet.")
     if strata_missing:
         tk.Label(strata_content, text=strata_missing, bg=card, fg=secondary, anchor="nw",
                  justify="left", font=("Segoe UI", 10), wraplength=900).pack(
@@ -1527,6 +1532,7 @@ def main():
                     ended = (f"[{datetime.now():%H:%M:%S}] The monitor closed. "
                              "Press Monitor to open it again.")
                     strata_note.configure(text=ended)
+                    remote_hub.set_screen(STRATA_KEY, None, strata_title, ended)
                     if popout["window"] is not None:
                         popout["note"].configure(text=ended)
                 continue

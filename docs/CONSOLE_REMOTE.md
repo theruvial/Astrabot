@@ -76,8 +76,53 @@ Server to client, all JSON text frames with a `type`:
    `{"type":"replay_done","last_seq":4812}`
 5. `line`, live, for every new line after that (never one already replayed):
    `{"type":"line","pane":"bot","seq":4813,"ts":...,"text":"..."}`
+6. `screen`, for full-screen programs the console shows in a terminal pane (today only
+   the **Strata monitor**). See "Screens" below.
 
 Unknown `type`s must be ignored by the client (forward compatibility).
+
+## Screens (added 2026-11-25; still `"protocol": 1`, clients without it ignore the type)
+
+The Strata pane runs the interactive `strata.py monitor` (a Textual TUI) in a pseudo
+console; `console_terminal.TerminalSession` keeps its screen as a `pyte` grid. The feed
+mirrors that grid so the phone shows the same picture. **Watch-only**: no keys, clicks or
+resizes come from the phone.
+
+```json
+{"type":"screen","key":"strata","title":"Strata (laptop)","running":true,
+ "rows":40,"cols":160,"full":true,"cursor":[12,3],
+ "lines":{"0":[["Strata monitor ","d9d9d9","121212",true],["  ok","0dbc79","121212",false]],
+          "1":[...]}}
+```
+
+- `key`: the pane key (`strata`). `title`: the pane title for display.
+- `running`: false when no monitor is open in the console (not opened yet, closed, Strata
+  not installed). Then `rows`/`cols`/`lines` are absent and `note` (optional string) says
+  why, e.g. the pane's header note. The client shows nothing but the note.
+- `rows`, `cols`: the grid size the monitor is drawn at (the console's pane size; the
+  phone never changes it).
+- `full`: true = `lines` holds **every** row `0..rows-1` and replaces the client's grid;
+  false = `lines` holds only rows that changed since the last `screen` for this key (it
+  can be empty when only the cursor moved).
+- `lines`: row index (a string, JSON object keys) to that row as runs
+  `[text, fg, bg, bold]`, exactly `console_terminal.screen_runs` output: neighbouring
+  cells with the same look joined (trailing blanks included), colours as 6-digit hex
+  without `#`, reverse video already resolved, the second half of a wide character
+  dropped. Runs of one row add up to `cols` cells.
+- `cursor`: `[row, col]` or null when hidden. Informational; the cursor cell is already
+  drawn reversed in `lines`, as the console shows it.
+
+When the server sends it:
+- one `full` frame per screen right after `replay_done` on every connect;
+- then changed rows at most **once per second** (`full: false`), only while something
+  changed; nothing at all while the screen is idle;
+- a `full` frame again whenever the size changes or the monitor (re)starts, pops out or
+  reattaches;
+- `running: false` once when the monitor stops (and again if the console's note for it
+  changes, e.g. "The monitor closed. Press Monitor to open it again.").
+
+Screen frames are not part of `seq`/replay and are not buffered: a reconnect always starts
+with a `full` frame.
 
 Client to server: nothing in v1. Anything received is ignored.
 
@@ -101,3 +146,13 @@ messages behind (reconnect with `boot`/`since`).
 - Status comes from `remote_status()` in `main()`: the same supervisors as the status
   bar, plus `custom.values()` at call time.
 - Stopped in `on_close()` and in `restart_console()` before the relaunch.
+- Screens: the console gives the hub the live `TerminalSession` from the Tk thread,
+  `Hub.set_screen(key, session, title, note)` when the monitor opens or ends (None plus
+  the header note when there is none) and `Hub.screen_moved(key)` on pop out and
+  reattach; the server thread never reaches into Tk for it. A task on the server loop
+  runs `Hub.push_screens()` every second; with no client connected it samples nothing.
+  `sample_screen` copies every row with `screen_runs` **under `session.lock`** and never
+  reads or clears `screen.dirty` (that set belongs to the Tk `TerminalView`). The
+  last-sent grid per key (`Hub.screen_sent`) is kept and compared on the server loop
+  only, and a new client's full frame is that last-sent grid, so the next diff applies
+  to it. The session is never resized for the phone.

@@ -47,6 +47,20 @@ thinks for that one message without touching the setting. A reply that was
 thought about gets a brain in its footer and its reasoning, cut short, as a
 spoiler in a last message.
 
+Steps (``show_steps``, on by default): while the agent works, the cog shows its
+thought process and tool calls the way Justin's LangChat Discord bot does, each
+as its own message in the same thread, as it happens (``StepFeed``):
+"💭 **Thinking**" with the reasoning (only when thinking is on; there is
+none otherwise), "🔧 Calling: **names**", then a card per result with the
+arguments and the first 500 characters of what came back ("\u274c ... failed" on an
+error), plus the agent's own notes (mode handoff, retries). After 20 s with
+nothing new it posts "\u23f3 Still working…", then at most every 120 s. Unlike
+LangChat they are sent silently, with no pings or link previews, and thread
+restore skips them (``STEP_PREFIXES``). When the reasoning was posted, the
+reasoning spoiler is left off. All but "Still working" needs an agent whose
+``chat()`` takes ``on_step`` (``docs/AGENT_STEPS_DESIGN.md``). Tool results
+(notes, documents, device states) show to everyone who can read the channel.
+
 Modes (the agent's, one model with two prompts): ``general`` (default: the
 house, questions, web lookups, math, notes, timers; hands coding to ``code``
 by itself) and ``code`` (answers only). ``home`` is an old alias of general.
@@ -75,6 +89,7 @@ Configuration (``config.json`` ``"homeassistant"`` object):
   new message there opens a thread.
 - ``history_turns`` (default 6): exchanges the agent remembers per
   conversation (per thread).
+- ``show_steps`` (default true): post reasoning, tool calls and "still working".
 - ``ha_token``: blank = the ``HA_TOKEN`` environment variable (recommended).
   A long-lived Home Assistant token; never commit it or log it.
 - ``ha_url``, ``ollama_url``, ``model``: blank = the agent's own defaults or its
@@ -93,11 +108,13 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import inspect
 import json
 import logging
 import os
 import re
 import sys
+from collections import deque
 from pathlib import Path
 
 import aiohttp
@@ -137,6 +154,18 @@ REASONING_LIMIT = 1800  # leaves room for the label and spoiler bars
 BRAIN = "\U0001f9e0"
 NO_PINGS = discord.AllowedMentions.none()
 
+STEP_PAGE_LIMIT = 1900
+STEP_THINKING_LIMIT = 8000  # per model call: a runaway thought can't flood the thread
+STEP_SNIPPET = 500          # of a tool result, as LangChat shows it
+STEP_ARG_LIMIT = 70         # one argument's value in a result card's header
+STEP_ARGS_LIMIT = 160       # the whole header's arguments
+STEP_HISTORY_ROOM = 20      # extra messages per exchange to read when restoring a thread
+HEARTBEAT_SECONDS = 20      # quiet this long: "Still working"
+HEARTBEAT_GAP_SECONDS = 120  # and at most this often after that
+THINKING_HEADER = "\U0001f4ad **Thinking**"
+# How every step message starts, so thread restore never reads one as an answer.
+STEP_PREFIXES = ("\U0001f527 Calling: **", "\U0001f527 **`", "\u274c **`", THINKING_HEADER[:-2],
+                 "\u23f3 Still working", "\U0001f501 ")
 
 # ---------------------------------------------------------------- settings --
 
@@ -184,6 +213,7 @@ def load_settings(cfg, env=None) -> dict:
         "timeout": timeout,
         "history_turns": history_turns,
         "dm_users": dm_users,
+        "show_steps": bool(raw.get("show_steps", True)),
         "fake_ha": bool(raw.get("fake_ha", False)),
         "fake_ha_path": text("fake_ha_path"),
     }
@@ -227,7 +257,7 @@ def agent_place(channel, channel_id: int) -> str | None:
 def _bot_noise(text: str) -> bool:
     """Bot messages that aren't the agent's answers: prompts, errors, notices,
     and finished-timer messages (``deliver_timer``; the agent writes them)."""
-    return (text.startswith(("Allow **", "||", "Thinking is now", "Home Assistant isn't",
+    return text.startswith(STEP_PREFIXES) or (text.startswith(("Allow **", "||", "Thinking is now", "Home Assistant isn't",
                              "The local model isn't", "That took too long",
                              "Something went wrong talking", "The house agent",
                              "The ha_agent package", "No Home Assistant token",
@@ -401,13 +431,184 @@ def reasoning_message(thinking: str, limit: int = REASONING_LIMIT) -> str | None
     return f"-# {BRAIN} Reasoning (tap to show)\n||{thinking}||"
 
 
-def reply_messages(reply) -> list[str]:
-    """The Discord messages for one agent reply: text and footer, then reasoning."""
+def reply_messages(reply, spoiler: bool = True) -> list[str]:
+    """The Discord messages for one agent reply: text and footer, then reasoning.
+
+    ``spoiler`` False leaves the reasoning off (it was already shown live)."""
     parts = split_message(f"{reply.text.strip() or 'Done.'}\n{action_footer(reply)}")
     reasoning = None
-    if getattr(reply, "thought", False):
+    if spoiler and getattr(reply, "thought", False):
         reasoning = reasoning_message(getattr(reply, "thinking", ""))
     return parts + [reasoning] if reasoning else parts
+
+
+# ------------------------------------------------------------------- steps --
+
+def accepts_steps(agent) -> bool:
+    """Whether ``agent.chat`` has an ``on_step`` parameter (older agents don't)."""
+    try:
+        return "on_step" in inspect.signature(agent.chat).parameters
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def _clipped(text: str, limit: int, mark: str = "…") -> str:
+    return text[:limit] + mark if len(text) > limit else text
+
+
+def args_summary(args) -> str:
+    """A tool call's arguments on one line for inline code: ``query="x", page=2``."""
+    if not isinstance(args, dict):
+        return ""
+    parts = []
+    for key, value in args.items():
+        if value in (None, "", [], {}):
+            continue
+        if isinstance(value, str):
+            shown = '"' + _clipped(" \u23ce ".join(value.splitlines()), STEP_ARG_LIMIT) + '"'
+        else:
+            shown = _clipped(json.dumps(value, default=str, ensure_ascii=False), STEP_ARG_LIMIT)
+        parts.append(f"{key}={shown}")
+    return _clipped(", ".join(parts), STEP_ARGS_LIMIT).replace("`", "'")
+
+
+def _card_head(mark: str, name: str, tail: str, args) -> str:
+    name = _clipped(str(name).replace("`", "'"), 80)
+    summary = args_summary(args)
+    return f"{mark} **`{name}`**{tail}" + (f" \u2014 `{summary}`" if summary else "")
+
+
+def thinking_messages(thinking: str) -> list[str]:
+    """Reasoning as one or more messages. Every part carries the header, so each
+    is recognised as a step on its own; code blocks cut in two are reopened."""
+    thinking = _clipped((thinking or "").strip(), STEP_THINKING_LIMIT, " …")
+    if not thinking:
+        return []
+    more = f"{THINKING_HEADER} (continued)"
+    parts = split_message(thinking, STEP_PAGE_LIMIT - len(more) - 1)
+    return [f"{THINKING_HEADER if i == 0 else more}\n{part}" for i, part in enumerate(parts)]
+
+
+def step_messages(event: dict, args=None) -> list[str]:
+    """The Discord messages for one ``on_step`` event (docs/AGENT_STEPS_DESIGN.md),
+    in LangChat's formats. ``args``: for a ``tool`` event, its call's arguments.
+    Unknown types give nothing. Pure."""
+    kind = event.get("type")
+    if kind == "model":
+        out = thinking_messages(event.get("thinking", ""))
+        names = ", ".join(str(c.get("name", "tool")) for c in event.get("calls") or [])
+        if names:
+            out.append(f"\U0001f527 Calling: **{_clipped(discord.utils.escape_markdown(names), 500)}**")
+        return out
+    if kind == "tool":
+        ok = event.get("ok", True)
+        head = _card_head("\U0001f527" if ok else "\u274c", event.get("name", "tool"),
+                          "" if ok else " failed", args)
+        snippet = _clipped(str(event.get("result") or "").strip(), STEP_SNIPPET, "...")
+        snippet = snippet.replace("```", "`\u200b``")  # can't close the block early
+        return [f"{head}\n```\n{snippet or '(no output)'}\n```"]
+    if kind == "note":
+        text = " ".join(str(event.get("text") or "").split())
+        return [f"\U0001f501 {_clipped(discord.utils.escape_markdown(text), 500)}"] if text else []
+    return []
+
+
+class StepFeed:
+    """Posts what the agent is doing for one request, one message per step.
+
+    ``add`` is the agent's ``on_step``: it only queues, so Discord's rate limits
+    never slow the agent; one task sends the queue in order. Between ``start``
+    and ``close`` a quiet stretch gets "Still working". Nothing here raises: a
+    message that can't be sent is logged and dropped. ``send(content)`` posts it.
+    """
+
+    def __init__(self, send, heartbeat: float = HEARTBEAT_SECONDS,
+                 gap: float = HEARTBEAT_GAP_SECONDS):
+        self.send = send
+        self.heartbeat = heartbeat
+        self.gap = gap
+        self.queue: deque = deque()
+        self.pending: dict = {}      # tool call id -> (name, args), until its result
+        self.failed = False          # some message didn't reach Discord
+        self._thought = False
+        self._paused = False         # waiting for a person (confirm buttons)
+        self._activity = 0           # counts events; a change restarts the quiet clock
+        self._sender: asyncio.Task | None = None
+        self._beat: asyncio.Task | None = None
+
+    def start(self) -> None:
+        """Begin watching for quiet stretches (call when the agent starts)."""
+        if self._beat is None:
+            self._beat = asyncio.get_running_loop().create_task(self._heartbeats())
+
+    def add(self, event: dict) -> None:
+        try:
+            kind, args = event.get("type"), None
+            self._activity += 1
+            self._paused = False
+            if kind == "model":
+                for call in event.get("calls") or []:
+                    self.pending[call.get("id")] = (call.get("name", "tool"), call.get("args"))
+                self._thought = self._thought or bool((event.get("thinking") or "").strip())
+            elif kind == "tool":
+                args = self.pending.pop(event.get("id"), (None, None))[1]
+            for message in step_messages(event, args):
+                self._post(message)
+        except Exception:  # noqa: BLE001 -- showing a step must never break an answer
+            log.exception("Couldn't show a step: %r", event)
+
+    def _post(self, message: str) -> None:
+        self.queue.append(message)
+        if self._sender is None or self._sender.done():
+            self._sender = asyncio.get_running_loop().create_task(self._send_queued())
+
+    async def _send_queued(self) -> None:
+        while self.queue:
+            message = self.queue.popleft()
+            try:
+                await self.send(message)
+            except Exception:  # noqa: BLE001
+                self.failed = True
+                log.warning("Couldn't post one of the agent's steps", exc_info=True)
+
+    async def flush(self) -> None:
+        """Wait until everything queued has been posted."""
+        while self._sender is not None and not self._sender.done():
+            await self._sender
+
+    async def pause(self) -> None:
+        """Before a confirm prompt: post what there is, so the prompt comes after
+        it, and say nothing more until the agent does."""
+        self._paused = True
+        await self.flush()
+
+    async def close(self) -> None:
+        """The answer is done (or failed): mark calls that never ran, post the rest."""
+        if self._beat is not None:
+            self._beat.cancel()
+            await asyncio.gather(self._beat, return_exceptions=True)
+            self._beat = None
+        for name, args in self.pending.values():
+            self._post(_card_head("\u274c", name, " not run", args))
+        self.pending.clear()
+        await self.flush()
+
+    async def _heartbeats(self) -> None:
+        loop = asyncio.get_running_loop()
+        seen, quiet, posted = self._activity, 0.0, None
+        while True:
+            await asyncio.sleep(self.heartbeat)
+            if self._paused or self._activity != seen:
+                seen, quiet = self._activity, 0.0
+                continue
+            quiet += self.heartbeat
+            if posted is None or loop.time() - posted >= self.gap:
+                posted = loop.time()
+                self._post(f"\u23f3 Still working… ({quiet:g}s)")
+
+    def showed_thinking(self) -> bool:
+        """The reasoning was posted, so the spoiler would only repeat it."""
+        return self._thought and not self.failed and not self.queue
 
 
 def mode_title(name: str) -> str:
@@ -698,8 +899,13 @@ class HomeAssistant(commands.Cog):
 
     # -- one answer --
 
+    def _step_feed(self, send) -> StepFeed | None:
+        """A StepFeed posting with ``send``, or None when ``show_steps`` is off."""
+        return StepFeed(send) if self.settings.get("show_steps", True) else None
+
     async def answer(self, cid: str, text: str, author, confirm,
-                     think: bool | None = None, mode: str | None = None) -> list[str]:
+                     think: bool | None = None, mode: str | None = None,
+                     steps: StepFeed | None = None) -> list[str]:
         """The messages to send back for one request (errors included).
 
         ``think`` True/False forces thinking for this message; None = the toggle.
@@ -710,6 +916,10 @@ class HomeAssistant(commands.Cog):
         if not await self._ensure_started():
             return ["Home Assistant isn't reachable right now. I'll try again next message."]
         extra = {"mode": mode} if mode else {}  # older agents have no mode argument
+        if steps is not None:
+            steps.start()
+            if accepts_steps(self.agent):  # older agents report nothing
+                extra["on_step"] = steps.add
         try:
             reply = await asyncio.wait_for(
                 self.agent.chat(cid, text, confirm=confirm, speaker=author.display_name,
@@ -718,9 +928,12 @@ class HomeAssistant(commands.Cog):
         except Exception as exc:  # noqa: BLE001
             log.exception("Home Assistant agent failed (%s)", cid)
             return [error_text(exc)]
+        finally:
+            if steps is not None:  # all steps are posted before the answer
+                await steps.close()
         log.info("HA %s: %d tool calls, %d actions, %.1f s", cid, reply.tool_calls,
                  len(reply.actions), reply.seconds)
-        return reply_messages(reply)
+        return reply_messages(reply, spoiler=not (steps and steps.showed_thinking()))
 
     def allowed(self, user) -> bool:
         return user.id in self.settings["allowed"]
@@ -740,7 +953,15 @@ class HomeAssistant(commands.Cog):
             thread = await self._open_thread(message, text)
         where = thread or message.channel
 
+        async def post_step(content):
+            return await where.send(content, allowed_mentions=NO_PINGS, silent=True,
+                                    suppress_embeds=True)
+
+        steps = self._step_feed(post_step)
+
         async def send(content, view):
+            if steps is not None:
+                await steps.pause()
             if thread is not None:
                 return await thread.send(content, view=view, allowed_mentions=NO_PINGS)
             return await message.reply(content, view=view, allowed_mentions=NO_PINGS)
@@ -750,7 +971,7 @@ class HomeAssistant(commands.Cog):
             await self._restore_thread(where, cid, skip_id=message.id)
         async with where.typing():
             parts = await self.answer(cid, text, message.author,
-                                      make_confirm(send, message.author.id))
+                                      make_confirm(send, message.author.id), steps=steps)
         if thread is not None:
             first = await thread.send(parts[0], allowed_mentions=NO_PINGS)
         else:
@@ -768,7 +989,8 @@ class HomeAssistant(commands.Cog):
         agent = self.agent
         if agent is None or not hasattr(agent, "has_history") or agent.has_history(cid):
             return 0
-        limit = 4 * self.settings.get("history_turns", 6) + 10
+        # Room for each exchange's step messages, which thread_turns then drops.
+        limit = (4 + STEP_HISTORY_ROOM) * self.settings.get("history_turns", 6) + 10
         try:
             messages = [m async for m in thread.history(limit=limit)]
         except discord.HTTPException as exc:
@@ -817,7 +1039,15 @@ class HomeAssistant(commands.Cog):
         """One request from a slash command (the caller checked the allowlist)."""
         await interaction.response.defer(thinking=True)
 
+        async def post_step(content):
+            return await interaction.followup.send(content, wait=True, allowed_mentions=NO_PINGS,
+                                                   silent=True, suppress_embeds=True)
+
+        steps = self._step_feed(post_step)
+
         async def send(content, view):
+            if steps is not None:
+                await steps.pause()
             return await interaction.followup.send(content, view=view, wait=True,
                                                    allowed_mentions=NO_PINGS)
 
@@ -826,7 +1056,7 @@ class HomeAssistant(commands.Cog):
             await self._restore_thread(interaction.channel, cid)
         parts = await self.answer(cid, text, interaction.user,
                                   make_confirm(send, interaction.user.id), think=think,
-                                  mode=mode)
+                                  mode=mode, steps=steps)
         for part in parts:
             await interaction.followup.send(part, allowed_mentions=NO_PINGS)
 

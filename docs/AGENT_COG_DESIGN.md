@@ -92,6 +92,7 @@ reply: Reply = await agent.chat(
     speaker="Thea",                    # optional display name, shown to the model
     think=None,                        # True/False = force thinking for this message; None = use the toggle
     mode=None,                         # "general"/"code" for this message only ("home" = general); None = conversation's mode
+    on_step=None,                      # plain fn(dict) called per step while it works; see "Live steps" below
 )
 agent.mode(conversation_id)            # current mode, default "general"
 agent.set_mode(conversation_id, "code")  # raises ValueError for unknown names
@@ -128,6 +129,23 @@ Different conversations can run at once; the GPU just queues them.
 
 `confirm` must return exactly `True` to allow. Anything else (`False`, `None`, a timeout) or an
 exception inside it counts as **declined**.
+
+### Live steps (`on_step`)
+Pass `on_step=fn` to see the model work while it answers. `fn` gets one plain `dict` per step, in
+order, all before `chat()` returns or raises:
+
+| `type` | When | Keys |
+|---|---|---|
+| `model` | a model call returned, before its tools run | `thinking` (str, `""` if none), `calls` (list of `{"id", "name", "args"}`, may be empty) |
+| `tool` | one tool call finished | `id` (matches a call in the `model` event), `name`, `ok` (bool), `result` (str, what the model was told, capped at 4000 chars) |
+| `note` | the agent sent the model back or switched mode | `text` (one plain sentence) |
+
+- `fn` is called, not awaited, on the event loop: buffer and return at once; post to Discord from your own task.
+- If `fn` raises, the agent logs it and carries on. With or without `on_step`, the model gets the same requests.
+- A call in `model.calls` with no `tool` event never ran (the tool-call limit refused it).
+- `ok` is False for bad arguments, an unknown tool, a declined confirmation and a tool's own `error: ...` result.
+- Fast-path and learned answers use no model and send nothing. Ignore types and keys you don't know;
+  more may be added. Check `"on_step" in inspect.signature(agent.chat).parameters` to support older agents.
 
 ### Memory, and restoring it after a restart
 - The agent keeps the last `history_turns` exchanges (default 6) per conversation id, in memory

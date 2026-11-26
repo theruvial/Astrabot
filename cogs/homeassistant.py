@@ -35,7 +35,9 @@ like a message where message content is off; ``/ha reset`` forgets the
 conversation. ``/ha reload`` reloads this whole extension (``reload_extension``):
 ``cog_unload`` drops ``ha_agent`` from ``sys.modules``, so the new cog imports the
 agent's current code from its editable install, builds and starts a fresh agent and
-re-reads Home Assistant's actions. Agent memory starts fresh (threads re-read
+re-reads Home Assistant's actions. The new cog reads ``config.json`` from disk
+(``read_config``), not the copy ``config.py`` cached at bot start, so changed
+settings (say a new ``llm_url``) apply too. Agent memory starts fresh (threads re-read
 themselves on their next message); a load that fails leaves the old code running.
 
 Thinking (Qwen reasons first: smarter, about 3x slower, off by default) is
@@ -91,6 +93,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import logging
 import os
 import re
@@ -442,18 +445,31 @@ def error_text(exc: BaseException) -> str:
     return "Something went wrong talking to the house. It's in the bot log."
 
 
+def read_config(path="config.json") -> dict:
+    """``config.json`` as it is on disk now.
+
+    ``config.py`` loads the file once when the bot starts and every
+    ``from config import config`` returns that same dict, so reading it here
+    would make ``/ha reload`` keep the old settings. A file that doesn't parse
+    raises, which makes the reload fail and leaves the old cog running."""
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
 def reload_report(cog) -> str:
     """What ``/ha reload`` says about the freshly loaded cog. Pure."""
     if cog is None:
         return "The house agent's cog didn't come back after the reload. It's in the bot log."
     if cog.agent is None:
         return f"Reloaded the code, but the house agent is off: {cog.problem or 'see the bot log.'}"
+    server = (cog.settings or {}).get("llm_url") or "the agent's default"
     if not cog.started:
-        return ("Reloaded the house agent's code, but Home Assistant isn't reachable yet. "
+        return ("Reloaded the house agent's code and settings (model server: "
+                f"{server}), but Home Assistant isn't reachable yet. "
                 "It will try again on the next message.")
     catalog = getattr(cog.agent, "catalog", None)
     count = len(getattr(catalog, "entries", ()) or ())
-    return f"Reloaded the house agent's code and {count} Home Assistant actions."
+    return (f"Reloaded the house agent's code, settings and {count} Home Assistant "
+            f"actions. Model server: {server}.")
 
 
 # ------------------------------------------------------------ confirmation --
@@ -559,8 +575,7 @@ class HomeAssistant(commands.Cog):
     def __init__(self, bot, settings: dict | None = None, agent=None):
         self.bot = bot
         if settings is None:
-            from config import config
-            settings = load_settings(config)
+            settings = load_settings(read_config())
         self.settings = settings
         self.agent = agent
         self.problem = None  # why there is no agent, for allowed users
@@ -878,9 +893,10 @@ class HomeAssistant(commands.Cog):
         await interaction.response.send_message("Forgot this conversation.", ephemeral=True)
 
     @ha.command(name="reload",
-                description="Reload the house agent's code and re-read Home Assistant's actions.")
+                description="Reload the house agent's code and settings, and re-read Home Assistant's actions.")
     async def reload(self, interaction: discord.Interaction):
-        """Reload this extension, which re-imports ha_agent (see cog_unload).
+        """Reload this extension, which re-imports ha_agent (see cog_unload)
+        and re-reads config.json (see read_config).
 
         Until 2026-11-25 this only re-read the action list, so agent changes
         needed a bot restart. ``self`` is the old cog once the reload is done:

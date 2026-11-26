@@ -806,6 +806,10 @@ class ReloadTests(unittest.IsolatedAsyncioTestCase):
 
     def test_report(self):
         self.assertIn("5 Home Assistant actions", hac.reload_report(self.started_cog(5)))
+        self.assertIn("the agent's default", hac.reload_report(self.started_cog()))
+        named = self.started_cog()
+        named.settings = settings(llm_url="http://192.0.2.9:8080/v1")
+        self.assertIn("Model server: http://192.0.2.9:8080/v1", hac.reload_report(named))
         off = self.cog(None)
         off.problem = "No Home Assistant token: set HA_TOKEN on Golurk."
         self.assertIn("HA_TOKEN", hac.reload_report(off))
@@ -818,6 +822,28 @@ class ReloadTests(unittest.IsolatedAsyncioTestCase):
         inter.response.defer = mock.AsyncMock()
         inter.followup = types.SimpleNamespace(send=mock.AsyncMock())
         return inter
+
+    def test_read_config_reads_the_file_now_not_the_cached_copy(self):
+        import json, os, tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"homeassistant": {"llm_url": "http://old/v1"}}, f)
+            self.assertEqual(hac.read_config(path)["homeassistant"]["llm_url"], "http://old/v1")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"homeassistant": {"llm_url": "http://new/v1"}}, f)
+            self.assertEqual(hac.read_config(path)["homeassistant"]["llm_url"], "http://new/v1")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("{ half written")
+            with self.assertRaises(ValueError):
+                hac.read_config(path)
+
+    def test_a_new_cog_takes_its_settings_from_read_config(self):
+        fresh = {"homeassistant": {"llm_url": "http://new/v1"}}
+        with mock.patch.object(hac, "read_config", return_value=fresh) as read:
+            cog = hac.HomeAssistant(bot=None, agent=FakeAgent())
+        read.assert_called_once_with()
+        self.assertEqual(cog.settings["llm_url"], "http://new/v1")
 
     async def test_reload_reloads_the_extension_and_reports_the_new_cog(self):
         new = self.started_cog(7)

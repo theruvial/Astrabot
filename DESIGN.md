@@ -406,7 +406,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 ## 11. Testing
 
-- Run from the repo root: `py -3.14 -m unittest discover -s tests` (451 tests, all passing on `fix/ha-reload-config` 2026-11-25). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
+- Run from the repo root: `py -3.14 -m unittest discover -s tests` (451 tests, all passing on master after merging `fix/ha-reload-config` 2026-11-25). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
 - Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`, `test_homeassistant`, `test_console_terminal`, `test_console_remote`.
 - The Automated Librarian has its own suites: `cd automated-librarian && python3 -m unittest discover -s tests` (46 tests, all passing on the Ubuntu server with Python 3.12 on 2026-11-21). The root run above does not collect them, and they have not been run on the Windows host.
 - No tests yet for `music.py`, `clip.py` (beyond imports), `moderation.py` or the legacy cogs.
@@ -448,11 +448,11 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
 
-### 2026-11-25 — Claude Code (Opus 5.5), Home Assistant cog: `/ha reload` re-reads config.json (branch `fix/ha-reload-config`, not merged)
+### 2026-11-25 — Claude Code (Opus 5.5), Home Assistant cog: `/ha reload` re-reads config.json (branch `fix/ha-reload-config`, merged into master and pushed 2026-11-25)
 
 - **Why:** Thea moved the model server to another PC (`homeassistant.llm_url` is now `http://192.168.4.29:8080/v1`). `/ha reload` re-imported the cog and agent but took its settings from `from config import config`, the dict `config.py` loaded once at bot start, so the new URL needed a full restart.
 - **What:** `read_config(path="config.json")` reads the file from disk; `HomeAssistant.__init__` uses it when no settings are passed. A file that doesn't parse raises, so the reload fails and the old cog keeps running. `reload_report` now names the model server (`llm_url`, or "the agent's default"). Other cogs still use the cached `config`. 2 new tests and a wider report test (76 in `test_homeassistant`); full suite 451 passing.
-- **State:** committed on `fix/ha-reload-config`, not merged. The running bot needs one restart (or a reload after merging) to get this code; after that `/ha reload` picks up config changes.
+- **State:** merged into master and pushed. The running bot needs one restart to get this code; after that `/ha reload` picks up config changes.
 
 ### 2026-11-25 — Claude Code (Opus 5.5), Golurk Console remote feed, protocol v1 (branch `feature/console-remote`, merged into master and pushed 2026-11-25)
 

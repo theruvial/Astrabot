@@ -97,6 +97,7 @@ console_services.py     pure helpers for console extra services and console.json
 console_settings.py     the console's Settings window
 console_terminal.py     embedded terminal for the console (ConPTY via pywinpty + pyte screen)
 console_strata.py       Strata runtime start/stop/restart for the console (plan-guarded)
+console_remote.py       watch-only remote feed of the console's panes (HTTP + WebSocket, docs/CONSOLE_REMOTE.md)
 startConsole.bat        pulls repos, opens the console (the normal way to run everything)
 startBot.bat            plain launcher: pulls, starts absLogin, runs bot with crash restarts
 startBot.sh             empty (unused)
@@ -369,6 +370,7 @@ Details: `docs/CONSOLE.md`.
 - "Pull + Restart" pulls Astrabot, absLogin and the wiki repo (not AstraThought; use the Classifier pane's Restart). Every start frees the service's port first.
 - Decisions panel: last 50 classifier decisions, refreshed on classifier log events, not polled.
 - Watchdog (on by default; `--no-watchdog`): if a service's watcher thread is dead on two checks 15 s apart (after a 2 min grace), it restarts the whole console, at most 3 times an hour (`logs/watchdog_restarts.json`), then gives up and alerts the owner via the flag file.
+- **Remote feed** (`console_remote.py`, protocol v1 in `docs/CONSOLE_REMOTE.md`, built 2026-11-25): watch-only HTTP `GET /status` and WebSocket `GET /ws?boot=&since=` for the phone app; pane states plus every pane's lines (500 per pane replayed, one `seq` per console run). Off unless `console.json` `"remote": {"bind", "port", "token"}` has one literal IP in `bind` (never `0.0.0.0`/`::`); the token comes from `GOLURK_REMOTE_TOKEN` (preferred, keeps it off the Drive) or `remote.token`, at least 32 characters, `Authorization: Bearer` only, constant-time compare, bare 401 otherwise. Why it is off (bad bind, short or missing token, address not on this PC) goes to the Bot pane. The console's line queue is a `TapQueue`, so every `(stream, line)`, also direct `lines.put` calls, reaches the hub from any thread; the server runs on its own thread and asyncio loop and never touches Tk; `__` streams and `strata` notes are never sent. Stopped in `on_close` and before a Watchdog relaunch. Port 13386; the firewall rule is Thea's to add.
 - Closing the window stops everything, including a service caught mid-start: `Supervisor._run_once` checks `_closing` under `_lock` right after the spawn and stops the new process itself if `shutdown()` already ran (fixed 2026-11-24; it used to orphan that process). Do not run hand-started copies of the services alongside it.
 
 ---
@@ -404,8 +406,8 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 ## 11. Testing
 
-- Run from the repo root: `py -3.14 -m unittest discover -s tests` (420 tests, all passing on master 2026-11-25). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
-- Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`, `test_homeassistant`, `test_console_terminal`.
+- Run from the repo root: `py -3.14 -m unittest discover -s tests` (449 tests, all passing on `feature/console-remote` 2026-11-25). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
+- Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`, `test_homeassistant`, `test_console_terminal`, `test_console_remote`.
 - The Automated Librarian has its own suites: `cd automated-librarian && python3 -m unittest discover -s tests` (46 tests, all passing on the Ubuntu server with Python 3.12 on 2026-11-21). The root run above does not collect them, and they have not been run on the Windows host.
 - No tests yet for `music.py`, `clip.py` (beyond imports), `moderation.py` or the legacy cogs.
 - `test_manual_restart_is_not_a_crash` used to fail with a 10 s join timeout and a PermissionError on `bot.log`: tearDown's `shutdown()` landed between the bot's spawn and `_proc` being set, leaving an orphan bot. Fixed in `astra_console.py`, not the test; `test_shutdown_during_a_start_leaves_no_orphan` forces that window every run.
@@ -416,6 +418,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 ## 12. Security notes and known risks
 
+- **Console remote feed** (§8): no TLS. Over Tailscale it is WireGuard-encrypted; on the plain LAN the bearer token can be sniffed (accepted risk). Watch-only by design: no commands from the client in v1.
 - **Old secrets in pre-rewrite history:** the bot token and other keys in `Astrabot-old` history must be considered exposed. Bot token reset and ABS API key rotation are **not confirmed**.
 - Requests site ordinary-user login is email-only (§7.1).
 - `cookies.txt` is a Google login; a throwaway account is recommended.
@@ -444,6 +447,13 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 ## 14. Change log
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
+
+### 2026-11-25 — Claude Code (Opus 5.5), Golurk Console remote feed, protocol v1 (branch `feature/console-remote`, not merged)
+
+- **Why:** Thea wrote the v1 contract for a watch-only phone app (pane states, live lines, replay, heartbeat for a dead-man alert).
+- **What:** new `console_remote.py` (settings check, bearer auth, `Hub` ring buffers and seq, `TapQueue`, aiohttp app, `RemoteFeed` thread); `console.json` `remote` block (`console_services.py`, blank bind = off); `astra_console.py` taps the line queue, builds `remote_status()`, starts the feed after startup and stops it in `on_close` and `restart_console`. The protocol is in `docs/CONSOLE_REMOTE.md` (§8). 25 tests in `test_console_remote` (aiohttp test server, no Tk); full suite 449 passing.
+- **Checked:** the real console window with services stubbed and the feed on 127.0.0.1 with a throwaway token: 401 without the token, `/status` lists the seven built-ins, the WebSocket sent hello, status, replay, replay_done, a live line emitted from a worker thread (ANSI stripped), then a heartbeat status.
+- **Not done:** not merged; off on the host until Thea sets `GOLURK_REMOTE_TOKEN`, the `remote.bind` address and the firewall rule. The 1001 close on console exit is wired but only exercised through `runner.cleanup`, not watched from a client.
 
 ### 2026-11-25 — Claude Code (Opus 5.5), Home Assistant cog: `/ha reload` reloads the agent's code (branch `fix/ha-reload-code`, merged into master and pushed)
 

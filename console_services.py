@@ -81,6 +81,10 @@ DEFAULT_CONFIG = {
     "strata": {"dir": str(Path(os.environ.get("LOCALAPPDATA", "")) / "Strata" / "terminal"
                           / "current"),
                "profile": "launch-iq1_m-32k"},
+    # The remote feed (console_remote.py, protocol in docs/CONSOLE_REMOTE.md):
+    # one literal IP to listen on (blank = off). Leave token blank and set
+    # GOLURK_REMOTE_TOKEN instead, so it stays out of this Drive-synced file.
+    "remote": {"bind": "", "port": 13386, "token": ""},
 }
 
 # Safe to put in the remote shell command: an SSH alias or address, a unit name.
@@ -165,6 +169,13 @@ def merge_config(user) -> dict:
     if not STRATA_PROFILE.match(strata["profile"]):
         strata["profile"] = DEFAULT_CONFIG["strata"]["profile"]
     cfg["strata"] = strata
+    remote = dict(DEFAULT_CONFIG["remote"])
+    if isinstance(cfg["remote"], dict):
+        remote.update({k: v for k, v in cfg["remote"].items() if k in remote})
+    remote["bind"] = str(remote["bind"] or "").strip()
+    remote["token"] = str(remote["token"] or "").strip()
+    remote["port"] = _int(remote["port"], DEFAULT_CONFIG["remote"]["port"])
+    cfg["remote"] = remote
     cfg["startup_delay_seconds"] = max(0, _int(cfg["startup_delay_seconds"], 0))
     cfg["console_name"] = str(cfg["console_name"] or DEFAULT_CONSOLE_NAME)
     return cfg

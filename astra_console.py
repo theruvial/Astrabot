@@ -62,6 +62,7 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+import console_remote
 import console_strata
 import console_terminal
 from console_services import (
@@ -734,7 +735,10 @@ def main():
     topbar, input_bg, outline = "#2b2930", "#2b2930", "#938f99"
     secondary, on_primary, chip_bg = "#cac4d0", "#381e72", "#4a4458"
     error, ok_dark = "#b3261e", "#274d27"
-    lines = queue.Queue()
+    # Every (stream, line) also goes to the remote feed's hub, from whatever
+    # thread put it (console_remote.py); the hub never touches Tk.
+    remote_hub = console_remote.Hub()
+    lines = console_remote.TapQueue(remote_hub.publish_item)
     cfg, cfg_note = load_console_config()
 
     root = tk.Tk()
@@ -1512,6 +1516,33 @@ def main():
     watch = {"on": False, "started": time.monotonic()}
     all_services = (supervisor, wiki, abs_login, classifier)
 
+    def remote_status():
+        """The remote feed's pane list: the same supervisors as the status bar.
+        Runs on the feed's thread, so it reads supervisors only, never Tk."""
+        builtins = {"bot": supervisor, "absLogin": abs_login, "wiki": wiki,
+                    "classifier": classifier, "librarian": librarian}
+        return console_remote.pane_entries(builtins, BUILTIN_TITLES, list(custom.values()))
+
+    remote = {"feed": None}
+
+    def start_remote():
+        settings, why = console_remote.remote_settings(cfg["remote"])
+        if settings is None:
+            if why:
+                emit("bot", f"[{datetime.now():%H:%M:%S}] {why}")
+            return
+        feed = console_remote.RemoteFeed(
+            remote_hub, settings, remote_status,
+            lambda text: emit("bot", f"[{datetime.now():%H:%M:%S}] {text}"),
+            console_name=cfg["console_name"])
+        remote["feed"] = feed
+        feed.start()
+
+    def stop_remote():
+        feed, remote["feed"] = remote["feed"], None
+        if feed is not None:
+            feed.stop()
+
     def restart_console(lost):
         """Stop whatever can still be found, close this window, open a new one."""
         names = ", ".join(lost)
@@ -1528,6 +1559,7 @@ def main():
             return
         lines.put(("bot", f"[{datetime.now():%H:%M:%S}] Watchdog: lost {names}. "
                           "Stopping everything and restarting the console."))
+        stop_remote()  # clients get 1001 and the new console can take the port
         try:
             with CRASH_LOG_LOCK, open(ROOT / "logs" / "crashes.log", "a",
                                       encoding="utf-8") as handle:
@@ -1609,6 +1641,7 @@ def main():
                 stopper.start()
             for stopper in stoppers:
                 stopper.join(timeout=90)
+            stop_remote()
             root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)
@@ -1637,6 +1670,7 @@ def main():
     trigger_decisions_fetch()
     if cfg_note:
         emit("bot", cfg_note)
+    start_remote()
 
     def start_custom():
         for service in list(custom.values()):

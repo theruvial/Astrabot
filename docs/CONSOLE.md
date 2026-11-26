@@ -50,6 +50,22 @@ with one pane of live output for each.
 - Another Strata folder or profile: add to `console.json`
   `"strata": {"dir": "C:\\...\\Strata\\terminal\\current", "profile": "launch-iq1_m-32k"}`.
 
+## Remote feed (phone)
+
+The console can serve a watch-only feed of every pane for the phone app (no buttons:
+the phone can't start or stop anything). It is off until you set it up:
+
+1. Make a token of at least 32 characters and set it as a user environment variable,
+   so it stays out of the Drive-synced `console.json`:
+   `setx GOLURK_REMOTE_TOKEN "<token>"` (then reopen the console).
+2. Add to `console.json`: `"remote": {"bind": "<this PC's Tailscale IP>", "port": 13386}`.
+   It must be one address; `0.0.0.0` is refused.
+3. Add a Windows Firewall inbound rule for TCP 13386 from the Tailscale range.
+
+The Bot pane says "Remote feed listening on ..." when it works, or why it is off.
+Use Tailscale: the feed has no TLS, so on plain Wi-Fi the token could be sniffed.
+The protocol is in `docs/CONSOLE_REMOTE.md`.
+
 ## Adding a service
 
 Press **Settings**, then **+ Add service**. For each one set:

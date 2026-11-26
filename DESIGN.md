@@ -410,7 +410,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 ## 11. Testing
 
-- Run from the repo root: `py -3.14 -m unittest discover -s tests` (491 tests, all passing on `feature/ha-cog-steps` 2026-11-26). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
+- Run from the repo root: `py -3.14 -m unittest discover -s tests` (491 tests, all passing on master after merging `feature/ha-cog-steps` 2026-11-26). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
 - Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`, `test_homeassistant`, `test_console_terminal`, `test_console_remote`.
 - The Automated Librarian has its own suites: `cd automated-librarian && python3 -m unittest discover -s tests` (46 tests, all passing on the Ubuntu server with Python 3.12 on 2026-11-21). The root run above does not collect them, and they have not been run on the Windows host.
 - No tests yet for `music.py`, `clip.py` (beyond imports), `moderation.py` or the legacy cogs.
@@ -452,17 +452,17 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
 
-### 2026-11-26 — Claude Code (Sonnet 5.5), the agent's `on_step` checked against the cog (branch `feature/ha-cog-steps`, not merged)
+### 2026-11-26 — Claude Code (Sonnet 5.5), the agent's `on_step` checked against the cog (branch `feature/ha-cog-steps`, merged into master and pushed 2026-11-26)
 
 - **What:** the `Golurk-Agent` session reported `on_step` done on `ha-agent` `feature/step-events` (622bae2): the brief's interface unchanged, plus one extra `note` (a mode that doesn't exist) and the emit helper on `Turn`. No cog change was needed. It also copied its updated `COG_GUIDE.md` to `docs/AGENT_COG_DESIGN.md` in the main checkout (uncommitted there); the same text, `on_step` documentation only, is now committed on this branch. **When merging:** the main checkout's uncommitted copy blocks the merge; after checking it is still the same as the branch's, restore it (`git checkout -- docs/AGENT_COG_DESIGN.md`) and merge.
 - **Checked:** read the diff; its suite passes (154; the `Event loop is closed` noise in the output also appears on its `master`, 143 tests). This cog ran on that branch's real code against Strata on the laptop with a fake Home Assistant: a thinking request posted 8 step messages in order with no repeated spoiler; "Unlock the front door" put the Allow prompt between `Calling: use` and its result card, and Deny ran nothing. **Still not tried in Discord.**
 
-### 2026-11-26 — Claude Code (Sonnet 5.5), Home Assistant cog: thinking and tool calls in the thread, like LangChat (branch `feature/ha-cog-steps`, not merged)
+### 2026-11-26 — Claude Code (Sonnet 5.5), Home Assistant cog: thinking and tool calls in the thread, like LangChat (branch `feature/ha-cog-steps`, merged into master and pushed 2026-11-26)
 
 - **Why:** Thea asked to see the thought process and tool calls in the Discord channel she types prompts into, then to outline a design change for the agent session where one is needed, then that it "work like LangChat does". The cog only got the finished `Reply` (house actions only, reasoning joined at the end), so live steps need an agent change.
 - **What:** `StepFeed`, `step_messages`, `thinking_messages`, `args_summary`, `accepts_steps`, `show_steps` (also in `config.example.json`); formats and timing follow LangChat's Discord bot (§7.10). `docs/AGENT_STEPS_DESIGN.md` is the brief for the `ha-agent` session: `chat(..., on_step=)` with `model` / `tool` / `note` events. `ha-agent` was not edited. The first version (one growing small-print message) was replaced when Thea asked for LangChat's behaviour.
 - **Tested:** unit tests (fake agent and Discord); full suite 491 passing. The proposed middleware was prototyped in a scratch folder over the unchanged agent: against its fake model (shows validation errors, unknown tools and `error:` results; a call refused by the tool limit never reaches the hook) and end to end against Strata on the laptop with thinking on and a fake Home Assistant, with the real cog code printing the messages. **Not tried in Discord**, and nothing shows live until the agent has `on_step`.
-- **State:** committed on `feature/ha-cog-steps`, not merged. The brief was sent to the `Golurk-Agent` session (the one working in `ha-agent`) on 2026-11-26 at Thea's word; its change had not come back when this was written.
+- **State:** merged into master (076cc5a) and pushed; the main checkout's uncommitted copy of `docs/AGENT_COG_DESIGN.md` was identical (same blob) and was restored before the merge. The running bot needs `/ha reload`, or a restart. The brief was sent to the `Golurk-Agent` session (the one working in `ha-agent`) on 2026-11-26 at Thea's word; its change had not come back when this was written.
 
 ### 2026-11-25 — Claude Code (Opus 5.5), Golurk Console remote feed: Strata monitor screens for the phone (branch `feature/console-remote-screen`, merged into master and pushed 2026-11-25)
 

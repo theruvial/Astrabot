@@ -407,7 +407,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 ## 11. Testing
 
-- Run from the repo root: `py -3.14 -m unittest discover -s tests` (459 tests, all passing on `feature/strata-remote-monitor` 2026-11-25). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
+- Run from the repo root: `py -3.14 -m unittest discover -s tests` (459 tests, all passing on master after merging `feature/strata-remote-monitor` 2026-11-25). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
 - Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`, `test_homeassistant`, `test_console_terminal`, `test_console_remote`.
 - The Automated Librarian has its own suites: `cd automated-librarian && python3 -m unittest discover -s tests` (46 tests, all passing on the Ubuntu server with Python 3.12 on 2026-11-21). The root run above does not collect them, and they have not been run on the Windows host.
 - No tests yet for `music.py`, `clip.py` (beyond imports), `moderation.py` or the legacy cogs.
@@ -449,11 +449,11 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
 
-### 2026-11-25 — Claude Code (Opus 5.5), Golurk Console: Strata pane monitors the laptop's server (branch `feature/strata-remote-monitor`, not merged)
+### 2026-11-25 — Claude Code (Opus 5.5), Golurk Console: Strata pane monitors the laptop's server (branch `feature/strata-remote-monitor`, merged into master and pushed 2026-11-25)
 
 - **Why:** Thea moved the model server to the laptop (192.168.4.29) and asked for the console's Strata monitor to show that one. `strata.py monitor --url http://192.168.4.29:8080` refuses: "remote monitoring requires HTTPS or a local SSH tunnel".
 - **What:** `console_strata`: `remote_of`, `tunnel_argv`, `port_open`, `Tunnel`, and `monitor_argv(folder, url=None)`. `console_services`: `strata` gains `ssh`, `port`, `tunnel_port`. `astra_console`: the tunnel opens before the monitor, the title says the host, Start / Stop / Restart are hidden in remote mode, and the tunnel closes on close, relaunch and exit. CONSOLE.md has the setup. 8 new tests; full suite 459 passing. Checked live: the tunnel opens in about 1 s, the embedded pane shows the laptop's monitor (RTX 3060 Laptop GPU, model READY), the port is free after exit. Thea's `console.json` now has `"strata": {"ssh": "laptop"}` (ignored by master's code until this merges).
-- **State:** committed on `feature/strata-remote-monitor`, not merged.
+- **State:** merged into master and pushed. The running console picks it up on its next start.
 
 ### 2026-11-25 — Claude Code (Opus 5.5), Home Assistant cog: `/ha reload` re-reads config.json (branch `fix/ha-reload-config`, merged into master and pushed 2026-11-25)
 

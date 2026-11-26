@@ -1,5 +1,9 @@
 # ha_agent: report each step while answering
 
+**Status:** built on `ha-agent` branch `feature/step-events` (622bae2) on 2026-11-26, with
+one extra note and the emit helper on `Turn`. Its `COG_GUIDE.md` ("Live steps") is the
+reference for the interface now; this file records why it is shaped this way.
+
 A design change for whoever works on the agent (`C:\codingShit\ha-agent`, package
 `ha_agent`). Written 2026-11-26 by the Astrabot Discord cog session, against agent
 `master` at `7670fa8` with LangChain 1.5.2. Follow that repo's `CONTRIBUTING.md`

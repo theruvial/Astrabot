@@ -15,15 +15,12 @@ os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 # startup_cogs.py), so enabling one never needs a code change.
 startup_extensions = extensions_from_config(config)
 
-@app_commands.command(name="stop", description="Stop your Golurk-Agent requests or stop music.")
+
+@app_commands.command(name="stop", description="Stop your Golurk-Agent requests.")
 async def stop(interaction: discord.Interaction):
     bot = interaction.client
     agent = bot.get_cog("Golurk-Agent")
     if agent is not None and await agent.stop_here(interaction):
-        return
-    music = bot.get_cog("Music")
-    if music is not None and interaction.guild is not None:
-        await music.stop(interaction)
         return
     await interaction.response.send_message("Stop is unavailable here.", ephemeral=True)
 
@@ -51,31 +48,31 @@ class Astrabot(commands.Bot):
 
         # Create tables if they don't exist
         cursor = self.db.cursor()
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS exp (
                 ds INTEGER NOT NULL,
                 discord_id INTEGER NOT NULL,
                 exp INTEGER NOT NULL,
                 type TEXT NOT NULL
             )
-        ''')
-        cursor.execute('''
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS bucks (
                 ds INTEGER NOT NULL,
                 discord_id INTEGER NOT NULL,
                 bucks INTEGER NOT NULL,
                 type TEXT NOT NULL
             )
-        ''')
-        cursor.execute('''
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS jackpot (
                 ds INTEGER NOT NULL,
                 discord_id INTEGER NOT NULL,
                 bucks INTEGER NOT NULL,
                 type TEXT NOT NULL
             )
-        ''')
-        cursor.execute('''
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
                 isActive BOOLEAN NOT NULL,
                 discordID BIGINT NOT NULL,
@@ -84,29 +81,29 @@ class Astrabot(commands.Bot):
                 description TEXT NOT NULL,
                 assignedBy BIGINT
             )
-        ''')
-        cursor.execute('''
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS roles (
                 emojiID BIGINT NOT NULL,
                 roleID BIGINT NOT NULL,
                 roleDescription TEXT
             )
-        ''')
-        cursor.execute('''
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS fct_pet_hp (
                 discord_id BIGINT NOT NULL,
                 cur_hp INTEGER NOT NULL,
                 ds BIGINT NOT NULL
             )
-        ''')
-        cursor.execute('''
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS fct_pet_xp (
                 discord_id BIGINT NOT NULL,
                 xp BIGINT NOT NULL,
                 ds BIGINT NOT NULL
             )
-        ''')
-        cursor.execute('''
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS fct_pet_stats (
                 discord_id BIGINT NOT NULL,
                 ds BIGINT NOT NULL,
@@ -115,13 +112,13 @@ class Astrabot(commands.Bot):
                 defense INTEGER NOT NULL,
                 speed INTEGER NOT NULL
             )
-        ''')
-        cursor.execute('''
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS dim_pet (
                 name TEXT NOT NULL,
                 type TEXT NOT NULL
             )
-        ''')
+        """)
         self.db.commit()
 
         # Load extensions
@@ -132,7 +129,10 @@ class Astrabot(commands.Bot):
             except Exception as e:
                 print(f"Failed to load extension {extension}\n{type(e).__name__}: {e}")
 
-        if self.get_cog("Golurk-Agent") is not None or self.get_cog("Music") is not None:
+        if (
+            self.get_cog("Golurk-Agent") is not None
+            or self.get_cog("Music") is not None
+        ):
             self.tree.add_command(stop)
 
     async def _sync_commands(self):

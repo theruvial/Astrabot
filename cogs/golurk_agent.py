@@ -141,6 +141,7 @@ except ImportError:  # the cog still loads and says what is missing
     class HAError(Exception):
         """Stand-in so error handling works without the package."""
 
+
 try:
     from ha_agent import DEFAULT_MODE, MODES
 except ImportError:  # no package, or one from before modes
@@ -168,23 +169,34 @@ FOLDER_APPROVAL_STATUS = "Folder approval: "
 
 STEP_PAGE_LIMIT = 1900
 STEP_THINKING_LIMIT = 8000  # per model call: a runaway thought can't flood the thread
-STEP_SNIPPET = 500          # of a tool result, as LangChat shows it
-STEP_ARG_LIMIT = 70         # one argument's value in a result card's header
-STEP_ARGS_LIMIT = 160       # the whole header's arguments
-STEP_HISTORY_ROOM = 20      # extra messages per exchange to read when restoring a thread
-HEARTBEAT_SECONDS = 20      # quiet this long: "Still working"
+STEP_SNIPPET = 500  # of a tool result, as LangChat shows it
+STEP_ARG_LIMIT = 70  # one argument's value in a result card's header
+STEP_ARGS_LIMIT = 160  # the whole header's arguments
+STEP_HISTORY_ROOM = 20  # extra messages per exchange to read when restoring a thread
+HEARTBEAT_SECONDS = 20  # quiet this long: "Still working"
 HEARTBEAT_GAP_SECONDS = 120  # and at most this often after that
 THINKING_HEADER = "\U0001f4ad **Thinking**"
 # How every step message starts, so thread restore never reads one as an answer.
-STEP_PREFIXES = ("\U0001f527 Calling: **", "\U0001f527 **`", "\u274c **`", THINKING_HEADER[:-2],
-                 "\u23f3 Still working", "\U0001f501 ")
+STEP_PREFIXES = (
+    "\U0001f527 Calling: **",
+    "\U0001f527 **`",
+    "\u274c **`",
+    THINKING_HEADER[:-2],
+    "\u23f3 Still working",
+    "\U0001f501 ",
+)
 
 # ---------------------------------------------------------------- settings --
+
 
 def load_settings(cfg, env=None) -> dict:
     """Read the Golurk-Agent settings, accepting the legacy configuration key."""
     env = os.environ if env is None else env
-    raw = cfg.get("golurk_agent", cfg.get("homeassistant")) if isinstance(cfg, dict) else None
+    raw = (
+        cfg.get("golurk_agent", cfg.get("homeassistant"))
+        if isinstance(cfg, dict)
+        else None
+    )
     raw = raw if isinstance(raw, dict) else {}
 
     def ids(key, default):
@@ -215,10 +227,17 @@ def load_settings(cfg, env=None) -> dict:
         return str(raw.get(key) or "").strip() or None
 
     approvers = raw.get("folder_approver_ids")
-    folder_approver_ids = tuple(dict.fromkeys(
-        value for item in approvers
-        if (value := str(item).strip()).isascii() and value.isdecimal()
-    )) if isinstance(approvers, list) else ()
+    folder_approver_ids = (
+        tuple(
+            dict.fromkeys(
+                value
+                for item in approvers
+                if (value := str(item).strip()).isascii() and value.isdecimal()
+            )
+        )
+        if isinstance(approvers, list)
+        else ()
+    )
 
     return {
         "allowed": allowed,
@@ -239,6 +258,7 @@ def load_settings(cfg, env=None) -> dict:
 
 
 # ------------------------------------------------------- message routing --
+
 
 def should_handle(message, bot_user, settings) -> bool:
     """Whether a Discord message goes to the agent.
@@ -276,12 +296,28 @@ def agent_place(channel, channel_id: int) -> str | None:
 def _bot_noise(text: str) -> bool:
     """Bot messages that aren't the agent's answers: prompts, errors, notices,
     and finished-timer messages (``deliver_timer``; the agent writes them)."""
-    return text.startswith(STEP_PREFIXES) or (text.startswith(("Allow **", "||", "Thinking is now", "Home Assistant isn't",
-                             "The local model isn't", "That took too long",
-                             "Something went wrong talking", "The house agent",
-                             "Golurk-Agent is off", "Golurk-Agent couldn't be created",
-                             "The ha_agent package", "No Home Assistant token",
-                             "⏰ Timer done", ATTACHMENT_NOTICE, FOLDER_APPROVAL_STATUS, "Request stopped.")))
+    return text.startswith(STEP_PREFIXES) or (
+        text.startswith(
+            (
+                "Allow **",
+                "||",
+                "Thinking is now",
+                "Home Assistant isn't",
+                "The local model isn't",
+                "That took too long",
+                "Something went wrong talking",
+                "The house agent",
+                "Golurk-Agent is off",
+                "Golurk-Agent couldn't be created",
+                "The ha_agent package",
+                "No Home Assistant token",
+                "⏰ Timer done",
+                ATTACHMENT_NOTICE,
+                FOLDER_APPROVAL_STATUS,
+                "Request stopped.",
+            )
+        )
+    )
 
 
 def thread_turns(messages, bot_id: int, allowed) -> list[tuple[str, str]]:
@@ -299,8 +335,9 @@ def thread_turns(messages, bot_id: int, allowed) -> list[tuple[str, str]]:
     for msg in messages:
         content = (getattr(msg, "content", "") or "").strip()
         if msg.author.id == bot_id:
-            text = "\n".join(line for line in content.splitlines()
-                             if not line.startswith("-# ")).strip()
+            text = "\n".join(
+                line for line in content.splitlines() if not line.startswith("-# ")
+            ).strip()
             if upload_turn or not text or _bot_noise(text):
                 continue
             if turns and turns[-1][0] == "assistant":
@@ -319,7 +356,7 @@ def thread_name(text: str) -> str:
     """A thread title from the request: first line, squashed, under Discord's 100."""
     line = " ".join((text or "").split("\n", 1)[0].split())
     if len(line) > THREAD_NAME_LIMIT:
-        line = line[:THREAD_NAME_LIMIT - 1].rstrip() + "…"
+        line = line[: THREAD_NAME_LIMIT - 1].rstrip() + "…"
     return line or "House request"
 
 
@@ -354,6 +391,7 @@ def timer_target(cid: str) -> tuple[str, int] | None:
 
 # ----------------------------------------------------------------- replies --
 
+
 def _open_fence(text: str) -> str | None:
     """The opening line (e.g. ```python) of a code block still open at the end, or None."""
     opener = None
@@ -377,10 +415,16 @@ def split_message(text: str, limit: int = DISCORD_LIMIT) -> list[str]:
         cut = text.rfind("\n", 0, room + 1)
         if cut <= 0:
             cut = text.rfind(" ", 0, room + 1)
-        if cut > 0 and text[:cut].strip().startswith(FENCE) and "\n" not in text[:cut].strip():
-            cut = -1  # only a fence line fits before the cut: cut hard, or it never ends
+        if (
+            cut > 0
+            and text[:cut].strip().startswith(FENCE)
+            and "\n" not in text[:cut].strip()
+        ):
+            cut = (
+                -1
+            )  # only a fence line fits before the cut: cut hard, or it never ends
         if cut > 0:
-            part, rest = text[:cut], text[cut + 1:]
+            part, rest = text[:cut], text[cut + 1 :]
         else:  # no space at all: cut hard, leaving room to close a code block only if needed
             hard = room if _open_fence(text[:limit]) else limit
             part, rest = text[:hard], text[hard:]
@@ -400,7 +444,11 @@ def split_message(text: str, limit: int = DISCORD_LIMIT) -> list[str]:
 
 
 def _options(options: dict) -> str:
-    return "{" + ", ".join(f"{k}: {v}" for k, v in options.items()) + "}" if options else ""
+    return (
+        "{" + ", ".join(f"{k}: {v}" for k, v in options.items()) + "}"
+        if options
+        else ""
+    )
 
 
 def action_footer(reply) -> str:
@@ -491,9 +539,15 @@ def args_summary(args) -> str:
         if value in (None, "", [], {}):
             continue
         if isinstance(value, str):
-            shown = '"' + _clipped(" \u23ce ".join(value.splitlines()), STEP_ARG_LIMIT) + '"'
+            shown = (
+                '"'
+                + _clipped(" \u23ce ".join(value.splitlines()), STEP_ARG_LIMIT)
+                + '"'
+            )
         else:
-            shown = _clipped(json.dumps(value, default=str, ensure_ascii=False), STEP_ARG_LIMIT)
+            shown = _clipped(
+                json.dumps(value, default=str, ensure_ascii=False), STEP_ARG_LIMIT
+            )
         parts.append(f"{key}={shown}")
     return _clipped(", ".join(parts), STEP_ARGS_LIMIT).replace("`", "'")
 
@@ -512,7 +566,9 @@ def thinking_messages(thinking: str) -> list[str]:
         return []
     more = f"{THINKING_HEADER} (continued)"
     parts = split_message(thinking, STEP_PAGE_LIMIT - len(more) - 1)
-    return [f"{THINKING_HEADER if i == 0 else more}\n{part}" for i, part in enumerate(parts)]
+    return [
+        f"{THINKING_HEADER if i == 0 else more}\n{part}" for i, part in enumerate(parts)
+    ]
 
 
 def step_messages(event: dict, args=None) -> list[str]:
@@ -524,7 +580,9 @@ def step_messages(event: dict, args=None) -> list[str]:
         out = thinking_messages(event.get("thinking", ""))
         names = ", ".join(str(c.get("name", "tool")) for c in event.get("calls") or [])
         if names:
-            out.append(f"\U0001f527 Calling: **{_clipped(discord.utils.escape_markdown(names), 500)}**")
+            out.append(
+                f"\U0001f527 Calling: **{_clipped(discord.utils.escape_markdown(names), 500)}**"
+            )
         return out
     if kind == "tool":
         ok = event.get("ok", True)
@@ -532,13 +590,19 @@ def step_messages(event: dict, args=None) -> list[str]:
         if name == "request_folder_access":
             # The embed already shows the proposal. Do not echo modal text in live steps.
             return []
-        head = _card_head("\U0001f527" if ok else "\u274c", name, "" if ok else " failed", args)
+        head = _card_head(
+            "\U0001f527" if ok else "\u274c", name, "" if ok else " failed", args
+        )
         snippet = _clipped(str(event.get("result") or "").strip(), STEP_SNIPPET, "...")
         snippet = snippet.replace("```", "`\u200b``")  # can't close the block early
         return [f"{head}\n```\n{snippet or '(no output)'}\n```"]
     if kind == "note":
         text = " ".join(str(event.get("text") or "").split())
-        return [f"\U0001f501 {_clipped(discord.utils.escape_markdown(text), 500)}"] if text else []
+        return (
+            [f"\U0001f501 {_clipped(discord.utils.escape_markdown(text), 500)}"]
+            if text
+            else []
+        )
     return []
 
 
@@ -551,18 +615,22 @@ class StepFeed:
     message that can't be sent is logged and dropped. ``send(content)`` posts it.
     """
 
-    def __init__(self, send, heartbeat: float = HEARTBEAT_SECONDS,
-                 gap: float = HEARTBEAT_GAP_SECONDS):
+    def __init__(
+        self,
+        send,
+        heartbeat: float = HEARTBEAT_SECONDS,
+        gap: float = HEARTBEAT_GAP_SECONDS,
+    ):
         self.send = send
         self.heartbeat = heartbeat
         self.gap = gap
         self.queue: deque = deque()
-        self.pending: dict = {}      # tool call id -> (name, args), until its result
-        self.failed = False          # some message didn't reach Discord
+        self.pending: dict = {}  # tool call id -> (name, args), until its result
+        self.failed = False  # some message didn't reach Discord
         self._thought = False
         self._cancelled = False
-        self._paused = False         # waiting for a person (confirm buttons)
-        self._activity = 0           # counts events; a change restarts the quiet clock
+        self._paused = False  # waiting for a person (confirm buttons)
+        self._activity = 0  # counts events; a change restarts the quiet clock
         self._sender: asyncio.Task | None = None
         self._beat: asyncio.Task | None = None
 
@@ -580,8 +648,13 @@ class StepFeed:
             self._paused = False
             if kind == "model":
                 for call in event.get("calls") or []:
-                    self.pending[call.get("id")] = (call.get("name", "tool"), call.get("args"))
-                self._thought = self._thought or bool((event.get("thinking") or "").strip())
+                    self.pending[call.get("id")] = (
+                        call.get("name", "tool"),
+                        call.get("args"),
+                    )
+                self._thought = self._thought or bool(
+                    (event.get("thinking") or "").strip()
+                )
             elif kind == "tool":
                 args = self.pending.pop(event.get("id"), (None, None))[1]
             for message in step_messages(event, args):
@@ -626,8 +699,10 @@ class StepFeed:
     async def close(self, reply=None) -> None:
         """Flush the last steps and post a reasoning spoiler if needed."""
         if self._cancelled:
-            await asyncio.gather(*(task for task in (self._sender, self._beat) if task is not None),
-                                 return_exceptions=True)
+            await asyncio.gather(
+                *(task for task in (self._sender, self._beat) if task is not None),
+                return_exceptions=True,
+            )
             return
         if self._beat is not None:
             self._beat.cancel()
@@ -672,7 +747,7 @@ class ActiveRequest:
 
 
 def mode_title(name: str) -> str:
-    """"🏠 Home" for a mode name, from the agent's own titles when it has them."""
+    """ "🏠 Home" for a mode name, from the agent's own titles when it has them."""
     mode = MODES.get(name)
     title = getattr(mode, "title", None) or name
     return f"{MODE_ICONS.get(name, '')} {title}".strip()
@@ -689,7 +764,9 @@ def think_choice(message: str | None):
 
 
 def thinking_state(on: bool) -> str:
-    return "Thinking is now ON (smarter, slower)." if on else "Thinking is now OFF (fast)."
+    return (
+        "Thinking is now ON (smarter, slower)." if on else "Thinking is now OFF (fast)."
+    )
 
 
 def error_text(exc: BaseException) -> str:
@@ -701,7 +778,9 @@ def error_text(exc: BaseException) -> str:
     # ha_agent raises LLMError ("Model server ..." for Strata, "Ollama ..." for Ollama); older
     # versions raised a plain RuntimeError starting with "Ollama".
     if isinstance(exc, aiohttp.ClientConnectorError) or (
-            isinstance(exc, RuntimeError) and str(exc).startswith(("Model server", "Ollama"))):
+        isinstance(exc, RuntimeError)
+        and str(exc).startswith(("Model server", "Ollama"))
+    ):
         return "The local model isn't running. Start Strata on Golurk."
     return "Something went wrong talking to the house. It's in the bot log."
 
@@ -724,16 +803,21 @@ def reload_report(cog) -> str:
         return f"Reloaded the code, but Golurk-Agent is off: {cog.problem or 'see the bot log.'}"
     server = (cog.settings or {}).get("llm_url") or "the agent's default"
     if not cog.started:
-        return ("Reloaded Golurk-Agent's code and settings (model server: "
-                f"{server}), but Home Assistant isn't reachable yet. "
-                "It will try again on the next message.")
+        return (
+            "Reloaded Golurk-Agent's code and settings (model server: "
+            f"{server}), but Home Assistant isn't reachable yet. "
+            "It will try again on the next message."
+        )
     catalog = getattr(cog.agent, "catalog", None)
     count = len(getattr(catalog, "entries", ()) or ())
-    return (f"Reloaded Golurk-Agent's code, settings and {count} Home Assistant "
-            f"actions. Model server: {server}.")
+    return (
+        f"Reloaded Golurk-Agent's code, settings and {count} Home Assistant "
+        f"actions. Model server: {server}."
+    )
 
 
 # ------------------------------------------------------------ confirmation --
+
 
 class ConfirmView(discord.ui.View):
     """Allow / Deny buttons that only the person who asked can press."""
@@ -747,7 +831,8 @@ class ConfirmView(discord.ui.View):
         if interaction.user.id == self.owner_id:
             return True
         await interaction.response.send_message(
-            "Only the person who asked can answer this.", ephemeral=True)
+            "Only the person who asked can answer this.", ephemeral=True
+        )
         return False
 
     def disable(self) -> None:
@@ -788,7 +873,11 @@ async def _edit_confirm_prompt(prompt, content: str, view: discord.ui.View) -> N
             await prompt.edit(content=content, view=view, allowed_mentions=NO_PINGS)
             return
         except (discord.HTTPException, aiohttp.ClientConnectionError, OSError) as exc:
-            if isinstance(exc, discord.HTTPException) and exc.status != 429 and exc.status < 500:
+            if (
+                isinstance(exc, discord.HTTPException)
+                and exc.status != 429
+                and exc.status < 500
+            ):
                 raise
             await asyncio.sleep(CONFIRM_EDIT_RETRY_SECONDS)
 
@@ -800,6 +889,7 @@ def make_confirm(send, owner_id: int, timeout: float = CONFIRM_SECONDS):
     only after an Allow click is acknowledged and the prompt edit succeeds.
     Deny, the deadline and an unrecoverable error return False.
     """
+
     async def confirm(summary: str) -> bool:
         try:
             # The deadline is ours, not the View's: discord.py only starts a
@@ -834,18 +924,23 @@ def make_confirm(send, owner_id: int, timeout: float = CONFIRM_SECONDS):
             view.disable()
             reason = "Couldn't update the confirmation" if clicked else "No answer"
             await asyncio.wait_for(
-                prompt.edit(content=f"{question}\n⌛ {reason} in {timeout:g} s, so no.",
-                            view=view, allowed_mentions=NO_PINGS),
+                prompt.edit(
+                    content=f"{question}\n⌛ {reason} in {timeout:g} s, so no.",
+                    view=view,
+                    allowed_mentions=NO_PINGS,
+                ),
                 timeout=CONFIRM_NOTICE_SECONDS,
             )
             return False
         except Exception:  # noqa: BLE001 -- confirm must never raise
             log.exception("Confirm prompt failed; treating it as Deny")
             return False
+
     return confirm
 
 
 # --------------------------------------------------------- folder approval --
+
 
 class FolderApprovalView(discord.ui.View):
     """Wait for a configured approver's decision on one proposed folder grant."""
@@ -887,8 +982,12 @@ class FolderApprovalModal(discord.ui.Modal, title="Question or revision"):
     def __init__(self, approval: FolderApprovalView):
         super().__init__(timeout=approval.modal_timeout)
         self.approval = approval
-        self.comment = discord.ui.TextInput(style=discord.TextStyle.paragraph, max_length=1000)
-        self.add_item(discord.ui.Label(text="Question or revision", component=self.comment))
+        self.comment = discord.ui.TextInput(
+            style=discord.TextStyle.paragraph, max_length=1000
+        )
+        self.add_item(
+            discord.ui.Label(text="Question or revision", component=self.comment)
+        )
 
     async def on_submit(self, interaction: discord.Interaction):
         if not await self.approval.interaction_check(interaction):
@@ -896,23 +995,38 @@ class FolderApprovalModal(discord.ui.Modal, title="Question or revision"):
         text = self.comment.value.strip()
         if not text:
             await interaction.response.send_message(
-                "Enter a question or revision using Ask.", ephemeral=True)
+                "Enter a question or revision using Ask.", ephemeral=True
+            )
             return
         self.approval.finish(interaction, "ask", text)
 
 
-def make_folder_approval(send, cid: str, user_id: str, decision_type, timeout: float = CONFIRM_SECONDS):
+def make_folder_approval(
+    send, cid: str, user_id: str, decision_type, timeout: float = CONFIRM_SECONDS
+):
     """Present an agent proposal and return a FolderGrantDecision."""
+
     async def approve_folder(request):
         declined = decision_type("no")
-        if request.conversation_id != cid or request.user_id != user_id or not request.approver_ids:
+        if (
+            request.conversation_id != cid
+            or request.user_id != user_id
+            or not request.approver_ids
+        ):
             return declined
 
         path = request.path
-        access = {"read": "Read only", "read_write": "Read and write"}.get(request.access)
+        access = {"read": "Read only", "read_write": "Read and write"}.get(
+            request.access
+        )
         label = discord.utils.escape_mentions(discord.utils.escape_markdown(path))
-        if (not access or not path or path != path.strip() or len(label) > 1024
-                or any(ord(char) < 32 for char in path)):
+        if (
+            not access
+            or not path
+            or path != path.strip()
+            or len(label) > 1024
+            or any(ord(char) < 32 for char in path)
+        ):
             return declined
 
         embed = discord.Embed(
@@ -922,7 +1036,9 @@ def make_folder_approval(send, cid: str, user_id: str, decision_type, timeout: f
         embed.add_field(name="Path", value=label, inline=False)
         embed.add_field(name="Requested by", value=f"<@{user_id}>")
         embed.add_field(name="Access", value=access)
-        scope = "Requester's DMs" if cid.startswith("discord:dm:") else "This conversation"
+        scope = (
+            "Requester's DMs" if cid.startswith("discord:dm:") else "This conversation"
+        )
         embed.add_field(name="Scope", value=scope)
         view = FolderApprovalView(request.approver_ids, timeout)
         prompt = None
@@ -933,11 +1049,19 @@ def make_folder_approval(send, cid: str, user_id: str, decision_type, timeout: f
                 for button in view.children:
                     button.disabled = True
                 await interaction.response.defer()
-                status = {"yes": "Approved.", "no": "Declined.", "ask": "Question or revision sent."}
-                await _edit_confirm_prompt(prompt, FOLDER_APPROVAL_STATUS + status[action], view)
+                status = {
+                    "yes": "Approved.",
+                    "no": "Declined.",
+                    "ask": "Question or revision sent.",
+                }
+                await _edit_confirm_prompt(
+                    prompt, FOLDER_APPROVAL_STATUS + status[action], view
+                )
                 return decision_type(action, str(interaction.user.id), text)
         except asyncio.CancelledError:
-            await _cancel_prompt(prompt, view, FOLDER_APPROVAL_STATUS + "Request stopped.")
+            await _cancel_prompt(
+                prompt, view, FOLDER_APPROVAL_STATUS + "Request stopped."
+            )
             raise
         except TimeoutError:
             if prompt is not None:
@@ -945,22 +1069,29 @@ def make_folder_approval(send, cid: str, user_id: str, decision_type, timeout: f
                     button.disabled = True
                 try:
                     await asyncio.wait_for(
-                        prompt.edit(content=FOLDER_APPROVAL_STATUS + "Expired.", view=view,
-                                    allowed_mentions=NO_PINGS),
+                        prompt.edit(
+                            content=FOLDER_APPROVAL_STATUS + "Expired.",
+                            view=view,
+                            allowed_mentions=NO_PINGS,
+                        ),
                         timeout=CONFIRM_NOTICE_SECONDS,
                     )
                 except (discord.HTTPException, aiohttp.ClientError, OSError):
-                    log.warning("Could not mark the folder prompt expired", exc_info=True)
+                    log.warning(
+                        "Could not mark the folder prompt expired", exc_info=True
+                    )
         except Exception:  # approval must fail closed
             log.exception("Folder approval prompt failed")
         finally:
             view.decision.cancel()
             view.stop()
         return declined
+
     return approve_folder
 
 
 # --------------------------------------------------------------------- cog --
+
 
 def _load_fake_ha(path: str | None):
     """The agent repo's FakeHA class (dev mode), or raise."""
@@ -980,8 +1111,11 @@ def _forget_agent_modules() -> list[str]:
     load fails: discord.py's rollback re-runs the old module's ``setup``, which
     still holds the old classes directly.
     """
-    gone = [n for n in sys.modules
-            if n == "ha_agent" or n.startswith("ha_agent.") or n == "ha_agent_fake_ha"]
+    gone = [
+        n
+        for n in sys.modules
+        if n == "ha_agent" or n.startswith("ha_agent.") or n == "ha_agent_fake_ha"
+    ]
     for name in gone:
         del sys.modules[name]
     return gone
@@ -1013,20 +1147,29 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
         if not token:
             self.problem = "No Home Assistant token: set HA_TOKEN on Golurk."
             return None
-        options = {"llm_url": s["llm_url"]} if s.get("llm_url") else {}  # older agents: no llm_url
+        options = (
+            {"llm_url": s["llm_url"]} if s.get("llm_url") else {}
+        )  # older agents: no llm_url
         approvers = s.get("folder_approver_ids")
         if approvers and "folder_approver_ids" in inspect.signature(HAAgent).parameters:
             options["folder_approver_ids"] = approvers
-        agent = HAAgent(ha_url=s["ha_url"], ha_token=token,
-                        ollama_url=s["ollama_url"], model=s["model"],
-                        history_turns=s.get("history_turns", 6), **options)
+        agent = HAAgent(
+            ha_url=s["ha_url"],
+            ha_token=token,
+            ollama_url=s["ollama_url"],
+            model=s["model"],
+            history_turns=s.get("history_turns", 6),
+            **options,
+        )
         # Set after creation, not as a constructor argument, so agents from before
         # timers still build. The agent looks it up each time a timer ends.
         agent.on_timer = self.deliver_timer
         if s["fake_ha"]:
             agent.ha = _load_fake_ha(s["fake_ha_path"])()
             agent.home.ha = agent.ha
-            log.warning("Dev mode: using the fake Home Assistant; nothing real is touched")
+            log.warning(
+                "Dev mode: using the fake Home Assistant; nothing real is touched"
+            )
         return agent
 
     async def cog_load(self):
@@ -1129,10 +1272,17 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
 
     async def _stop_requests(self, user_id: int | None = None) -> int:
         requests = {
-            task: request for task, request in self._active_requests.items()
-            if not task.done() and (user_id is None or (
-                request.running and request.user_id == user_id and not request.stopped
-            ))
+            task: request
+            for task, request in self._active_requests.items()
+            if not task.done()
+            and (
+                user_id is None
+                or (
+                    request.running
+                    and request.user_id == user_id
+                    and not request.stopped
+                )
+            )
         }
         if not requests:
             return 0
@@ -1143,17 +1293,25 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
             if not request.running:  # shutdown also removes waiters
                 task.cancel()
         stop = getattr(self.agent, "stop", None)
-        contexts = {(request.cid, str(request.user_id)) for request in requests.values() if request.running}
+        contexts = {
+            (request.cid, str(request.user_id))
+            for request in requests.values()
+            if request.running
+        }
         if callable(stop) and contexts:
             try:
                 outcomes = await asyncio.wait_for(
-                    asyncio.gather(*(stop(cid, user_id=caller) for cid, caller in contexts),
-                                   return_exceptions=True),
+                    asyncio.gather(
+                        *(stop(cid, user_id=caller) for cid, caller in contexts),
+                        return_exceptions=True,
+                    ),
                     timeout=AGENT_STOP_WAIT_SECONDS,
                 )
                 for outcome in outcomes:
                     if isinstance(outcome, Exception):
-                        log.warning("Golurk-Agent stop API failed (%s)", type(outcome).__name__)
+                        log.warning(
+                            "Golurk-Agent stop API failed (%s)", type(outcome).__name__
+                        )
             except TimeoutError:
                 log.warning("Golurk-Agent did not finish stopping in time")
         # Older agents and requests still downloading uploads need local cancellation.
@@ -1167,15 +1325,24 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
         """Handle the shared /stop in the configured agent channel, threads or DMs."""
         if not usable_here(interaction.channel, interaction.user, self.settings):
             return False
-        if not any(request.running and not task.done() and not request.stopped
-                   and request.user_id == interaction.user.id
-                   for task, request in self._active_requests.items()):
-            await interaction.response.send_message("You have no active Golurk-Agent requests.", ephemeral=True)
+        if not any(
+            request.running
+            and not task.done()
+            and not request.stopped
+            and request.user_id == interaction.user.id
+            for task, request in self._active_requests.items()
+        ):
+            await interaction.response.send_message(
+                "You have no active Golurk-Agent requests.", ephemeral=True
+            )
             return True
         await interaction.response.defer(ephemeral=True, thinking=True)
         count = await self._stop_requests(interaction.user.id)
-        text = (f"Stopped {count} Golurk-Agent request{'s' if count != 1 else ''}."
-                if count else "Your Golurk-Agent requests already finished.")
+        text = (
+            f"Stopped {count} Golurk-Agent request{'s' if count != 1 else ''}."
+            if count
+            else "Your Golurk-Agent requests already finished."
+        )
         await interaction.edit_original_response(content=text)
         return True
 
@@ -1191,42 +1358,74 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
             nonlocal channel, resolved
             if not resolved:
                 candidate = await self._find_channel(channel_id)
-                if (getattr(candidate, "id", None) == channel_id
-                        and getattr(candidate, "guild", None) is not None
-                        and callable(getattr(candidate, "send", None))):
+                if (
+                    getattr(candidate, "id", None) == channel_id
+                    and getattr(candidate, "guild", None) is not None
+                    and callable(getattr(candidate, "send", None))
+                ):
                     channel = candidate
                 else:
-                    log.warning("Golurk-Agent progress channel %s is unavailable", channel_id)
+                    log.warning(
+                        "Golurk-Agent progress channel %s is unavailable", channel_id
+                    )
                 resolved = True
             if channel is not None:
-                await channel.send(content, allowed_mentions=NO_PINGS, silent=True,
-                                   suppress_embeds=True)
+                await channel.send(
+                    content,
+                    allowed_mentions=NO_PINGS,
+                    silent=True,
+                    suppress_embeds=True,
+                )
 
         return StepFeed(post_step)
 
-    async def answer(self, cid: str, text: str, author, confirm,
-                     think: bool | None = None, mode: str | None = None,
-                     steps: StepFeed | None = None, *, message_id: int | None = None,
-                     uploads=(), send_approval=None) -> DiscordAnswer:
+    async def answer(
+        self,
+        cid: str,
+        text: str,
+        author,
+        confirm,
+        think: bool | None = None,
+        mode: str | None = None,
+        steps: StepFeed | None = None,
+        *,
+        message_id: int | None = None,
+        uploads=(),
+        send_approval=None,
+    ) -> DiscordAnswer:
         """Ask the agent and collect text, upload notices and generated files."""
         if self.agent is None:
             return DiscordAnswer([self.problem or "Golurk-Agent is off."])
         if not await self._ensure_started():
-            return DiscordAnswer(["Home Assistant isn't reachable right now. I'll try again next message."])
+            return DiscordAnswer(
+                [
+                    "Home Assistant isn't reachable right now. I'll try again next message."
+                ]
+            )
 
         parameters = chat_parameters(self.agent)
         extra = {"mode": mode} if mode else {}
         if {"user_id", "message_id", "is_dm"} <= parameters.keys():
-            extra.update(user_id=str(author.id),
-                         message_id=str(message_id) if message_id is not None else None,
-                         is_dm=cid.startswith("discord:dm:"))
+            extra.update(
+                user_id=str(author.id),
+                message_id=str(message_id) if message_id is not None else None,
+                is_dm=cid.startswith("discord:dm:"),
+            )
         folder_decision = getattr(ha_agent, "FolderGrantDecision", None)
-        if "approve_folder" in parameters and send_approval is not None and folder_decision is not None:
-            extra["approve_folder"] = make_folder_approval(send_approval, cid, str(author.id), folder_decision)
+        if (
+            "approve_folder" in parameters
+            and send_approval is not None
+            and folder_decision is not None
+        ):
+            extra["approve_folder"] = make_folder_approval(
+                send_approval, cid, str(author.id), folder_decision
+            )
         read_uploads = getattr(ha_agent, "read_discord_attachments", None)
         notices = []
         if uploads and ("attachments" not in parameters or read_uploads is None):
-            notices.append(ATTACHMENT_NOTICE + "Uploads need the updated Golurk-Agent package.")
+            notices.append(
+                ATTACHMENT_NOTICE + "Uploads need the updated Golurk-Agent package."
+            )
             if not text:
                 return DiscordAnswer(notices)
 
@@ -1235,7 +1434,10 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
             if "on_step" in parameters:
                 extra["on_step"] = steps.add
         # Keep the active host request distinct from turns queued in the same conversation.
-        lock = next((turn.lock for turn in self._active_requests.values() if turn.cid == cid), None)
+        lock = next(
+            (turn.lock for turn in self._active_requests.values() if turn.cid == cid),
+            None,
+        )
         request = ActiveRequest(cid, author.id, steps, lock or asyncio.Lock())
 
         async def run():
@@ -1244,8 +1446,14 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
                     request.running = True
                     if uploads and not notices:
                         extra["attachments"] = await read_uploads(uploads)
-                    return await self.agent.chat(cid, text, confirm=confirm, speaker=author.display_name,
-                                                 think=think, **extra)
+                    return await self.agent.chat(
+                        cid,
+                        text,
+                        confirm=confirm,
+                        speaker=author.display_name,
+                        think=think,
+                        **extra,
+                    )
 
         task = asyncio.create_task(run())
         self._active_requests[task] = request
@@ -1273,11 +1481,18 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
         if getattr(reply, "duplicate", False):
             return DiscordAnswer()
 
-        log.info("HA %s: %d tool calls, %d actions, %.1f s", cid, reply.tool_calls,
-                 len(reply.actions), reply.seconds)
+        log.info(
+            "HA %s: %d tool calls, %d actions, %.1f s",
+            cid,
+            reply.tool_calls,
+            len(reply.actions),
+            reply.seconds,
+        )
         parts = reply_messages(reply)
         for error in getattr(reply, "attachment_errors", ()):
-            notices.extend(split_message(ATTACHMENT_NOTICE + discord.utils.escape_markdown(error)))
+            notices.extend(
+                split_message(ATTACHMENT_NOTICE + discord.utils.escape_markdown(error))
+            )
         return DiscordAnswer(parts + notices, getattr(reply, "files", []))
 
     async def _send_answer(self, answer: DiscordAnswer, send_first, send):
@@ -1297,12 +1512,18 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
                         upload.close()
             except (discord.HTTPException, aiohttp.ClientError, OSError, ValueError):
                 log.warning("Could not upload a Golurk-Agent reply file", exc_info=True)
-                name = discord.utils.escape_markdown(" ".join(file.filename.split())[:200])
+                name = discord.utils.escape_markdown(
+                    " ".join(file.filename.split())[:200]
+                )
                 try:
-                    await send(f"{ATTACHMENT_NOTICE}Could not upload {name}.",
-                               allowed_mentions=NO_PINGS)
+                    await send(
+                        f"{ATTACHMENT_NOTICE}Could not upload {name}.",
+                        allowed_mentions=NO_PINGS,
+                    )
                 except (discord.HTTPException, aiohttp.ClientError, OSError):
-                    log.warning("Could not post the upload failure notice", exc_info=True)
+                    log.warning(
+                        "Could not post the upload failure notice", exc_info=True
+                    )
         return first
 
     def allowed(self, user) -> bool:
@@ -1330,20 +1551,36 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
             if steps is not None:
                 await steps.pause()
             if thread is not None:
-                return await thread.send(content, view=view, allowed_mentions=NO_PINGS, **kwargs)
-            return await message.reply(content, view=view, allowed_mentions=NO_PINGS, **kwargs)
+                return await thread.send(
+                    content, view=view, allowed_mentions=NO_PINGS, **kwargs
+                )
+            return await message.reply(
+                content, view=view, allowed_mentions=NO_PINGS, **kwargs
+            )
 
         cid = conversation_id(where, message.author)
-        if thread is None and agent_place(where, self.settings["channel_id"]) == "thread":
+        if (
+            thread is None
+            and agent_place(where, self.settings["channel_id"]) == "thread"
+        ):
             await self._restore_thread(where, cid, skip_id=message.id)
         async with where.typing():
-            answer = await self.answer(cid, text, message.author,
-                                       make_confirm(send, message.author.id), steps=steps,
-                                       message_id=message.id, uploads=uploads, send_approval=send)
+            answer = await self.answer(
+                cid,
+                text,
+                message.author,
+                make_confirm(send, message.author.id),
+                steps=steps,
+                message_id=message.id,
+                uploads=uploads,
+                send_approval=send,
+            )
         send_first = thread.send if thread is not None else message.reply
         return await self._send_answer(answer, send_first, where.send)
 
-    async def _restore_thread(self, thread, cid: str, skip_id: int | None = None) -> int:
+    async def _restore_thread(
+        self, thread, cid: str, skip_id: int | None = None
+    ) -> int:
         """After a restart the agent has forgotten this thread: re-read it from Discord.
 
         Returns how many turns were handed back (0 when nothing was needed or
@@ -1360,7 +1597,9 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
         try:
             messages = [m async for m in thread.history(limit=limit)]
         except discord.HTTPException as exc:
-            log.warning("Couldn't read thread %s to restore its context: %s", thread.id, exc)
+            log.warning(
+                "Couldn't read thread %s to restore its context: %s", thread.id, exc
+            )
             return 0
         messages.reverse()  # oldest first
         if len(messages) < limit:
@@ -1374,11 +1613,16 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
             # A persisted Discord ID marks an upgraded conversation even when its text
             # was excluded from durable memory or cleared with /ha reset.
             for m in messages:
-                interaction_id = getattr(getattr(m, "interaction_metadata", None), "id", None)
+                interaction_id = getattr(
+                    getattr(m, "interaction_metadata", None), "id", None
+                )
                 if seen(cid, str(interaction_id or m.id)):
                     return 0
-        turns = thread_turns([m for m in messages if m.id != skip_id],
-                             self.bot.user.id, self.settings["allowed"])
+        turns = thread_turns(
+            [m for m in messages if m.id != skip_id],
+            self.bot.user.id,
+            self.settings["allowed"],
+        )
         if turns:
             agent.remember(cid, turns)
             log.info("Restored %d turns for %s from Discord", len(turns), cid)
@@ -1390,8 +1634,9 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
         if cached is not None:
             return cached
         try:
-            return await message.create_thread(name=thread_name(text),
-                                               auto_archive_duration=THREAD_ARCHIVE_MINUTES)
+            return await message.create_thread(
+                name=thread_name(text), auto_archive_duration=THREAD_ARCHIVE_MINUTES
+            )
         except discord.HTTPException as exc:
             # Discord may have created the thread already. A public thread created
             # from a message has the same ID as its starter, even when archived.
@@ -1402,10 +1647,15 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
                 except discord.HTTPException:
                     pass
                 else:
-                    if isinstance(existing, discord.Thread) and existing.parent_id == message.channel.id:
+                    if (
+                        isinstance(existing, discord.Thread)
+                        and existing.parent_id == message.channel.id
+                    ):
                         return existing
-            log.warning("Couldn't open a thread for a house request (%s); answering in the channel",
-                        exc)
+            log.warning(
+                "Couldn't open a thread for a house request (%s); answering in the channel",
+                exc,
+            )
             return None
 
     # -- slash commands --
@@ -1421,8 +1671,9 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
         await interaction.response.send_message(text, ephemeral=True)
         return True
 
-    async def _ask(self, interaction, text: str, think: bool | None = None,
-                   mode: str | None = None):
+    async def _ask(
+        self, interaction, text: str, think: bool | None = None, mode: str | None = None
+    ):
         """One request from a slash command (the caller checked the allowlist)."""
         await interaction.response.defer(thinking=True)
 
@@ -1431,16 +1682,24 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
         async def send(content, view, **kwargs):
             if steps is not None:
                 await steps.pause()
-            return await interaction.followup.send(content, view=view, wait=True,
-                                                   allowed_mentions=NO_PINGS, **kwargs)
+            return await interaction.followup.send(
+                content, view=view, wait=True, allowed_mentions=NO_PINGS, **kwargs
+            )
 
         cid = conversation_id(interaction.channel, interaction.user)
         if agent_place(interaction.channel, self.settings["channel_id"]) == "thread":
             await self._restore_thread(interaction.channel, cid)
-        answer = await self.answer(cid, text, interaction.user,
-                                   make_confirm(send, interaction.user.id), think=think,
-                                   mode=mode, steps=steps,
-                                   message_id=getattr(interaction, "id", None), send_approval=send)
+        answer = await self.answer(
+            cid,
+            text,
+            interaction.user,
+            make_confirm(send, interaction.user.id),
+            think=think,
+            mode=mode,
+            steps=steps,
+            message_id=getattr(interaction, "id", None),
+            send_approval=send,
+        )
         if answer.stopped:
             try:
                 await interaction.delete_original_response()
@@ -1449,7 +1708,9 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
             except discord.HTTPException:
                 log.warning("Could not clear a stopped slash request", exc_info=True)
             return
-        await self._send_answer(answer, interaction.followup.send, interaction.followup.send)
+        await self._send_answer(
+            answer, interaction.followup.send, interaction.followup.send
+        )
 
     @ha.command(name="ask", description="Send a request to Golurk-Agent.")
     async def ask(self, interaction: discord.Interaction, text: str):
@@ -1457,10 +1718,14 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
             return
         await self._ask(interaction, text)
 
-    @app_commands.command(name="think", description="Toggle thinking for this conversation, "
-                                                    "or think about one message.")
-    @app_commands.describe(message="on / off, or a message to think about once. "
-                                   "Leave empty to toggle.")
+    @app_commands.command(
+        name="think",
+        description="Toggle thinking for this conversation, "
+        "or think about one message.",
+    )
+    @app_commands.describe(
+        message="on / off, or a message to think about once. " "Leave empty to toggle."
+    )
     async def think(self, interaction: discord.Interaction, message: str | None = None):
         if await self._refuse(interaction):
             return
@@ -1469,52 +1734,75 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
             await self._ask(interaction, value, think=True)
             return
         if self.agent is None:
-            await interaction.response.send_message(self.problem or "Golurk-Agent is off.",
-                                                    ephemeral=True)
+            await interaction.response.send_message(
+                self.problem or "Golurk-Agent is off.", ephemeral=True
+            )
             return
-        on = self.agent.set_thinking(conversation_id(interaction.channel, interaction.user), value)
+        on = self.agent.set_thinking(
+            conversation_id(interaction.channel, interaction.user), value
+        )
         await interaction.response.send_message(thinking_state(on))
 
-    @app_commands.command(name="mode", description="Show or set this conversation's mode.")
-    @app_commands.describe(name="general (default, hands off automatically), home or code. "
-                                "Leave empty to see the current one.")
-    @app_commands.choices(name=[app_commands.Choice(name=n, value=n) for n in MODE_NAMES])
+    @app_commands.command(
+        name="mode", description="Show or set this conversation's mode."
+    )
+    @app_commands.describe(
+        name="general (default, hands off automatically), home or code. "
+        "Leave empty to see the current one."
+    )
+    @app_commands.choices(
+        name=[app_commands.Choice(name=n, value=n) for n in MODE_NAMES]
+    )
     async def mode(self, interaction: discord.Interaction, name: str | None = None):
         if await self._refuse(interaction):
             return
         if self.agent is None or not hasattr(self.agent, "set_mode"):
             await interaction.response.send_message(
-                self.problem or "Golurk-Agent is off (or too old for modes).", ephemeral=True)
+                self.problem or "Golurk-Agent is off (or too old for modes).",
+                ephemeral=True,
+            )
             return
         cid = conversation_id(interaction.channel, interaction.user)
         if name is None:
-            await interaction.response.send_message(f"Mode: {mode_title(self.agent.mode(cid))}.")
+            await interaction.response.send_message(
+                f"Mode: {mode_title(self.agent.mode(cid))}."
+            )
             return
         try:
             new = self.agent.set_mode(cid, name)
         except ValueError:
             await interaction.response.send_message(
-                f"Unknown mode. Modes: {', '.join(MODE_NAMES)}.", ephemeral=True)
+                f"Unknown mode. Modes: {', '.join(MODE_NAMES)}.", ephemeral=True
+            )
             return
         await interaction.response.send_message(f"Mode is now {mode_title(new)}.")
 
-    @app_commands.command(name="code", description="Ask the code mode one thing "
-                                                   "(answers only, it can't touch files).")
+    @app_commands.command(
+        name="code",
+        description="Ask the code mode one thing "
+        "(answers only, it can't touch files).",
+    )
     async def code(self, interaction: discord.Interaction, message: str):
         if await self._refuse(interaction):
             return
         await self._ask(interaction, message, mode="code")
 
-    @ha.command(name="reset", description="Forget this conversation's short-term memory.")
+    @ha.command(
+        name="reset", description="Forget this conversation's short-term memory."
+    )
     async def reset(self, interaction: discord.Interaction):
         if await self._refuse(interaction):
             return
         if self.agent is not None:
             self.agent.forget(conversation_id(interaction.channel, interaction.user))
-        await interaction.response.send_message("Forgot this conversation.", ephemeral=True)
+        await interaction.response.send_message(
+            "Forgot this conversation.", ephemeral=True
+        )
 
-    @ha.command(name="reload",
-                description="Reload Golurk-Agent's code and settings, and re-read Home Assistant's actions.")
+    @ha.command(
+        name="reload",
+        description="Reload Golurk-Agent's code and settings, and re-read Home Assistant's actions.",
+    )
     async def reload(self, interaction: discord.Interaction):
         """Reload this extension, which re-imports ha_agent (see cog_unload)
         and re-reads config.json (see read_config).
@@ -1529,13 +1817,18 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
         try:
             await bot.reload_extension(__name__)
         except Exception:  # noqa: BLE001 -- discord.py rolled back to the old code
-            log.exception("Reloading the Golurk-Agent cog failed; the old code is still running")
+            log.exception(
+                "Reloading the Golurk-Agent cog failed; the old code is still running"
+            )
             await interaction.followup.send(
                 "The reload failed, so the old code is still running. It's in the bot log.",
-                ephemeral=True)
+                ephemeral=True,
+            )
             return
         log.info("Golurk-Agent cog and ha_agent reloaded by /ha reload")
-        await interaction.followup.send(reload_report(bot.get_cog(name)), ephemeral=True)
+        await interaction.followup.send(
+            reload_report(bot.get_cog(name)), ephemeral=True
+        )
 
 
 async def setup(bot):

@@ -1,4 +1,4 @@
-"""Astrabot cog: talk to the house through the local Home Assistant agent.
+"""Golurk-Agent, Astrabot’s Discord interface for the local agent.
 
 The agent itself is a separate package, ``ha_agent`` (``C:\\codingShit\\ha-agent``,
 installed editable into the bot's Python with
@@ -67,7 +67,8 @@ by itself) and ``code`` (answers only). ``home`` is an old alias of general.
 Per conversation, so per thread, and reset to general on restart. ``/mode``
 shows it, ``/mode <name>`` sets it, ``/code <message>`` uses code mode once.
 The footer says which mode answered ("💻 code (auto)" when general handed it
-over) and how many non-house tool calls ran (web lookups, device reads). Long
+over), whether a fast or learned route skipped the model, and how many non-house
+tool calls ran (web lookups, device reads). Long
 code replies are split without breaking their code blocks.
 
 Timers: the agent's ``set_timer`` calls back ``deliver_timer`` when one ends,
@@ -81,7 +82,7 @@ running them. Here that posts Allow / Deny buttons that only the person who
 asked can press; Deny, a 60 s timeout or any error means no. Nothing is ever
 auto-approved.
 
-Configuration (``config.json`` ``"homeassistant"`` object):
+Configuration uses ``config.json``’s ``"golurk_agent"`` object (``"homeassistant"`` also works):
 - ``allowed_user_ids`` (default ``[Thea]``): who may use it in the channel.
 - ``dm_user_ids`` (default: the bot's ``owner_id``, Thea): who may DM it. A
   separate list on purpose: a DM has no audience, so keep it short.
@@ -109,12 +110,14 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import inspect
+import io
 import json
 import logging
 import os
 import re
 import sys
 from collections import deque
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import aiohttp
@@ -144,15 +147,19 @@ MODE_NAMES = list(MODES) or ["general", "code"]  # "home" is now an alias of gen
 MODE_ICONS = {"general": "\U0001f4ac", "home": "\U0001f3e0", "code": "\U0001f4bb"}
 FENCE = "```"
 
-log = logging.getLogger("homeassistant")
+log = logging.getLogger("golurk_agent")
 
 DISCORD_LIMIT = 2000
 THREAD_NAME_LIMIT = 100
 THREAD_ARCHIVE_MINUTES = 1440  # Discord's choices: 60, 1440, 4320, 10080
 CONFIRM_SECONDS = 60
+CONFIRM_EDIT_RETRY_SECONDS = 0.5
+CONFIRM_NOTICE_SECONDS = 2
 REASONING_LIMIT = 1800  # leaves room for the label and spoiler bars
 BRAIN = "\U0001f9e0"
 NO_PINGS = discord.AllowedMentions.none()
+ATTACHMENT_NOTICE = "Attachment notice: "
+FOLDER_APPROVAL_STATUS = "Folder approval: "
 
 STEP_PAGE_LIMIT = 1900
 STEP_THINKING_LIMIT = 8000  # per model call: a runaway thought can't flood the thread
@@ -170,9 +177,9 @@ STEP_PREFIXES = ("\U0001f527 Calling: **", "\U0001f527 **`", "\u274c **`", THINK
 # ---------------------------------------------------------------- settings --
 
 def load_settings(cfg, env=None) -> dict:
-    """The cog's settings from config.json's ``homeassistant`` object."""
+    """Read the Golurk-Agent settings, accepting the legacy configuration key."""
     env = os.environ if env is None else env
-    raw = cfg.get("homeassistant") if isinstance(cfg, dict) else None
+    raw = cfg.get("golurk_agent", cfg.get("homeassistant")) if isinstance(cfg, dict) else None
     raw = raw if isinstance(raw, dict) else {}
 
     def ids(key, default):
@@ -260,8 +267,9 @@ def _bot_noise(text: str) -> bool:
     return text.startswith(STEP_PREFIXES) or (text.startswith(("Allow **", "||", "Thinking is now", "Home Assistant isn't",
                              "The local model isn't", "That took too long",
                              "Something went wrong talking", "The house agent",
+                             "Golurk-Agent is off", "Golurk-Agent couldn't be created",
                              "The ha_agent package", "No Home Assistant token",
-                             "⏰ Timer done")))
+                             "⏰ Timer done", ATTACHMENT_NOTICE, FOLDER_APPROVAL_STATUS)))
 
 
 def thread_turns(messages, bot_id: int, allowed) -> list[tuple[str, str]]:
@@ -275,20 +283,22 @@ def thread_turns(messages, bot_id: int, allowed) -> list[tuple[str, str]]:
     else's messages are left out.
     """
     turns: list[tuple[str, str]] = []
+    upload_turn = False
     for msg in messages:
         content = (getattr(msg, "content", "") or "").strip()
         if msg.author.id == bot_id:
             text = "\n".join(line for line in content.splitlines()
                              if not line.startswith("-# ")).strip()
-            if not text or _bot_noise(text):
+            if upload_turn or not text or _bot_noise(text):
                 continue
             if turns and turns[-1][0] == "assistant":
                 turns[-1] = ("assistant", f"{turns[-1][1]}\n{text}")
             else:
                 turns.append(("assistant", text))
         elif msg.author.id in allowed:
+            upload_turn = bool(getattr(msg, "attachments", ()))
             text = strip_mention(content, bot_id)
-            if text:
+            if text and not upload_turn:
                 turns.append(("user", f"{msg.author.display_name}: {text}"))
     return turns
 
@@ -399,16 +409,16 @@ def action_footer(reply) -> str:
 
 
 def footer_bits(reply) -> list[str]:
-    """The last footer line's pieces: mode, thinking, tools, time.
-
-    The mode that answered is shown so a wrong automatic pick is easy to spot:
-    "🏠 home (auto)" when general mode handed it over, "💻 code" when set.
-    """
+    """The last footer line's pieces: mode, routing, thinking, tools, time."""
     bits = []
     mode = getattr(reply, "mode", "") or ""
+    routed_by = getattr(reply, "routed_by", "")
+    skipped_model = routed_by in ("fast", "learned")
     if mode:
-        auto = " (auto)" if getattr(reply, "routed_by", "") else ""
+        auto = " (auto)" if routed_by and not skipped_model else ""
         bits.append(f"{MODE_ICONS.get(mode, '')} {mode}{auto}".strip())
+    if skipped_model:
+        bits.append(f"⚡ {routed_by}")
     if getattr(reply, "thought", False):
         bits.append(BRAIN)
     # Web lookups and device reads aren't in reply.actions, but are tool calls.
@@ -442,14 +452,23 @@ def reply_messages(reply, spoiler: bool = True) -> list[str]:
     return parts + [reasoning] if reasoning else parts
 
 
-# ------------------------------------------------------------------- steps --
+@dataclass
+class DiscordAnswer:
+    """Text and generated files ready to send to the original conversation."""
 
-def accepts_steps(agent) -> bool:
-    """Whether ``agent.chat`` has an ``on_step`` parameter (older agents don't)."""
+    parts: list[str] = field(default_factory=list)
+    files: list = field(default_factory=list)
+
+
+def chat_parameters(agent):
+    """Explicit keywords provided by this version of the agent."""
     try:
-        return "on_step" in inspect.signature(agent.chat).parameters
+        return inspect.signature(agent.chat).parameters
     except (AttributeError, TypeError, ValueError):
-        return False
+        return {}
+
+
+# ------------------------------------------------------------------- steps --
 
 
 def _clipped(text: str, limit: int, mark: str = "…") -> str:
@@ -502,8 +521,11 @@ def step_messages(event: dict, args=None) -> list[str]:
         return out
     if kind == "tool":
         ok = event.get("ok", True)
-        head = _card_head("\U0001f527" if ok else "\u274c", event.get("name", "tool"),
-                          "" if ok else " failed", args)
+        name = event.get("name", "tool")
+        if name == "request_folder_access":
+            # The embed already shows the proposal. Do not echo modal text in live steps.
+            return []
+        head = _card_head("\U0001f527" if ok else "\u274c", name, "" if ok else " failed", args)
         snippet = _clipped(str(event.get("result") or "").strip(), STEP_SNIPPET, "...")
         snippet = snippet.replace("```", "`\u200b``")  # can't close the block early
         return [f"{head}\n```\n{snippet or '(no output)'}\n```"]
@@ -659,17 +681,17 @@ def read_config(path="config.json") -> dict:
 def reload_report(cog) -> str:
     """What ``/ha reload`` says about the freshly loaded cog. Pure."""
     if cog is None:
-        return "The house agent's cog didn't come back after the reload. It's in the bot log."
+        return "The Golurk-Agent cog didn't come back after the reload. It's in the bot log."
     if cog.agent is None:
-        return f"Reloaded the code, but the house agent is off: {cog.problem or 'see the bot log.'}"
+        return f"Reloaded the code, but Golurk-Agent is off: {cog.problem or 'see the bot log.'}"
     server = (cog.settings or {}).get("llm_url") or "the agent's default"
     if not cog.started:
-        return ("Reloaded the house agent's code and settings (model server: "
+        return ("Reloaded Golurk-Agent's code and settings (model server: "
                 f"{server}), but Home Assistant isn't reachable yet. "
                 "It will try again on the next message.")
     catalog = getattr(cog.agent, "catalog", None)
     count = len(getattr(catalog, "entries", ()) or ())
-    return (f"Reloaded the house agent's code, settings and {count} Home Assistant "
+    return (f"Reloaded Golurk-Agent's code, settings and {count} Home Assistant "
             f"actions. Model server: {server}.")
 
 
@@ -681,7 +703,7 @@ class ConfirmView(discord.ui.View):
     def __init__(self, owner_id: int, timeout: float | None = CONFIRM_SECONDS):
         super().__init__(timeout=timeout)
         self.owner_id = owner_id
-        self.allowed = False
+        self.decision = asyncio.get_running_loop().create_future()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id == self.owner_id:
@@ -695,11 +717,8 @@ class ConfirmView(discord.ui.View):
             item.disabled = True
 
     async def _answer(self, interaction, allowed: bool, outcome: str) -> None:
-        self.allowed = allowed
-        self.disable()
-        self.stop()
-        content = (interaction.message.content if interaction.message else "") + f"\n{outcome}"
-        await interaction.response.edit_message(content=content, view=self)
+        if not self.decision.done():
+            self.decision.set_result((interaction, allowed, outcome))
 
     @discord.ui.button(label="Allow", style=discord.ButtonStyle.success)
     async def allow(self, interaction: discord.Interaction, _button: discord.ui.Button):
@@ -710,11 +729,24 @@ class ConfirmView(discord.ui.View):
         await self._answer(interaction, False, "\u274c Denied.")
 
 
+async def _edit_confirm_prompt(prompt, content: str, view: discord.ui.View) -> None:
+    """Retry transient message-edit failures until the caller's deadline."""
+    while True:
+        try:
+            await prompt.edit(content=content, view=view, allowed_mentions=NO_PINGS)
+            return
+        except (discord.HTTPException, aiohttp.ClientConnectionError, OSError) as exc:
+            if isinstance(exc, discord.HTTPException) and exc.status != 429 and exc.status < 500:
+                raise
+            await asyncio.sleep(CONFIRM_EDIT_RETRY_SECONDS)
+
+
 def make_confirm(send, owner_id: int, timeout: float = CONFIRM_SECONDS):
     """A ``confirm(summary) -> bool`` for one message.
 
     ``send(content, view)`` posts the question and returns the Message. True
-    only on Allow; Deny, the timeout and any error are False, never raised.
+    only after an Allow click is acknowledged and the prompt edit succeeds.
+    Deny, the deadline and an unrecoverable error return False.
     """
     async def confirm(summary: str) -> bool:
         try:
@@ -723,22 +755,150 @@ def make_confirm(send, owner_id: int, timeout: float = CONFIRM_SECONDS):
             view = ConfirmView(owner_id, timeout=None)
             question = f"Allow **{discord.utils.escape_markdown(str(summary))}**?"
             prompt = await send(question, view)
+            clicked = False
+            confirmation_window = asyncio.timeout(timeout)
             try:
-                await asyncio.wait_for(view.wait(), timeout)
-                timed_out = False
-            except asyncio.TimeoutError:
-                timed_out = True
+                async with confirmation_window:
+                    interaction, allowed, outcome = await view.decision
+                    clicked = True
+                    view.disable()
+                    # Acknowledge the button once, then edit the sent message.
+                    # Message edits can be retried after the interaction's short response window.
+                    await interaction.response.defer()
+                    await _edit_confirm_prompt(prompt, f"{question}\n{outcome}", view)
+                    return allowed
+            except TimeoutError:
+                if not confirmation_window.expired():
+                    raise
+                if clicked:
+                    log.warning("Confirmation timed out while updating the prompt")
+            finally:
                 view.stop()
-            if timed_out:
-                view.disable()
-                await prompt.edit(content=f"{question}\n\u231b No answer in "
-                                          f"{timeout:g} s, so no.", view=view)
-                return False
-            return view.allowed
+
+            view.disable()
+            reason = "Couldn't update the confirmation" if clicked else "No answer"
+            await asyncio.wait_for(
+                prompt.edit(content=f"{question}\n⌛ {reason} in {timeout:g} s, so no.",
+                            view=view, allowed_mentions=NO_PINGS),
+                timeout=CONFIRM_NOTICE_SECONDS,
+            )
+            return False
         except Exception:  # noqa: BLE001 -- confirm must never raise
             log.exception("Confirm prompt failed; treating it as Deny")
             return False
     return confirm
+
+
+# --------------------------------------------------------- folder approval --
+
+class FolderApprovalView(discord.ui.View):
+    """Wait for a configured approver's decision on one proposed folder grant."""
+
+    def __init__(self, approver_ids, timeout: float):
+        super().__init__(timeout=None)
+        self.approver_ids = frozenset(approver_ids)
+        self.modal_timeout = timeout
+        self.decision = asyncio.get_running_loop().create_future()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if str(interaction.user.id) not in self.approver_ids:
+            text = "Only a configured folder approver can answer this request."
+        elif self.decision.done():
+            text = "This folder request is closed."
+        else:
+            return True
+        await interaction.response.send_message(text, ephemeral=True)
+        return False
+
+    def finish(self, interaction, decision: str, text: str = "") -> None:
+        if not self.decision.done():
+            self.decision.set_result((interaction, decision, text))
+
+    @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
+    async def yes(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        self.finish(interaction, "yes")
+
+    @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
+    async def no(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        self.finish(interaction, "no")
+
+    @discord.ui.button(label="Ask", style=discord.ButtonStyle.secondary)
+    async def ask(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        await interaction.response.send_modal(FolderApprovalModal(self))
+
+
+class FolderApprovalModal(discord.ui.Modal, title="Question or revision"):
+    def __init__(self, approval: FolderApprovalView):
+        super().__init__(timeout=approval.modal_timeout)
+        self.approval = approval
+        self.comment = discord.ui.TextInput(style=discord.TextStyle.paragraph, max_length=1000)
+        self.add_item(discord.ui.Label(text="Question or revision", component=self.comment))
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not await self.approval.interaction_check(interaction):
+            return
+        text = self.comment.value.strip()
+        if not text:
+            await interaction.response.send_message(
+                "Enter a question or revision using Ask.", ephemeral=True)
+            return
+        self.approval.finish(interaction, "ask", text)
+
+
+def make_folder_approval(send, cid: str, user_id: str, decision_type, timeout: float = CONFIRM_SECONDS):
+    """Present an agent proposal and return a FolderGrantDecision."""
+    async def approve_folder(request):
+        declined = decision_type("no")
+        if request.conversation_id != cid or request.user_id != user_id or not request.approver_ids:
+            return declined
+
+        path = request.path
+        access = {"read": "Read only", "read_write": "Read and write"}.get(request.access)
+        label = discord.utils.escape_mentions(discord.utils.escape_markdown(path))
+        if (not access or not path or path != path.strip() or len(label) > 1024
+                or any(ord(char) < 32 for char in path)):
+            return declined
+
+        embed = discord.Embed(
+            title="Folder access request",
+            description="Configured approvers can decide. Ask opens a text box for a question or revision.",
+        )
+        embed.add_field(name="Path", value=label, inline=False)
+        embed.add_field(name="Requested by", value=f"<@{user_id}>")
+        embed.add_field(name="Access", value=access)
+        scope = "Requester's DMs" if cid.startswith("discord:dm:") else "This conversation"
+        embed.add_field(name="Scope", value=scope)
+        view = FolderApprovalView(request.approver_ids, timeout)
+        prompt = None
+        try:
+            prompt = await send(None, view, embed=embed)
+            async with asyncio.timeout(timeout):
+                interaction, action, text = await view.decision
+                for button in view.children:
+                    button.disabled = True
+                await interaction.response.defer()
+                status = {"yes": "Approved.", "no": "Declined.", "ask": "Question or revision sent."}
+                await _edit_confirm_prompt(prompt, FOLDER_APPROVAL_STATUS + status[action], view)
+                return decision_type(action, str(interaction.user.id), text)
+        except TimeoutError:
+            if prompt is not None:
+                for button in view.children:
+                    button.disabled = True
+                try:
+                    await asyncio.wait_for(
+                        prompt.edit(content=FOLDER_APPROVAL_STATUS + "Expired.", view=view,
+                                    allowed_mentions=NO_PINGS),
+                        timeout=CONFIRM_NOTICE_SECONDS,
+                    )
+                except (discord.HTTPException, aiohttp.ClientError, OSError):
+                    log.warning("Could not mark the folder prompt expired", exc_info=True)
+        except Exception:  # approval must fail closed
+            log.exception("Folder approval prompt failed")
+        finally:
+            view.decision.cancel()
+            view.stop()
+        return declined
+    return approve_folder
 
 
 # --------------------------------------------------------------------- cog --
@@ -756,7 +916,7 @@ def _load_fake_ha(path: str | None):
 def _forget_agent_modules() -> list[str]:
     """Drop ``ha_agent`` (and the dev-mode fake HA) from ``sys.modules``.
 
-    Called on unload so that ``reload_extension("cogs.homeassistant")`` re-imports
+    Called on unload so that ``reload_extension("cogs.golurk_agent")`` re-imports
     the agent too, and agent fixes apply without a bot restart. Safe if the new
     load fails: discord.py's rollback re-runs the old module's ``setup``, which
     still holds the old classes directly.
@@ -768,10 +928,10 @@ def _forget_agent_modules() -> list[str]:
     return gone
 
 
-class HomeAssistant(commands.Cog):
-    """Carries messages between Discord and the local Home Assistant agent."""
+class GolurkAgent(commands.Cog, name="Golurk-Agent"):
+    """Carries messages between Discord and Golurk-Agent."""
 
-    ha = app_commands.Group(name="ha", description="Talk to the house (Home Assistant).")
+    ha = app_commands.Group(name="ha", description="Talk to Golurk-Agent.")
 
     def __init__(self, bot, settings: dict | None = None, agent=None):
         self.bot = bot
@@ -808,15 +968,15 @@ class HomeAssistant(commands.Cog):
 
     async def cog_load(self):
         if not self.settings["allowed"]:
-            log.warning("allowed_user_ids is empty: nobody can use the house agent")
+            log.warning("allowed_user_ids is empty: nobody can use Golurk-Agent")
         if self.agent is None:
             try:
                 self.agent = self._build_agent()
             except Exception:  # noqa: BLE001 -- never stop the bot over this
-                log.exception("Could not create the Home Assistant agent")
-                self.problem = "The house agent couldn't be created. It's in the bot log."
+                log.exception("Could not create Golurk-Agent")
+                self.problem = "Golurk-Agent couldn't be created. It's in the bot log."
         if self.agent is None:
-            log.warning("Home Assistant agent off: %s", self.problem)
+            log.warning("Golurk-Agent off: %s", self.problem)
             return
         await self._ensure_started()
 
@@ -825,7 +985,7 @@ class HomeAssistant(commands.Cog):
             try:
                 await self.agent.close()
             except Exception:  # noqa: BLE001
-                log.exception("Closing the Home Assistant agent failed")
+                log.exception("Closing Golurk-Agent failed")
         _forget_agent_modules()
 
     async def _ensure_started(self) -> bool:
@@ -838,10 +998,10 @@ class HomeAssistant(commands.Cog):
             log.warning("Home Assistant isn't reachable: %s", exc)
             return False
         except Exception:  # noqa: BLE001
-            log.exception("Starting the Home Assistant agent failed")
+            log.exception("Starting Golurk-Agent failed")
             return False
         self.started = True
-        log.info("Home Assistant agent ready")
+        log.info("Golurk-Agent ready")
         return True
 
     # -- timers --
@@ -905,35 +1065,80 @@ class HomeAssistant(commands.Cog):
 
     async def answer(self, cid: str, text: str, author, confirm,
                      think: bool | None = None, mode: str | None = None,
-                     steps: StepFeed | None = None) -> list[str]:
-        """The messages to send back for one request (errors included).
-
-        ``think`` True/False forces thinking for this message; None = the toggle.
-        ``mode`` forces a mode for this message; None = the conversation's mode.
-        """
+                     steps: StepFeed | None = None, *, message_id: int | None = None,
+                     uploads=(), send_approval=None) -> DiscordAnswer:
+        """Ask the agent and collect text, upload notices and generated files."""
         if self.agent is None:
-            return [self.problem or "The house agent is off."]
+            return DiscordAnswer([self.problem or "Golurk-Agent is off."])
         if not await self._ensure_started():
-            return ["Home Assistant isn't reachable right now. I'll try again next message."]
-        extra = {"mode": mode} if mode else {}  # older agents have no mode argument
+            return DiscordAnswer(["Home Assistant isn't reachable right now. I'll try again next message."])
+
+        parameters = chat_parameters(self.agent)
+        extra = {"mode": mode} if mode else {}
+        if {"user_id", "message_id", "is_dm"} <= parameters.keys():
+            extra.update(user_id=str(author.id),
+                         message_id=str(message_id) if message_id is not None else None,
+                         is_dm=cid.startswith("discord:dm:"))
+        folder_decision = getattr(ha_agent, "FolderGrantDecision", None)
+        if "approve_folder" in parameters and send_approval is not None and folder_decision is not None:
+            extra["approve_folder"] = make_folder_approval(send_approval, cid, str(author.id), folder_decision)
+        read_uploads = getattr(ha_agent, "read_discord_attachments", None)
+        notices = []
+        if uploads and ("attachments" not in parameters or read_uploads is None):
+            notices.append(ATTACHMENT_NOTICE + "Uploads need the updated Golurk-Agent package.")
+            if not text:
+                return DiscordAnswer(notices)
+
         if steps is not None:
             steps.start()
-            if accepts_steps(self.agent):  # older agents report nothing
+            if "on_step" in parameters:
                 extra["on_step"] = steps.add
         try:
-            reply = await asyncio.wait_for(
-                self.agent.chat(cid, text, confirm=confirm, speaker=author.display_name,
-                                think=think, **extra),
-                self.settings["timeout"])
+            async with asyncio.timeout(self.settings["timeout"]):
+                if uploads and not notices:
+                    extra["attachments"] = await read_uploads(uploads)
+                reply = await self.agent.chat(cid, text, confirm=confirm, speaker=author.display_name,
+                                              think=think, **extra)
         except Exception as exc:  # noqa: BLE001
-            log.exception("Home Assistant agent failed (%s)", cid)
-            return [error_text(exc)]
+            log.exception("Golurk-Agent failed (%s)", cid)
+            return DiscordAnswer([error_text(exc), *notices])
         finally:
             if steps is not None:  # all steps are posted before the answer
                 await steps.close()
+        if getattr(reply, "duplicate", False):
+            return DiscordAnswer()
+
         log.info("HA %s: %d tool calls, %d actions, %.1f s", cid, reply.tool_calls,
                  len(reply.actions), reply.seconds)
-        return reply_messages(reply, spoiler=not (steps and steps.showed_thinking()))
+        parts = reply_messages(reply, spoiler=not (steps and steps.showed_thinking()))
+        for error in getattr(reply, "attachment_errors", ()):
+            notices.extend(split_message(ATTACHMENT_NOTICE + discord.utils.escape_markdown(error)))
+        return DiscordAnswer(parts + notices, getattr(reply, "files", []))
+
+    async def _send_answer(self, answer: DiscordAnswer, send_first, send):
+        """Send text before uploading files so a failed upload cannot hide the answer."""
+        if not answer.parts:  # the agent suppressed a replayed event
+            return None
+        first = await send_first(answer.parts[0], allowed_mentions=NO_PINGS)
+        for part in answer.parts[1:]:
+            await send(part, allowed_mentions=NO_PINGS)
+        for file in answer.files:
+            try:
+                with io.BytesIO(file.data) as data:
+                    upload = discord.File(data, filename=file.filename)
+                    try:
+                        await send(file=upload, allowed_mentions=NO_PINGS)
+                    finally:
+                        upload.close()
+            except (discord.HTTPException, aiohttp.ClientError, OSError, ValueError):
+                log.warning("Could not upload a Golurk-Agent reply file", exc_info=True)
+                name = discord.utils.escape_markdown(" ".join(file.filename.split())[:200])
+                try:
+                    await send(f"{ATTACHMENT_NOTICE}Could not upload {name}.",
+                               allowed_mentions=NO_PINGS)
+                except (discord.HTTPException, aiohttp.ClientError, OSError):
+                    log.warning("Could not post the upload failure notice", exc_info=True)
+        return first
 
     def allowed(self, user) -> bool:
         return user.id in self.settings["allowed"]
@@ -945,7 +1150,8 @@ class HomeAssistant(commands.Cog):
         if not should_handle(message, self.bot.user, self.settings):
             return
         text = strip_mention(message.content, self.bot.user.id)
-        if not text:
+        uploads = getattr(message, "attachments", ())
+        if not (text or uploads):
             return
 
         thread = None
@@ -959,26 +1165,22 @@ class HomeAssistant(commands.Cog):
 
         steps = self._step_feed(post_step)
 
-        async def send(content, view):
+        async def send(content, view, **kwargs):
             if steps is not None:
                 await steps.pause()
             if thread is not None:
-                return await thread.send(content, view=view, allowed_mentions=NO_PINGS)
-            return await message.reply(content, view=view, allowed_mentions=NO_PINGS)
+                return await thread.send(content, view=view, allowed_mentions=NO_PINGS, **kwargs)
+            return await message.reply(content, view=view, allowed_mentions=NO_PINGS, **kwargs)
 
         cid = conversation_id(where, message.author)
         if thread is None and agent_place(where, self.settings["channel_id"]) == "thread":
             await self._restore_thread(where, cid, skip_id=message.id)
         async with where.typing():
-            parts = await self.answer(cid, text, message.author,
-                                      make_confirm(send, message.author.id), steps=steps)
-        if thread is not None:
-            first = await thread.send(parts[0], allowed_mentions=NO_PINGS)
-        else:
-            first = await message.reply(parts[0], allowed_mentions=NO_PINGS)
-        for part in parts[1:]:
-            await where.send(part, allowed_mentions=NO_PINGS)
-        return first
+            answer = await self.answer(cid, text, message.author,
+                                       make_confirm(send, message.author.id), steps=steps,
+                                       message_id=message.id, uploads=uploads, send_approval=send)
+        send_first = thread.send if thread is not None else message.reply
+        return await self._send_answer(answer, send_first, where.send)
 
     async def _restore_thread(self, thread, cid: str, skip_id: int | None = None) -> int:
         """After a restart the agent has forgotten this thread: re-read it from Discord.
@@ -988,6 +1190,9 @@ class HomeAssistant(commands.Cog):
         """
         agent = self.agent
         if agent is None or not hasattr(agent, "has_history") or agent.has_history(cid):
+            return 0
+        seen = getattr(getattr(agent, "conversations", None), "seen", None)
+        if seen is not None and skip_id is not None and seen(cid, str(skip_id)):
             return 0
         # Room for each exchange's step messages, which thread_turns then drops.
         limit = (4 + STEP_HISTORY_ROOM) * self.settings.get("history_turns", 6) + 10
@@ -1004,6 +1209,13 @@ class HomeAssistant(commands.Cog):
                 messages.insert(0, await thread.parent.fetch_message(thread.id))
             except (discord.HTTPException, AttributeError):
                 pass  # not opened on a message, or it was deleted
+        if seen is not None:
+            # A persisted Discord ID marks an upgraded conversation even when its text
+            # was excluded from durable memory or cleared with /ha reset.
+            for m in messages:
+                interaction_id = getattr(getattr(m, "interaction_metadata", None), "id", None)
+                if seen(cid, str(interaction_id or m.id)):
+                    return 0
         turns = thread_turns([m for m in messages if m.id != skip_id],
                              self.bot.user.id, self.settings["allowed"])
         if turns:
@@ -1012,11 +1224,25 @@ class HomeAssistant(commands.Cog):
         return len(turns)
 
     async def _open_thread(self, message, text):
-        """A thread on the request message, or None (then answer in the channel)."""
+        """Create or recover the thread so a replay keeps its conversation ID."""
+        cached = getattr(message, "thread", None)
+        if cached is not None:
+            return cached
         try:
             return await message.create_thread(name=thread_name(text),
                                                auto_archive_duration=THREAD_ARCHIVE_MINUTES)
-        except discord.HTTPException as exc:  # Forbidden is one; also "already has a thread"
+        except discord.HTTPException as exc:
+            # Discord may have created the thread already. A public thread created
+            # from a message has the same ID as its starter, even when archived.
+            fetch_channel = getattr(self.bot, "fetch_channel", None)
+            if fetch_channel is not None:
+                try:
+                    existing = await fetch_channel(message.id)
+                except discord.HTTPException:
+                    pass
+                else:
+                    if isinstance(existing, discord.Thread) and existing.parent_id == message.channel.id:
+                        return existing
             log.warning("Couldn't open a thread for a house request (%s); answering in the channel",
                         exc)
             return None
@@ -1045,22 +1271,22 @@ class HomeAssistant(commands.Cog):
 
         steps = self._step_feed(post_step)
 
-        async def send(content, view):
+        async def send(content, view, **kwargs):
             if steps is not None:
                 await steps.pause()
             return await interaction.followup.send(content, view=view, wait=True,
-                                                   allowed_mentions=NO_PINGS)
+                                                   allowed_mentions=NO_PINGS, **kwargs)
 
         cid = conversation_id(interaction.channel, interaction.user)
         if agent_place(interaction.channel, self.settings["channel_id"]) == "thread":
             await self._restore_thread(interaction.channel, cid)
-        parts = await self.answer(cid, text, interaction.user,
-                                  make_confirm(send, interaction.user.id), think=think,
-                                  mode=mode, steps=steps)
-        for part in parts:
-            await interaction.followup.send(part, allowed_mentions=NO_PINGS)
+        answer = await self.answer(cid, text, interaction.user,
+                                   make_confirm(send, interaction.user.id), think=think,
+                                   mode=mode, steps=steps,
+                                   message_id=getattr(interaction, "id", None), send_approval=send)
+        await self._send_answer(answer, interaction.followup.send, interaction.followup.send)
 
-    @ha.command(name="ask", description="Ask the house something or tell it to do something.")
+    @ha.command(name="ask", description="Send a request to Golurk-Agent.")
     async def ask(self, interaction: discord.Interaction, text: str):
         if await self._refuse(interaction):
             return
@@ -1078,7 +1304,7 @@ class HomeAssistant(commands.Cog):
             await self._ask(interaction, value, think=True)
             return
         if self.agent is None:
-            await interaction.response.send_message(self.problem or "The house agent is off.",
+            await interaction.response.send_message(self.problem or "Golurk-Agent is off.",
                                                     ephemeral=True)
             return
         on = self.agent.set_thinking(conversation_id(interaction.channel, interaction.user), value)
@@ -1093,7 +1319,7 @@ class HomeAssistant(commands.Cog):
             return
         if self.agent is None or not hasattr(self.agent, "set_mode"):
             await interaction.response.send_message(
-                self.problem or "The house agent is off (or too old for modes).", ephemeral=True)
+                self.problem or "Golurk-Agent is off (or too old for modes).", ephemeral=True)
             return
         cid = conversation_id(interaction.channel, interaction.user)
         if name is None:
@@ -1123,7 +1349,7 @@ class HomeAssistant(commands.Cog):
         await interaction.response.send_message("Forgot this conversation.", ephemeral=True)
 
     @ha.command(name="reload",
-                description="Reload the house agent's code and settings, and re-read Home Assistant's actions.")
+                description="Reload Golurk-Agent's code and settings, and re-read Home Assistant's actions.")
     async def reload(self, interaction: discord.Interaction):
         """Reload this extension, which re-imports ha_agent (see cog_unload)
         and re-reads config.json (see read_config).
@@ -1138,14 +1364,14 @@ class HomeAssistant(commands.Cog):
         try:
             await bot.reload_extension(__name__)
         except Exception:  # noqa: BLE001 -- discord.py rolled back to the old code
-            log.exception("Reloading the Home Assistant cog failed; the old code is still running")
+            log.exception("Reloading the Golurk-Agent cog failed; the old code is still running")
             await interaction.followup.send(
                 "The reload failed, so the old code is still running. It's in the bot log.",
                 ephemeral=True)
             return
-        log.info("Home Assistant cog and ha_agent reloaded by /ha reload")
+        log.info("Golurk-Agent cog and ha_agent reloaded by /ha reload")
         await interaction.followup.send(reload_report(bot.get_cog(name)), ephemeral=True)
 
 
 async def setup(bot):
-    await bot.add_cog(HomeAssistant(bot))
+    await bot.add_cog(GolurkAgent(bot))

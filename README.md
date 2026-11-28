@@ -39,6 +39,10 @@ Built with Python and discord.py 2.x, with SQLite for storage (PostgreSQL until 
 ### Moderation and admin
 - `/kick`, `/purge`, `/speak`, `/reloadcog`, and `/streamlive` / `/streamended` for setting the bot's status during streams.
 
+### Golurk-Agent
+- A Discord interface for my local agent. It answers questions, manages timers and sends requests to Home Assistant for allowlisted users in a configured channel, its threads, or DMs.
+- Enable it with `golurk_agent` in the `cogs` list. The `/ha` commands include `ask`, `reset` and `reload`. Setup and access settings are in [DESIGN.md §7.10](DESIGN.md#710-golurk-agent-cogsgolurk_agentpy).
+
 ### Golurk Console
 - A desktop control panel (`startConsole.bat`) that runs the bot, the audiobook site, absLogin, the wiki backend and the classifier, each with its own live output pane and restart button. Any other program can be added in Settings.
 - Includes a decisions panel for reviewing the classifier's recent calls.

@@ -21,6 +21,10 @@ class StartupCogsTests(unittest.TestCase):
         self.assertEqual(extensions_from_config({"cogs": ["tasks", "cogs.tasks", " clip "]}),
                          ["cogs.tasks", "cogs.clip"])
 
+    def test_golurk_agent_aliases_load_one_extension_in_order(self):
+        cfg = {"cogs": ["wiki", "cogs.homeassistant", "Golurk-Agent", "cogs.golurk_agent"]}
+        self.assertEqual(extensions_from_config(cfg), ["cogs.wiki", "cogs.golurk_agent"])
+
     def test_no_key_uses_the_defaults(self):
         self.assertEqual(extensions_from_config({}), [f"cogs.{n}" for n in DEFAULT_COGS])
 

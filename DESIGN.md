@@ -42,7 +42,7 @@ A personal Discord bot (discord.py 2.7, slash commands, SQLite) running since 20
 | Music and clips | `/play` queue from YouTube/YT Music/SoundCloud/Spotify; `/clip`, `/sclip`, `/cplay` for sound clips | §7.5, §7.6 |
 | Moderation | `/kick`, `/purge`, `/speak`, `/reloadcog`, stream presence; also the console's reload/alert flag watcher | §7.7 |
 | Self-update | Polls git every 15 min, pulls and hot-reloads only changed cogs | §7.8 |
-| Home Assistant | Allowlisted users talk to the house in Discord through the local `ha_agent` (Qwen on Ollama); risky actions need an Allow button | §7.10 |
+| Golurk-Agent | Allowlisted users talk to the house in Discord through the local `ha_agent` (Qwen on Ollama); risky actions need an Allow button | §7.10 |
 | Golurk Console | Tkinter control panel that runs and supervises the bot and its sibling services | §8 |
 | Legacy cogs | 2019–2021 economy, roles, shop, gambling, pets, houses; in the repo, off by default | §7.9 |
 
@@ -61,7 +61,7 @@ startConsole.bat ──> astra_console.py (Golurk Console, tkinter)
                        │    ├─ cogs.music / cogs.clip → yt-dlp + FFmpeg → voice
                        │    ├─ cogs.moderation (polls logs/*.flag every 2 s)
                        │    ├─ cogs.selfupdate (git fetch/pull every 15 min)
-                       │    └─ cogs.homeassistant → ha_agent → Ollama 127.0.0.1:11434 + Home Assistant 192.168.4.229 (port 80)
+                       │    └─ cogs.golurk_agent → ha_agent → Ollama 127.0.0.1:11434 + Home Assistant 192.168.4.229 (port 80)
                        ├─ absLogin app.py                 :13381 (audio.theruvial.com/signup)
                        ├─ wiki backend server.py          :13382 (Aboard the Astra repo, loopback)
                        ├─ AstraThought classifier         :13383 (separate repo + venv)
@@ -121,7 +121,7 @@ cogs/
   clip.py               cog: /clip, /sclip, /cplay
   moderation.py         cog: moderation commands + console flag watcher
   selfupdate.py         cog: git poll + hot reload
-  homeassistant.py      cog: Discord <-> the local Home Assistant agent (ha_agent package, separate repo)
+  golurk_agent.py       cog: Discord <-> the local agent (ha_agent package, separate repo)
   roles.py points.py gambling.py shop.py pet.py house.py test.py   legacy cogs (§7.9)
 scripts/                one-off tools: backfill_audiobook_titles, check_torrents, check_library,
                         export_youtube_cookies
@@ -147,6 +147,8 @@ Untracked on the host only: `config.json` (+ `.bak`), `console.json`, `cookies.t
 5. Logging: `discord.utils.setup_logging(level=INFO)` in `__main__`, because `bot.start()` sets up none. Cogs use named loggers (`audiobooks`, `portfolio`, `selfupdate`, `tasks`, ...); `music.py` has its own `log()` that prints with timestamps.
 
 **Which cogs load** is the `"cogs"` list in `config.json` (since 2026-11-16): short (`tasks`) or full (`cogs.tasks`) names, order kept, duplicates dropped, invalid names skipped with a warning. No key → `DEFAULT_COGS` in `startup_cogs.py` (moderation, tasks, clip, audiobooks, wiki, portfolio, selfupdate). Empty list → nothing. A list change needs a restart, or `/reloadcog` for a cog already loaded.
+
+**Golurk-Agent** loads as `cogs.golurk_agent`. Startup and manual reload accept `homeassistant` and `Golurk-Agent` as aliases and resolve them to the same extension.
 
 **Host's list on 2026-11-17:** moderation, tasks, clip, music, audiobooks, wiki, portfolio, selfupdate.
 
@@ -178,7 +180,7 @@ All settings are in the host's `config.json` (untracked; `config.example.json` s
 | `portfolio` | portfolio | object: `web_host` (0.0.0.0), `web_port` (13384), `cv_watch`, `cv_repo`, `cv_path`, `cv_branch`, `cv_poll_minutes` (10), `cv_auto_publish` (false), `data_dir`, `owner_id` |
 | `tasks` | tasks | optional object overriding classifier/wiki URLs and paths |
 | `selfupdate` | selfupdate | object: `enabled`, `interval_minutes` |
-| `homeassistant` | homeassistant | object: `allowed_user_ids` (default Thea), `channel_id`, `ha_token` (blank = env `HA_TOKEN`), `ha_url`, `ollama_url`, `llm_url` (Strata/OpenAI-style URL ending in `/v1`; passed only when set), `model`, `timeout_seconds` (180), `show_steps` (default true: post thinking and tool calls live, §7.10), `fake_ha` (dev mode), `fake_ha_path` (§7.10) |
+| `golurk_agent` | golurk_agent | `homeassistant` is a fallback when the new key is absent. Object: `allowed_user_ids` (default Thea), `channel_id`, `ha_token` (blank = env `HA_TOKEN`), `ha_url`, `ollama_url`, `llm_url` (Strata/OpenAI-style URL ending in `/v1`; passed only when set), `model`, `timeout_seconds` (180), `show_steps` (default true: post thinking and tool calls live, §7.10), `fake_ha` (dev mode), `fake_ha_path` (§7.10) |
 | `roles`, `crewmate`, `updates`, `rolesMessageID`, `updatesEmojiID`, `welcomeChannel` | legacy roles | ids |
 | `botShop`, `workChannel` | legacy shop | ids |
 | `be_webhook`, `bl_webhook`, `gd_webhook` | legacy house | webhook URLs (secrets) |
@@ -198,7 +200,7 @@ Known non-secret host values: guild `454792201633792001`, requests channel `1565
 | `AUDIOBOOKS_CHANNEL_ID`, `AUDIOBOOKS_WEB_HOST`, `AUDIOBOOKS_WEB_PORT`, `AUDIOBOOKS_DB_PATH`, `AUDIOBOOKS_ADMIN_IDS`, `AUDIOBOOKS_ADMIN_EMAIL` | audiobooks overrides |
 | `PORTFOLIO_WEB_HOST`, `PORTFOLIO_WEB_PORT` | portfolio overrides |
 | `SELFUPDATE_ENABLED`, `SELFUPDATE_INTERVAL_MINUTES` | selfupdate overrides |
-| `HA_TOKEN` | homeassistant (Home Assistant long-lived token, made by Thea) when `homeassistant.ha_token` is blank; `HA_URL`, `OLLAMA_URL`, `HA_AGENT_MODEL` are read by the agent itself when the config keys are blank |
+| `HA_TOKEN` | Golurk-Agent (Home Assistant long-lived token, made by Thea) when `ha_token` is blank; `HA_URL`, `OLLAMA_URL`, `HA_AGENT_MODEL` are read by the agent itself when the config keys are blank |
 | `GITHUB_TOKEN` | wiki backend (not the bot) |
 | `SIGNUP_CONFIG` | absLogin, path to its config.json |
 
@@ -338,24 +340,28 @@ Every 15 minutes (and `/check_updates`, admin): `git fetch origin <current branc
 
 Balances are never stored: they are sums over append-only ledgers.
 
-### 7.10 Home Assistant (`cogs/homeassistant.py`, 2026-11-24)
+### 7.10 Golurk-Agent (`cogs/golurk_agent.py`)
 
 Carries messages between Discord and Thea's local Home Assistant agent. The agent is a separate package, `ha_agent` in `C:\codingShit\ha-agent` (not in this repo; the brief this cog follows is its `COG_GUIDE.md`, copied here as `docs/AGENT_COG_DESIGN.md` by Thea on 2026-11-25). It picks the tools, asks Qwen3.5-4B on Ollama and calls Home Assistant's REST API. Wrong replies are fixed in the agent, never here.
+
+The attached guide from the agent's `file-tools-attachments` worktree is the reference for the next cog upgrade. Its “Cog upgrade” section describes Discord attachments and file replies, stable author and message IDs, agent-side folder grants, and persistent memory. Astrabot detects the upgraded chat interface and passes verified Discord IDs and attachments. The agent handles folder grants, deduplication and persistent memory. Thread restore can seed pre-upgrade history. The earlier agent package still handles plain text, with an upgrade notice for uploads.
+
+The optional `approve_folder` chat callback displays the requested path, requester, access and scope. The agent configures eligible approvers through `HA_AGENT_FOLDER_APPROVER_IDS`. Yes or No resolves the proposal. Ask opens a Discord modal and returns the approver's question or revision within the original deadline. The agent defaults to read/write and validates and applies grants.
 - **Must run on Golurk:** Ollama listens only on 127.0.0.1, on purpose. Moving the bot needs an HTTP wrapper and a network-exposure decision first; ask Thea.
-- **Install:** `py -3.14 -m pip install -e C:\codingShit\ha-agent` (editable, so agent fixes apply at the next cog reload, which `/ha reload` does since 2026-11-25: `cog_unload` drops `ha_agent`, `ha_agent.*` and the dev-mode `ha_agent_fake_ha` from `sys.modules`, so reloading `cogs.homeassistant` re-imports the agent; since 2026-11-24, before that it needed a bot restart). Done on the host 2026-11-24. Off until `"homeassistant"` is in `"cogs"`; the token goes in the `HA_TOKEN` user environment variable (Thea sets it; never in config.json on the Drive if avoidable, never in docs).
+- **Install:** `py -3.14 -m pip install -e C:\codingShit\ha-agent` (editable, so agent fixes apply at the next cog reload, which `/ha reload` does since 2026-11-25: `cog_unload` drops `ha_agent`, `ha_agent.*` and the dev-mode `ha_agent_fake_ha` from `sys.modules`, so reloading `cogs.golurk_agent` re-imports the agent; since 2026-11-24, before that it needed a bot restart). Done on the host 2026-11-24. Off until `"golurk_agent"` (or its legacy alias `"homeassistant"`) is in `"cogs"`; the token goes in the `HA_TOKEN` user environment variable (Thea sets it; never in config.json on the Drive if avoidable, never in docs).
 - **Who and where:** `allowed_user_ids` (default Thea) in `channel_id` and the threads under it; DMs only from `dm_user_ids` (default: the bot's `owner_id`, Thea; a separate list on purpose). ID lists, never roles. Everything else is ignored silently, including @mentions in other channels; slash commands answer "I only answer in #channel" (allowed users) or "Not allowed." ephemerally. With `channel_id` unset only the DMs work. Changed 2026-11-24 at Thea's request (before: DMs and mentions anywhere for allowed users).
 - **What reaches the agent:** messages from the people above in the places above (an @mention is stripped, not needed); bots never. Memory key `discord:<thread id>`, `discord:<channel id>` (only when a thread couldn't be opened) or `discord:dm:<user id>`; the agent serializes each conversation.
-- **Threads (2026-11-24, branch `feature/ha-cog-threads`):** a new message in `channel_id` itself opens a thread on that message, named after its first line (max 100 chars, archives after 24 h idle), and the answer, confirm buttons and later replies go there. The thread is the conversation, so `/think` and `/ha reset` inside it act on that thread only. The agent keeps `history_turns` exchanges (config, default 6) in memory. After a bot restart (or once the agent drops a least-recently-used conversation past its 500), the first message or slash command in a thread finds `agent.has_history()` false, re-reads up to `24 × history_turns + 10` thread messages (`4 ×` before step messages, 2026-11-26) plus the starter message from the parent channel, and hands them back with `agent.remember()`. `thread_turns` writes user turns as "Name: text" (as `chat()` stores them), drops `-#` footer lines, joins split replies, and leaves out confirm prompts, reasoning spoilers, error notices and other people. If the thread can't be read it answers without the history. If the bot lacks Create Public Threads, it logs a warning and answers in the channel. `/ha ask` doesn't open a thread.
+- **Threads (2026-11-24, branch `feature/ha-cog-threads`):** a new message in `channel_id` itself opens a thread on that message, named after its first line (max 100 chars, archives after 24 h idle), and the answer, confirm buttons and later replies go there. The thread is the conversation, so `/think` and `/ha reset` inside it act on that thread only. The agent uses `history_turns` recent exchanges (config, default 6). The upgraded agent reads recent and older exchanges from its persistent store. If `agent.has_history()` is false and no persisted Discord IDs identify an upgraded conversation, the cog seeds older thread context by re-reading up to `24 × history_turns + 10` thread messages (`4 ×` before step messages, 2026-11-26) plus the starter message from the parent channel, and hands them back with `agent.remember()`. `thread_turns` writes user turns as "Name: text" (as `chat()` stores them), drops `-#` footer lines, joins split replies, and leaves out confirm prompts, reasoning spoilers, error notices and other people. If the thread can't be read it answers without the history. If the bot lacks Create Public Threads, it logs a warning and answers in the channel. `/ha ask` doesn't open a thread.
 - **Answering:** typing indicator, `speaker` = display name, `asyncio.wait_for` 180 s. Reply text plus a small-print footer per action (`✅ fan.set_percentage → Air Purifier {percentage: 40}`, `❌ … (declined)`) and seconds; split under 2000 chars; mentions never ping.
-- **Confirm buttons:** the agent awaits `confirm(summary)` before risky actions. The cog posts "Allow **…**?" with Allow / Deny; only the asker can press (others get an ephemeral refusal); Deny, 60 s without an answer, or any error = no. The 60 s deadline is enforced by `asyncio.wait_for` in `make_confirm`, not by the View's own timeout (discord.py only starts that once a real send registers the view). Never auto-approves.
+- **Confirm buttons:** the agent awaits `confirm(summary)` before risky actions. The cog posts "Allow **…**?" with Allow / Deny; only the asker can press (others get an ephemeral refusal); The cog acknowledges the first authorized click and edits the original prompt. It retries transient edit failures within the same 60-second confirmation window. An Allow reaches the agent only after the edit succeeds. Deny, a deadline, or a permanent error returns no. The deadline also covers the acknowledgement and retries.
 - **Errors:** Home Assistant down or token rejected → "Home Assistant isn't responding"; Ollama down → "Start Ollama on Golurk"; timeout → "try again". Tracebacks go to the log only. If HA is down at load, the cog stays loaded and retries `start()` on the next message. No token or no package → it stays loaded and says what is missing to allowed users.
 - **Thinking (required by the guide since 2026-11-24):** Qwen reasons first, about 3x slower (3.7 s vs 13.0 s measured), off by default. Per conversation, kept in the agent (resets to off on restart). `/think` flips it, `/think on|off` sets it (`agent.set_thinking`), `/think <message>` thinks for that one message only (`chat(..., think=True)`, toggle untouched). A thought-about reply has 🧠 in its footer and its reasoning (`reply.thinking`, cut to 1800 chars, `||` defused) as a spoiler in a last message.
 - **Steps, like LangChat (2026-11-26, branch `feature/ha-cog-steps`; `show_steps`, default true):** Thea wants the thought process and tool calls in the thread she types in, working like Justin's LangChat (`egamI-rorriM/LangChat`, private; its `discord_bot.py` `_route`, read at `b30c5f8`). `StepFeed` posts one message per step as it happens: `💭 **Thinking**` with the reasoning (split, header repeated on each part, capped at 8000 chars per model call), `🔧 Calling: **a, b**`, a card per result (``🔧 **`name`** — `args` `` plus the first 500 chars in a code block; `❌ … failed`), `❌ … not run` for a call that never got a result (tool limit), `🔁` for the agent's own notes. Quiet for 20 s → `⏳ Still working…`, then at most every 120 s (not while a confirm prompt is waiting). Differences from LangChat: sent silently, no pings or link previews; no paired "updates channel" thread (LangChat's optional `discord_updates_channel_id`; its default is the same thread, as here); no message batching or "On it…" (not about the thought process). `add` (the agent's `on_step`) only queues; one task sends in order, so Discord rate limits never slow the agent or count against the timeout; a failed post is logged, dropped and keeps the reasoning spoiler. When the reasoning was posted, the end-of-answer spoiler is left off; the action footer stays. Thread restore skips every step message (`STEP_PREFIXES`) and reads `24 × history_turns + 10` messages. **Needs the agent's `chat(..., on_step=)`**, designed in `docs/AGENT_STEPS_DESIGN.md`, built by the `ha-agent` session on its branch `feature/step-events` (622bae2; not pushed or merged on 2026-11-26) and documented in `docs/AGENT_COG_DESIGN.md` ("Live steps"). The cog detects the parameter, so either side can ship first; with an agent that lacks it only "Still working" is new. The bot gets it once that branch is on `ha-agent`'s checked-out `master`, then `/ha reload`. Thinking text exists only with thinking on (off by default; `/think on`). Tool results (notes, documents, device states) are visible to everyone who can read the channel.
 - **Timers (2026-11-25, branch `feature/ha-cog-timers`):** the agent's `set_timer` only works when the host gives it `on_timer(cid, text)`. The cog sets `agent.on_timer = cog.deliver_timer` after building the agent (not as a constructor argument, so older agents still build). `timer_target(cid)` reverses `conversation_id`: `discord:<id>` → channel or thread (`get_channel`, else `fetch_channel` for archived threads; sending unarchives), `discord:dm:<id>` → that user. Messages never ping. Timers are saved by the agent and re-armed by `start()`, which runs in `cog_load` before Discord is connected, so delivery first awaits `bot.wait_until_ready()` (safe: each timer is its own task). If the place is gone (thread deleted, no access), the message goes to the owner's DMs (lowest `dm_user_ids` entry, else Thea) instead of vanishing; Claude chose this on 2026-11-25. Never raises; failures are logged. Thread restore (`thread_turns`) skips timer messages, so they never come back as agent answers (2026-11-25, branch `fix/ha-timer-restore`).
-- **Modes (required by the guide, 2026-11-24, branch `feature/ha-cog-threads`; updated 2026-11-25):** the agent now has `general` (default: the house, questions, web search, math, notes, documents, timers; hands coding to `code` per message, by keywords or the model) and `code` (answers only). `home` was folded into general; the name is still accepted as an alias but `MODES` no longer lists it, so `/mode` offers only general and code. Per conversation (so per thread), kept in the agent, back to general on restart. `/mode` shows it, `/mode <name>` sets it (choices from `ha_agent.MODES`), `/code <message>` uses code mode once (`chat(..., mode="code")`; the cog only passes `mode` when set, so an older agent still works). Footer's last line: mode that answered (`🏠 home (auto)` when general handed it over), 🧠 if it thought, `🔎 N tools` for tool calls that aren't house actions (web lookups, device reads), seconds. `split_message` closes an open code block at a cut with ``` and reopens it (same language) in the next part, and keeps indentation.
-- **Commands:** `/think [message]`, `/mode [name]`, `/code message`, `/ha ask text`, `/ha reset` (forget this conversation), `/ha reload` (reloads the `cogs.homeassistant` extension, so the cog and `ha_agent` code are re-imported, `config.json` is read again from disk (`read_config`, not `config.py`'s copy cached at bot start, so a changed `llm_url` or other setting applies), a fresh agent starts and HA's actions are re-read; reports the action count and model server, or that the old code still runs if the load failed; agent memory starts fresh, threads re-read themselves; until 2026-11-25 it only re-read the actions, so agent changes needed a bot restart). Global, but only work in the agent channel, its threads and allowed DMs.
+- **Modes (required by the guide, 2026-11-24, branch `feature/ha-cog-threads`; updated 2026-11-25):** the agent now has `general` (default: the house, questions, web search, math, notes, documents, timers; hands coding to `code` per message, by keywords or the model) and `code` (answers only). `home` was folded into general; the name is still accepted as an alias but `MODES` no longer lists it, so `/mode` offers only general and code. Per conversation (so per thread), kept in the agent, back to general on restart. `/mode` shows it, `/mode <name>` sets it (choices from `ha_agent.MODES`), `/code <message>` uses code mode once (`chat(..., mode="code")`; the cog only passes `mode` when set, so an older agent still works). Footer's last line: mode that answered (`💻 code (auto)` when general handed it over), `⚡ fast` or `⚡ learned` when the model was skipped, 🧠 if it thought, `🔎 N tools` for tool calls that aren't house actions (web lookups, device reads), seconds. `split_message` closes an open code block at a cut with ``` and reopens it (same language) in the next part, and keeps indentation.
+- **Commands:** `/think [message]`, `/mode [name]`, `/code message`, `/ha ask text`, `/ha reset` (forget this conversation), `/ha reload` (reloads the `cogs.golurk_agent` extension, so the cog and `ha_agent` code are re-imported, `config.json` is read again from disk (`read_config`, not `config.py`'s copy cached at bot start, so a changed `llm_url` or other setting applies), a fresh agent starts and HA's actions are re-read; reports the action count and model server, or that the old code still runs if the load failed; agent memory starts fresh, threads re-read themselves; until 2026-11-25 it only re-read the actions, so agent changes needed a bot restart). Global, but only work in the agent channel, its threads and allowed DMs.
 - **Dev mode:** `fake_ha: true` loads the agent repo's `tests/fake_ha.py`, which records actions instead of running them; no token needed. Restarting HA through it is the way to try the buttons.
-- **Not yet tried live:** no HA token on the host yet and the cog is not in the host's `"cogs"`; only the unit tests (`tests/test_homeassistant.py`, fake agent) have run.
+- **Rename verification:** tested with an offline Discord bot and the unit suite (`tests/test_golurk_agent.py`). Live Discord and Home Assistant were outside this verification.
 
 ---
 
@@ -411,7 +417,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 ## 11. Testing
 
 - Run from the repo root: `py -3.14 -m unittest discover -s tests` (491 tests, all passing on master after merging `feature/ha-cog-steps` 2026-11-26). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
-- Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`, `test_homeassistant`, `test_console_terminal`, `test_console_remote`.
+- Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`, `test_golurk_agent`, `test_console_terminal`, `test_console_remote`.
 - The Automated Librarian has its own suites: `cd automated-librarian && python3 -m unittest discover -s tests` (46 tests, all passing on the Ubuntu server with Python 3.12 on 2026-11-21). The root run above does not collect them, and they have not been run on the Windows host.
 - No tests yet for `music.py`, `clip.py` (beyond imports), `moderation.py` or the legacy cogs.
 - `test_manual_restart_is_not_a_crash` used to fail with a 10 s join timeout and a PermissionError on `bot.log`: tearDown's `shutdown()` landed between the bot's spawn and `_proc` being set, leaving an orphan bot. Fixed in `astra_console.py`, not the test; `test_shutdown_during_a_start_leaves_no_orphan` forces that window every run.
@@ -438,7 +444,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 3. Confirm bot token reset and ABS API key rotation.
 4. Decide whether ordinary requests-site accounts get a password or email link login.
 5. Webhook vs polling for self-update: awaiting Thea's choice; do not build.
-6. Home Assistant agent cog: built 2026-11-24 (§7.10, merged into master). To go live, Thea sets `HA_TOKEN`, adds `"homeassistant"` to `"cogs"` (and an optional `channel_id`), and restarts; try `fake_ha: true` first to see the buttons.
+6. Golurk-Agent cog (§7.10). To go live, set `HA_TOKEN`, add `"golurk_agent"` to `"cogs"`, optionally set `golurk_agent.channel_id`, and restart. The legacy config still loads. After deploying the module rename, restart the bot to register the new extension path.
 7. Possible cleanups: tighten intents; add tests for music/clip/moderation; a `requirements.txt`; the old fallback `cogs/portfolio.html` still says "directed".
 8. Two bot "web UI listening" lines 16 s apart were seen in `logs/bot.log` on 2026-11-17 09:58; not investigated (possible double start or reload).
 9. Dragonwilds server build choice (newer 26419371 vs old 26161880) is open (see `docs/HANDOFF-2026-11-10.md`).
@@ -451,6 +457,46 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 ## 14. Change log
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
+
+### 2026-11-27 — Codex (GPT-6), Golurk-Agent merged locally
+
+- Fast-forwarded `codex/golurk-agent` into local `master` at Thea's request. The changes include the cog rename, reply footer, confirmation retries, attachment and memory integration, and folder approval modal.
+- Verified before the merge with 513 Astrabot tests and a live Discord DM using an isolated grant store. The remote and running bot were left alone. Activate the renamed extension with an Astrabot restart and use the companion `ha_agent` version to enable its new features.
+
+### 2026-11-27 — Codex (GPT-6), Golurk-Agent folder approval (branch `codex/golurk-agent`)
+
+- Added a Discord folder approval embed for the companion agent's `approve_folder` callback. Yes approves the displayed proposal, No declines, and Ask opens a text box for a question or revision. The cog returns the actual approver's ID and waits for modal submission within the confirmation window.
+- All 513 Astrabot tests passed across two processes. An offline run with the companion agent verified the default read/write proposal, a separate configured approver, Ask without a grant, and a separate Yes producing the revised thread-scoped read-only grant.
+- Live Discord DM verified with a temporary grant store and scripted model. The Ask modal submission reached the same agent turn without creating a grant. Yes on the revised card saved only the read-only grant. The test session closed and its temporary folder and grant store were removed.
+- State: local feature worktree.
+
+### 2026-11-27 — Codex (GPT-6), Golurk-Agent file and memory integration (branch `codex/golurk-agent`)
+
+- Connected the upgraded agent API for attachment input, Discord identity and replay IDs, file replies and persistent memory. The cog keeps text routing with earlier agent versions. Folder grants are still configured in the agent package.
+- All 506 Astrabot tests passed across two processes. An offline run against the feature agent verified attachment-only requests, full-file editing and return, per-file notices, replay suppression, read-only folder access, private memory isolation, and earlier thread recall after restart.
+- The work is local. Live Discord and Home Assistant verification is pending. Deploy the upgraded agent package alongside the cog to enable the new features.
+
+### 2026-11-27 — Codex (GPT-6), updated Golurk-Agent guide (branch `codex/golurk-agent`)
+
+- Synced `docs/AGENT_COG_DESIGN.md` with the attached `COG_GUIDE.md` from the agent's `file-tools-attachments` worktree. Its upgrade section is the reference for attachment handling, file replies, folder grants, and persistent memory.
+- Verified: the copied text matches the attachment and the new API is present in the agent feature worktree. State: local feature worktree. This update changes documentation only.
+
+### 2026-11-27 — Codex (GPT-6), Golurk-Agent confirmation retries (branch `codex/golurk-agent`)
+
+- Discord confirmation edits retry transient failures within the existing deadline. A successful prompt edit is required before an approval reaches the agent.
+- Verified: all 498 tests pass across two processes, including 104 Golurk-Agent tests. Offline coverage checks a transient edit retry, approval only after the edit succeeds, a permanent Discord error, and the confirmation deadline. Live Discord and Home Assistant were outside this verification.
+- State: local feature worktree.
+
+### 2026-11-27 — Codex (GPT-6), Golurk-Agent footer routes (branch `codex/golurk-agent`)
+
+- The Discord reply footer shows `⚡ fast` for a rule-based answer and `⚡ learned` for a learned phrasing. Both identify replies that skipped the model. Automatic mode handoffs keep `(auto)`.
+- Verified: all 101 Golurk-Agent tests pass, including the rendered footer for both routes. State: local feature worktree.
+
+### 2026-11-27 — Codex (GPT-6), Golurk-Agent cog (branch `codex/golurk-agent`)
+
+- Renamed Astrabot's Discord cog to Golurk-Agent. The extension and preferred settings key are now `golurk_agent`. Startup and manual reload resolve the old extension name to the same cog. An existing `homeassistant` settings block is used when the new block is absent. `/ha`, `/think`, `/mode`, `/code` and the external `ha_agent` package retain their existing interfaces.
+- Verified: 494 tests pass across two processes (489 bot tests and 5 self-update tests). A single-process discovery run lost a Windows `GIT_CONFIG_VALUE_0` override before the self-update tests set up their temporary repositories. An offline Discord bot registered the existing commands and successfully ran `/ha reload`. The legacy `/reloadcog` name also resolved to the renamed extension.
+- State: local feature worktree. After deploying, restart Astrabot to register the renamed extension.
 
 ### 2026-11-26 — Claude Code (Sonnet 5.5), the agent's `on_step` checked against the cog (branch `feature/ha-cog-steps`, merged into master and pushed 2026-11-26)
 

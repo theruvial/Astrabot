@@ -36,6 +36,14 @@ DEFAULT_COGS = (
 _NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+def cog_extension_name(name: str) -> str:
+    """Resolve a short or dotted cog name to the extension Discord loads."""
+    name = name.strip().removeprefix("cogs.")
+    if name.casefold() in {"homeassistant", "golurk-agent", "golurk_agent"}:
+        name = "golurk_agent"
+    return f"cogs.{name}"
+
+
 def extensions_from_config(cfg) -> list[str]:
     """Extension names (``cogs.<name>``) to load, in the configured order."""
     raw = cfg.get("cogs") if isinstance(cfg, dict) else None
@@ -47,13 +55,10 @@ def extensions_from_config(cfg) -> list[str]:
 
     out: list[str] = []
     for entry in raw:
-        name = entry.strip() if isinstance(entry, str) else ""
-        if name.startswith("cogs."):
-            name = name[len("cogs."):]
-        if not _NAME.match(name):
+        ext = cog_extension_name(entry if isinstance(entry, str) else "")
+        if not _NAME.fullmatch(ext.removeprefix("cogs.")):
             log.warning('Ignoring invalid "cogs" entry: %r', entry)
             continue
-        ext = f"cogs.{name}"
         if ext not in out:
             out.append(ext)
     return out

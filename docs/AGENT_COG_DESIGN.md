@@ -4,6 +4,9 @@ This is a brief for whoever builds the Discord cog. The agent itself lives in
 `C:\codingShit\ha-agent` (package `ha_agent`) and is already working. The cog's only job
 is to carry messages between Discord and the agent.
 
+The [cog upgrade](#cog-upgrade) covers attachment input, file replies, folder grants,
+and memory. Use it when upgrading to the agent version that exposes the new chat arguments.
+
 ## How the pieces connect
 
 ```
@@ -86,21 +89,24 @@ agent = HAAgent(on_timer=send_timer)   # reads env vars; on_timer: see "Timers" 
                                        # fast_path=/learn_phrases= (bool) override HA_AGENT_FAST_PATH/_LEARN
 await agent.start()                    # loads HA's action list + devices; raises HAError if HA is unreachable
 reply: Reply = await agent.chat(
-    conversation_id: str,              # memory key; same id = it remembers the last 6 exchanges
-    text: str,                         # the user's message, mention stripped
+    conversation_id,                   # the same id resumes the same conversation
+    text,                              # the user's message, mention stripped
     confirm=async_fn,                  # async (summary: str) -> bool, awaited before risky actions
     speaker="Thea",                    # optional display name, shown to the model
     think=None,                        # True/False = force thinking for this message; None = use the toggle
     mode=None,                         # "general"/"code" for this message only ("home" = general); None = conversation's mode
-    on_step=None,                      # plain fn(dict) called per step while it works; see "Live steps" below
+    on_step=None,                      # plain fn(dict) called per step; see "Live steps" below
+    user_id=user_id,                   # verified Discord author ID as a string
+    message_id=message_id,             # Discord message ID as a string, when available
+    is_dm=is_dm,
+    attachments=attachments,           # see "Cog upgrade" below
 )
 agent.mode(conversation_id)            # current mode, default "general"
 agent.set_mode(conversation_id, "code")  # raises ValueError for unknown names
 # MODES (from ha_agent import MODES): dict name -> Mode with .title, e.g. MODES["code"].title == "Code"
 #   Old name "home" still works: MODES["home"] is general, set_mode(cid, "home") returns "general"
-agent.loaded_groups(conversation_id)   # tool groups loaded for it, e.g. {"home", "timers"}
-agent.forget(conversation_id)          # wipe that conversation's memory
-agent.has_history(conversation_id)     # True if the agent remembers anything for it (False after a restart)
+agent.forget(conversation_id)          # clear recent context and automatic recall for this conversation
+agent.has_history(conversation_id)     # True if recent context is available, including after restart
 agent.remember(conversation_id, [      # add earlier turns, oldest first, e.g. rebuilt from a Discord thread
     ("user", "Thea: turn off the bed fan"),   # role "user"/"assistant"; ValueError for anything else
     ("assistant", "The bed fan is off."),
@@ -148,26 +154,20 @@ order, all before `chat()` returns or raises:
   more may be added. Check `"on_step" in inspect.signature(agent.chat).parameters` to support older agents.
 
 ### Memory, and restoring it after a restart
-- The agent keeps the last `history_turns` exchanges (default 6) per conversation id, in memory
-  only. A bot restart forgets them all. So do mode and the thinking toggle.
-- `remember(cid, turns)` adds earlier turns. It works the same way `chat()` stores turns: blank
-  texts are skipped, assistant text over 800 characters is clipped, and only the last
-  `history_turns` exchanges are kept, so passing a whole long thread is fine. It appends, so call
-  it once before the first `chat()` for that id, guarded by `has_history`:
-  ```python
-  if not agent.has_history(cid):
-      turns = []
-      async for m in thread.history(limit=20, oldest_first=False):   # newest first...
-          ...                                                          # build (role, text) pairs
-      agent.remember(cid, list(reversed(turns)))                       # ...so reverse to oldest first
-  reply = await agent.chat(cid, text, speaker=name, ...)
-  ```
-  Leave out the message you're about to pass to `chat()`, or it appears twice.
-- Write user turns the way `chat()` stores them: `"Name: message"` when you pass `speaker=`
-  (the cog does), with the bot mention stripped. Bot replies are `"assistant"`. Leave out footers,
-  confirmation prompts and error messages; only the conversation itself helps the model.
-- Only the most recently used `max_conversations` ids (constructor argument, default 500) are
-  kept; older ones are dropped and `has_history` turns False, so the same rebuild covers them.
+
+- Use the same conversation ID after a restart. The agent restores the last six eligible
+  exchanges by default and can recall older exchanges from that same conversation. Mode and
+  the thinking toggle reset when the process restarts.
+- `remember(cid, turns)` can seed recent context from messages sent before the upgrade. Pass
+  `(role, text)` pairs oldest first. User text should use `"Name: message"` when the cog
+  passes `speaker`. Skip the current message, upload text, bot footers, and confirmations.
+  Only do this once during migration. Checking `has_history()` on every turn and re-seeding
+  from Discord would undo a user's reset.
+- `forget(cid)` clears recent context and durable exchange recall for the conversation.
+  Deliberately saved memories are managed through chat. Message IDs retained for duplicate
+  detection do not retain the deleted conversation text.
+- The agent keeps up to 500 exchanges and message markers per conversation and indexes
+  older exchanges as needed. If the embedder is unavailable, recent context still works.
 
 ## What the cog must do
 
@@ -196,8 +196,7 @@ order, all before `chat()` returns or raises:
 - Use `f"discord:{channel.id}"` for a channel and `f"discord:dm:{user.id}"` for DMs.
   Same id = shared short-term memory ("turn it back on" works after "turn off the fan").
 - For one thread per request, use the thread's id (`f"discord:{thread.id}"`): each thread is its
-  own conversation. After a restart, rebuild it from the thread's messages with `remember()`
-  (see "Memory, and restoring it after a restart" above).
+  own conversation and the agent restores its history after a restart.
 
 ### 4. Call the agent
 - Wrap the call in `async with channel.typing():`. A normal reply takes 2–6 s; the first message
@@ -250,18 +249,12 @@ One model, two system prompts. Switching never reloads anything.
 
 | Mode | Does | Tools |
 |---|---|---|
-| `general` (**default**) | The smart home, everyday questions, web lookups, math, dates, time zones, units, long-term notes, your documents, timers. Hands coding to `code` automatically, per message | Always sent: `status`, `find`, `use`, `switch_mode`, `load_tools`. Loaded per conversation (see below): `web_search`, `open_url` (paged, with `find`), `calc`, `days_between`, `date_add`, `time_in`, `convert`, `save_note`, `search_notes`, `delete_note`, `search_docs` (only with `HA_AGENT_DOCS_DIR`), `set_timer`, `list_timers`, `cancel_timer` (need `on_timer`) |
-| `code` | Writes and explains code (answers only; it can't touch files) | none |
+| `general` (**default**) | Smart home, everyday help, files, and automatic routing to code | `search_home`, `search_file_tools`, `search_assistant` |
+| `code` | Writes and explains code and handles programming files | `search_file_tools`, `search_assistant` |
 
-`home` used to be a mode of its own; it is now part of general and the name is an alias, so a saved
-or typed `home` keeps working. Drop it from your `/mode` choices (build them from `MODES`, which no
-longer lists it).
-
-Tool loading: to keep each request short (and the model server's cached prompt reusable), general
-sends only the smart-home tools, `switch_mode` and `load_tools`. The other groups (`web`, `math`,
-`memory`, `timers`) are one line each in the system prompt; the model calls `load_tools` to get one,
-or calls a listed tool directly, which runs it and loads its group. A loaded group stays for the
-conversation until `forget()`. The cog doesn't need to do anything for this.
+Keep building mode choices from `MODES`. The old `home` name still resolves to `general`.
+Search matches are available for the current request. Remove any calls to the old
+`loaded_groups()` API from the cog. Use `on_step` if the UI shows what the model discovers.
 
 - `/mode` with no argument: show the current mode (`MODES[agent.mode(cid)].title`).
 - `/mode <name>`: `agent.set_mode(cid, name)`. Catch `ValueError` and list the valid names.
@@ -300,3 +293,163 @@ the confirm buttons.
 - Choosing tools, prompts or how devices are matched: that's the agent's job. If replies are wrong,
   fix it in `ha_agent`, not in the cog.
 - Voice. That comes later through Home Assistant Assist, not Discord.
+
+## Cog upgrade
+
+Upgrade the agent package and use the same message handling path for DMs, channel messages,
+and thread replies. Keep the existing allowlist, typing indicator, timeouts, and confirmation UI.
+
+### Pass Discord messages and attachments to the agent
+
+- Apply the existing user, channel, and thread rules before downloading any upload. Within those
+  rules, accept a message with attachments even when its text is empty after stripping the mention.
+- Keep the existing conversation IDs. Pass the Discord author ID separately from the display
+  name and identify DMs explicitly. The agent uses the stable ID for personal memories and the
+  conversation ID for thread history and files. Include the original Discord message ID so
+  retries and replayed events can be recognized.
+- Pass the accepted message's uploads to the agent package's
+  `read_discord_attachments()` helper. Pass its result and the message text separately to
+  `chat()`. The helper handles up to four UTF-8 uploads of up to 256 KiB each, with the agent
+  adding up to 3,000 characters per file to the prompt. This covers plain text, Markdown, CSV,
+  and source files. Unsupported, oversized, and failed uploads should produce a readable
+  notice while the other uploads and the message continue through the normal flow.
+- Keep the existing confirmation and live-step callbacks. Tool searches and selection happen
+  inside the agent through `search_home`, `search_file_tools`, and `search_assistant`.
+  The agent runs its fast path before starting tool discovery.
+
+For a normal message or thread reply, pass the Discord message metadata as follows.
+
+```python
+from ha_agent import read_discord_attachments
+
+attachments = await read_discord_attachments(message.attachments)
+reply = await agent.chat(
+    conversation_id,
+    text,
+    speaker=message.author.display_name,
+    user_id=str(message.author.id),
+    message_id=str(message.id),
+    is_dm=message.guild is None,
+    attachments=attachments,
+    confirm=confirm,
+    approve_folder=approve_folder,
+    ask_user=ask_user,
+    on_step=on_step,
+)
+if reply.duplicate:
+    return
+```
+
+### Send generated or edited files back
+
+- An edit to an upload produces a copy that the user can download in Discord. The agent creates
+  that copy from the complete accepted upload, even when the prompt only includes a preview.
+  It writes the copy to the conversation's workspace and returns its filename and bytes in
+  `Reply.files`. The original Discord upload is preserved.
+- Build Discord uploads from returned bytes with `discord.File(io.BytesIO(file.data),
+  filename=file.filename)`. Send them with the reply in the conversation that requested them.
+  Keep the current text chunking and mention settings. If an upload fails, tell the user which
+  file failed and preserve the text reply.
+- Include any `reply.attachment_errors` as upload notices alongside the text reply. An
+  empty `reply.files` list means no files need to be uploaded.
+
+### Authorize folders on the agent host
+
+The agent reads a local list of folder grants. Set
+`HA_AGENT_FOLDER_GRANTS` to the path of a JSON file on the machine running the agent and
+restart the process after changing the file. Each grant maps a short alias to a local
+folder and gives specific Discord user IDs access. Access defaults to `read_write`.
+For example, an owner can make a manuals folder available for searching and reading.
+
+```json
+{
+  "manuals": {
+    "path": "C:\\Users\\you\\Documents\\Manuals",
+    "access": "read",
+    "discord_user_ids": ["123456789012345678"]
+  }
+}
+```
+
+- Grants default to DMs. An optional `conversation_ids` list can grant access in selected
+  shared conversations for the specified users. Only enable a shared conversation if
+  everyone who can read it may also see files or excerpts posted there.
+- Users refer to folders by alias, for example `manuals:appliances/washer.md`. The agent
+  checks each file operation against the caller's ID, the conversation, and the grant.
+  It rejects paths that leave the authorized folder, blocks linked paths, and keeps its
+  private state and grant configuration out of the file tools.
+- The cog uses the same verified user and conversation metadata it passes for memory.
+- To expose the existing Nomic document index to Discord, point `HA_AGENT_DOCS_DIR` at a
+  folder with a matching grant. Searching other granted folders by filename or text does
+  not require an index.
+
+### Ask for folder approval in Discord
+
+Set `HA_AGENT_FOLDER_APPROVER_IDS` on the agent host to the comma-separated Discord IDs
+of the people allowed to approve access to local folders. Pass the optional
+`approve_folder` callback to `chat()` separately from the existing Home Assistant
+`confirm` callback. The agent discovers `request_folder_access` through
+`search_file_tools` and calls the callback when the user mentions an absolute local
+folder path. Quote paths with spaces.
+
+```python
+from ha_agent import FolderGrantDecision, FolderGrantRequest
+
+async def approve_folder(request: FolderGrantRequest) -> FolderGrantDecision:
+    # Display request.path, request.access, and request.user_id in an embed.
+    # Send it in request.conversation_id. Check request.approver_ids on every click.
+    # On Ask, open a Discord modal and wait for an authorized approver's submission.
+    ...
+    return FolderGrantDecision(action="ask", approver_id=str(approver.id), text=modal_text)
+```
+
+- **Yes** returns `FolderGrantDecision("yes", str(approver.id))`. The agent records the grant
+  for the requester and returns the alias to use in file tools. A grant requested in a
+  shared thread works only in that thread. A DM grant works in that requester's DMs.
+- **No** returns `FolderGrantDecision("no", str(approver.id))`. A timeout or cancelled
+  prompt can return `FolderGrantDecision("no")`.
+- In Astrabot, **Ask** opens a Discord modal for the approver's question or revision.
+  The submission goes to the original `chat()` call through `text`. Ask leaves the grant
+  pending. The model can answer in the conversation or propose a revision for fresh approval.
+- The agent stores Discord-approved grants in `HA_AGENT_DATA_DIR/folder_access.json`.
+  To revoke one, remove its entry on the host and restart the agent.
+
+### Ask a yes-or-no clarification
+
+The model can discover `ask_user` through `search_assistant`. The optional
+`chat(ask_user=callback)` callback receives `AskUserRequest(question, user_id,
+conversation_id)`, exported by `ha_agent`. Show the question in an embed with **Yes**
+and **No** buttons. Accept clicks from `request.user_id` and return `True` for Yes,
+`False` for No, or `None` for dismissal or timeout. Open-ended questions arrive as
+ordinary chat replies. Use the folder-approval callback for all folder permission decisions.
+
+### Scope memory by user and conversation
+
+- Explicit requests such as “remember this,” “what do you remember about me?” and “forget that”
+  go through the usual chat handler. The agent stores personal memories against the author ID
+  for recall across private chats. In shared channels, only memories explicitly saved for that
+  channel are available. Saved notes created before the upgrade have no verified Discord
+  owner. They stay available in local chat and must be re-saved in the intended Discord
+  scope to make them available there.
+- Automatic recall stays within the current conversation, including after a bot restart. The
+  agent persists and retrieves relevant exchanges using its configured Nomic embedder. Use
+  `remember()` only to seed recent context from pre-upgrade messages. The agent handles
+  new messages and deduplication from their Discord message IDs.
+- Attachment contents are excluded from automatic memory. If the user explicitly asks to
+  remember something from an attachment, the agent can save the requested information under
+  the same memory scope rules.
+
+### Verify in a test server
+
+- Send an attachment with and without accompanying text. Try one unsupported or failed
+  upload alongside a readable one and confirm the readable file still reaches the agent.
+- Ask for an edited copy and download the result in the originating thread.
+- Save a personal memory in a DM, restart the bot, and retrieve it in the DM. Check that a shared
+  channel and a second user cannot retrieve it. In the agent integration tests, use two private
+  conversation IDs for the same user to verify that personal memory follows the user ID.
+- Continue a conversation after enough exchanges for an earlier decision to fall out of
+  recent history. Verify it can still be recalled in its original thread after a restart.
+- Authorize a read-only folder for one Discord user. Verify reading works in their DM,
+  writes fail, and the alias is unavailable to a second user and in a shared thread.
+- With fake Home Assistant, verify a fast-path request and a request that needs discovery.
+  Confirm that risky actions still prompt the original requester for approval.

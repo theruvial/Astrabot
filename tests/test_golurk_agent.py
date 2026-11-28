@@ -1,4 +1,4 @@
-"""Tests for cogs/homeassistant.py: routing, replies, errors, confirm buttons.
+"""Tests for cogs/golurk_agent.py: routing, replies, errors, confirm buttons.
 
 No real Home Assistant, Ollama or Discord: the agent is a stand-in object.
 """
@@ -10,14 +10,28 @@ from unittest import mock
 
 import aiohttp
 
-from cogs import homeassistant as hac
+from cogs import golurk_agent as hac
+
+class GolurkAgentConfigTests(unittest.TestCase):
+    def test_legacy_config_is_used_when_the_new_section_is_absent(self):
+        legacy = {"allowed_user_ids": [123], "dm_user_ids": [], "channel_id": 42}
+        self.assertEqual(hac.load_settings({"homeassistant": legacy}, env={}),
+                         hac.load_settings({"golurk_agent": legacy}, env={}))
+
+    def test_new_section_takes_precedence_without_inheriting_legacy_access(self):
+        cfg = {"homeassistant": {"allowed_user_ids": [123], "channel_id": 42},
+               "golurk_agent": {"allowed_user_ids": []}}
+        settings = hac.load_settings(cfg, env={})
+        self.assertEqual(settings["allowed"], frozenset())
+        self.assertEqual(settings["channel_id"], 0)
+
 
 THEA = 151408413744693248
 BOT = types.SimpleNamespace(id=999, bot=True)
 
 
 def settings(**over):
-    s = hac.load_settings({"homeassistant": {"allowed_user_ids": [THEA], "channel_id": 42}}, env={})
+    s = hac.load_settings({"golurk_agent": {"allowed_user_ids": [THEA], "channel_id": 42}}, env={})
     s.update(over)
     return s
 
@@ -38,14 +52,14 @@ class SettingsTests(unittest.TestCase):
         self.assertFalse(s["fake_ha"])
 
     def test_config_token_wins_and_bad_ids_are_skipped(self):
-        s = hac.load_settings({"homeassistant": {"ha_token": "cfg", "allowed_user_ids": ["5", "x"],
+        s = hac.load_settings({"golurk_agent": {"ha_token": "cfg", "allowed_user_ids": ["5", "x"],
                                                  "channel_id": "nope"}}, env={"HA_TOKEN": "env"})
         self.assertEqual(s["ha_token"], "cfg")
         self.assertEqual(s["allowed"], frozenset({5}))
         self.assertEqual(s["channel_id"], 0)
 
     def test_an_empty_allowlist_means_nobody(self):
-        self.assertEqual(hac.load_settings({"homeassistant": {"allowed_user_ids": []}}, env={})["allowed"],
+        self.assertEqual(hac.load_settings({"golurk_agent": {"allowed_user_ids": []}}, env={})["allowed"],
                          frozenset())
 
 
@@ -60,7 +74,7 @@ class RoutingTests(unittest.TestCase):
     def test_dm_user_ids_default_to_the_owner(self):
         self.assertEqual(hac.load_settings({}, env={})["dm_users"], frozenset({THEA}))
         self.assertEqual(hac.load_settings({"owner_id": 9}, env={})["dm_users"], frozenset({9}))
-        self.assertEqual(hac.load_settings({"homeassistant": {"dm_user_ids": ["3", "x"]}},
+        self.assertEqual(hac.load_settings({"golurk_agent": {"dm_user_ids": ["3", "x"]}},
                                            env={})["dm_users"], frozenset({3}))
 
     def test_strangers_and_bots_are_ignored_everywhere(self):
@@ -173,47 +187,47 @@ async def no_confirm(_summary):
 
 class AnswerTests(unittest.IsolatedAsyncioTestCase):
     def cog(self, agent, **over):
-        return hac.HomeAssistant(bot=None, settings=settings(**over), agent=agent)
+        return hac.GolurkAgent(bot=None, settings=settings(**over), agent=agent)
 
     async def test_a_failed_start_keeps_the_cog_and_retries_next_message(self):
         agent = FakeAgent(start_errors=1)
         cog = self.cog(agent)
-        with self.assertLogs("homeassistant", "WARNING"):
+        with self.assertLogs("golurk_agent", "WARNING"):
             await cog.cog_load()
         self.assertFalse(cog.started)
-        parts = await cog.answer("discord:1", "hi", message().author, no_confirm)
+        parts = (await cog.answer("discord:1", "hi", message().author, no_confirm)).parts
         self.assertEqual(parts[0].split("\n")[0], "Done it.")
         self.assertEqual(agent.starts, 2)
         self.assertEqual(agent.calls, [("discord:1", "hi", "Thea")])
 
     async def test_ha_still_down_says_so(self):
         cog = self.cog(FakeAgent(start_errors=5))
-        with self.assertLogs("homeassistant", "WARNING"):
-            parts = await cog.answer("c", "hi", message().author, no_confirm)
+        with self.assertLogs("golurk_agent", "WARNING"):
+            parts = (await cog.answer("c", "hi", message().author, no_confirm)).parts
         self.assertIn("isn't reachable", parts[0])
 
     async def test_errors_become_short_messages(self):
         def boom(*_):
             raise RuntimeError("Ollama error 404: model not found")
         cog = self.cog(FakeAgent(chat=boom))
-        with self.assertLogs("homeassistant", "ERROR"):
-            parts = await cog.answer("c", "hi", message().author, no_confirm)
+        with self.assertLogs("golurk_agent", "ERROR"):
+            parts = (await cog.answer("c", "hi", message().author, no_confirm)).parts
         self.assertEqual(parts, ["The local model isn't running. Start Strata on Golurk."])
 
     async def test_the_timeout_is_a_safety_net(self):
         async def slow(*_):
             await asyncio.sleep(5)
         cog = self.cog(FakeAgent(chat=lambda *a: slow()), timeout=0.05)
-        with self.assertLogs("homeassistant", "ERROR"):
-            parts = await cog.answer("c", "hi", message().author, no_confirm)
+        with self.assertLogs("golurk_agent", "ERROR"):
+            parts = (await cog.answer("c", "hi", message().author, no_confirm)).parts
         self.assertEqual(parts, ["That took too long, try again."])
 
     async def test_no_token_turns_it_off_with_a_reason(self):
         cog = self.cog(None, ha_token=None)
-        with self.assertLogs("homeassistant", "WARNING"):
+        with self.assertLogs("golurk_agent", "WARNING"):
             await cog.cog_load()
         self.assertIsNone(cog.agent)
-        self.assertIn("HA_TOKEN", (await cog.answer("c", "hi", message().author, no_confirm))[0])
+        self.assertIn("HA_TOKEN", (await cog.answer("c", "hi", message().author, no_confirm)).parts[0])
 
     async def test_unload_closes_the_agent(self):
         agent = FakeAgent()
@@ -237,7 +251,7 @@ class AnswerTests(unittest.IsolatedAsyncioTestCase):
 
         agent.close = broken
         with mock.patch.dict(sys.modules, {"ha_agent": types.ModuleType("x")}):
-            with self.assertLogs("homeassistant", "ERROR"):
+            with self.assertLogs("golurk_agent", "ERROR"):
                 await self.cog(agent).cog_unload()
             self.assertNotIn("ha_agent", sys.modules)
 
@@ -274,7 +288,7 @@ class ThinkingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_answer_passes_think_through(self):
         agent = FakeAgent()
-        cog = hac.HomeAssistant(bot=None, settings=settings(), agent=agent)
+        cog = hac.GolurkAgent(bot=None, settings=settings(), agent=agent)
         await cog.answer("c", "hi", message().author, no_confirm, think=True)
         await cog.answer("c", "hi", message().author, no_confirm)
         self.assertEqual(agent.thinks, [True, None])
@@ -282,12 +296,12 @@ class ThinkingTests(unittest.IsolatedAsyncioTestCase):
     async def think_command(self, cog, user_id, message=None):
         inter = interaction(user_id)
         inter.channel = types.SimpleNamespace(id=42, guild=object())
-        await hac.HomeAssistant.think.callback(cog, inter, message)
+        await hac.GolurkAgent.think.callback(cog, inter, message)
         return inter
 
     async def test_think_toggles_and_sets(self):
         agent = FakeAgent()
-        cog = hac.HomeAssistant(bot=None, settings=settings(), agent=agent)
+        cog = hac.GolurkAgent(bot=None, settings=settings(), agent=agent)
         for arg, want in ((None, "ON"), (None, "OFF"), ("on", "ON"), ("off", "OFF")):
             inter = await self.think_command(cog, THEA, arg)
             self.assertIn(f"now {want}", inter.response.send_message.call_args.args[0])
@@ -295,26 +309,26 @@ class ThinkingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_think_with_a_message_thinks_once_without_the_toggle(self):
         agent = FakeAgent()
-        cog = hac.HomeAssistant(bot=None, settings=settings(), agent=agent)
+        cog = hac.GolurkAgent(bot=None, settings=settings(), agent=agent)
         inter = interaction(THEA)
         inter.channel = types.SimpleNamespace(id=42, guild=object())
         inter.response.defer = mock.AsyncMock()
         inter.followup = types.SimpleNamespace(send=mock.AsyncMock())
-        await hac.HomeAssistant.think.callback(cog, inter, "will it rain?")
+        await hac.GolurkAgent.think.callback(cog, inter, "will it rain?")
         self.assertEqual(agent.calls, [("discord:42", "will it rain?", "Thea")])
         self.assertEqual(agent.thinks, [True])
         self.assertEqual(agent.toggles, {})
 
     async def test_strangers_cannot_think(self):
         agent = FakeAgent()
-        cog = hac.HomeAssistant(bot=None, settings=settings(), agent=agent)
+        cog = hac.GolurkAgent(bot=None, settings=settings(), agent=agent)
         inter = await self.think_command(cog, 1)
         self.assertEqual(inter.response.send_message.call_args.args[0], "Not allowed.")
         self.assertEqual(agent.toggles, {})
 
 
 def interaction(user_id):
-    resp = types.SimpleNamespace(send_message=mock.AsyncMock(), edit_message=mock.AsyncMock())
+    resp = types.SimpleNamespace(send_message=mock.AsyncMock(), defer=mock.AsyncMock())
     return types.SimpleNamespace(user=types.SimpleNamespace(id=user_id, display_name="Thea"),
                                  response=resp,
                                  message=types.SimpleNamespace(content="Allow **x**?"))
@@ -328,15 +342,16 @@ class ConfirmTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(other.response.send_message.call_args.kwargs["ephemeral"])
         self.assertTrue(await view.interaction_check(interaction(THEA)))
 
-    async def press(self, button):
+    async def press(self, button, edit=None, timeout=5):
         sent = {}
 
         async def send(content, view):
             sent["view"] = view
             sent["content"] = content
-            return mock.AsyncMock()
+            sent["prompt"] = types.SimpleNamespace(edit=edit if edit is not None else mock.AsyncMock())
+            return sent["prompt"]
 
-        confirm = hac.make_confirm(send, THEA, timeout=5)
+        confirm = hac.make_confirm(send, THEA, timeout=timeout)
         task = asyncio.create_task(confirm("homeassistant.restart on Home Assistant"))
         while "view" not in sent:
             await asyncio.sleep(0)
@@ -350,12 +365,57 @@ class ConfirmTests(unittest.IsolatedAsyncioTestCase):
         result, sent, click = await self.press("allow")
         self.assertTrue(result)
         self.assertIn("homeassistant.restart", sent["content"])
-        self.assertIn("Allowed", click.response.edit_message.call_args.kwargs["content"])
+        click.response.defer.assert_awaited_once_with()
+        self.assertIn("Allowed", sent["prompt"].edit.call_args.kwargs["content"])
 
     async def test_deny_returns_false(self):
-        result, _, click = await self.press("deny")
+        result, sent, _ = await self.press("deny")
         self.assertFalse(result)
-        self.assertIn("Denied", click.response.edit_message.call_args.kwargs["content"])
+        self.assertIn("Denied", sent["prompt"].edit.call_args.kwargs["content"])
+
+    async def test_allow_retries_a_transient_edit_without_approving_early(self):
+        edit_started = asyncio.Event()
+        finish_edit = asyncio.Event()
+
+        async def edit_prompt(**kwargs):
+            if edit.await_count == 1:
+                raise OSError("temporary connection failure")
+            edit_started.set()
+            await finish_edit.wait()
+
+        edit = mock.AsyncMock(side_effect=edit_prompt)
+        with mock.patch.object(hac, "CONFIRM_EDIT_RETRY_SECONDS", 0):
+            pending = asyncio.create_task(self.press("allow", edit))
+            try:
+                await asyncio.wait_for(edit_started.wait(), 1)
+                self.assertFalse(pending.done())
+            finally:
+                finish_edit.set()
+                result, _, click = await pending
+        self.assertTrue(result)
+        self.assertEqual(edit.await_count, 2)
+        click.response.defer.assert_awaited_once_with()
+
+    async def test_allow_returns_false_when_edit_keeps_failing_until_deadline(self):
+        async def edit_prompt(content, **kwargs):
+            if "Allowed" in content:
+                raise OSError("connection down")
+
+        edit = mock.AsyncMock(side_effect=edit_prompt)
+        with mock.patch.object(hac, "CONFIRM_EDIT_RETRY_SECONDS", 0.005):
+            with self.assertLogs("golurk_agent", "WARNING"):
+                result, _, _ = await self.press("allow", edit, timeout=0.05)
+        self.assertFalse(result)
+        self.assertGreaterEqual(edit.await_count, 2)
+        self.assertIn("so no", edit.await_args.kwargs["content"])
+
+    async def test_allow_returns_false_on_permanent_edit_error(self):
+        edit = mock.AsyncMock(side_effect=hac.discord.Forbidden(
+            types.SimpleNamespace(status=403, reason="Forbidden"), "missing access"))
+        with self.assertLogs("golurk_agent", "ERROR"):
+            result, _, _ = await self.press("allow", edit)
+        self.assertFalse(result)
+        edit.assert_awaited_once()
 
     async def test_timeout_returns_false_and_says_so(self):
         prompt = mock.AsyncMock()
@@ -369,8 +429,146 @@ class ConfirmTests(unittest.IsolatedAsyncioTestCase):
     async def test_an_error_inside_confirm_is_false_not_raised(self):
         async def send(content, view):
             raise RuntimeError("discord down")
-        with self.assertLogs("homeassistant", "ERROR"):
+        with self.assertLogs("golurk_agent", "ERROR"):
             self.assertFalse(await hac.make_confirm(send, THEA)("x"))
+
+
+def folder_request(cid="discord:50", user_id=THEA, approver_ids=(str(THEA),)):
+    return types.SimpleNamespace(path=r"C:\Manuals", access="read", user_id=str(user_id),
+                                 conversation_id=cid, approver_ids=approver_ids)
+
+
+def folder_decision(action, approver_id=None, text=""):
+    return types.SimpleNamespace(action=action, approver_id=approver_id, text=text)
+
+
+class FolderApprovalTests(unittest.IsolatedAsyncioTestCase):
+    async def proposal(self, timeout=2):
+        shown = asyncio.get_running_loop().create_future()
+        prompt = types.SimpleNamespace(edit=mock.AsyncMock())
+
+        async def send(content, view, *, embed):
+            shown.set_result((view, embed))
+            return prompt
+
+        approve = hac.make_folder_approval(send, "discord:50", str(THEA), folder_decision, timeout)
+        pending = asyncio.create_task(approve(folder_request()))
+        view, embed = await asyncio.wait_for(shown, 1)
+        return pending, view, embed, prompt
+
+    def click(self, user=THEA):
+        inter = interaction(user)
+        inter.response.send_modal = mock.AsyncMock()
+        return inter
+
+    async def test_embed_shows_exact_proposal_and_yes_resolves_after_edit(self):
+        pending, view, embed, prompt = await self.proposal()
+        self.assertEqual([(field.name, field.value) for field in embed.fields],
+                         [("Path", hac.discord.utils.escape_markdown(r"C:\Manuals")),
+                          ("Requested by", f"<@{THEA}>"), ("Access", "Read only"),
+                          ("Scope", "This conversation")])
+        user = self.click()
+        self.assertTrue(await view.interaction_check(user))
+        await view.yes.callback(user)
+        self.assertEqual(await pending, folder_decision("yes", str(THEA)))
+        user.response.defer.assert_awaited_once_with()
+        self.assertIn("Approved", prompt.edit.await_args.kwargs["content"])
+        self.assertTrue(all(button.disabled for button in view.children))
+
+    async def test_ask_opens_modal_and_waits_for_an_authorized_approver_to_submit(self):
+        pending, view, _, prompt = await self.proposal()
+        click = self.click()
+        await view.ask.callback(click)
+        modal = click.response.send_modal.await_args.args[0]
+        self.assertIsInstance(modal, hac.FolderApprovalModal)
+        self.assertFalse(pending.done())
+        other = self.click(THEA + 1)
+        self.assertFalse(await view.interaction_check(other))
+        await modal.on_submit(other)
+        self.assertFalse(pending.done())
+        modal.comment._value = "Can we use read-only instead?"
+        submit = self.click()
+        await modal.on_submit(submit)
+        self.assertEqual(await pending, folder_decision("ask", str(THEA), "Can we use read-only instead?"))
+        submit.response.defer.assert_awaited_once_with()
+        self.assertNotIn("read-only instead", prompt.edit.await_args.kwargs["content"])
+
+    async def test_no_and_expired_modal_do_not_authorize(self):
+        pending, view, _, _ = await self.proposal()
+        await view.no.callback(self.click())
+        self.assertEqual(await pending, folder_decision("no", str(THEA)))
+
+        pending, view, _, prompt = await self.proposal(timeout=0.03)
+        click = self.click()
+        await view.ask.callback(click)
+        modal = click.response.send_modal.await_args.args[0]
+        self.assertEqual(await pending, folder_decision("no"))
+        late = self.click()
+        modal.comment._value = "Please approve"
+        await modal.on_submit(late)
+        late.response.send_message.assert_awaited_once_with(
+            "This folder request is closed.", ephemeral=True)
+        self.assertIn("Expired", prompt.edit.await_args.kwargs["content"])
+
+    async def test_failed_edit_rejects_yes(self):
+        pending, view, _, prompt = await self.proposal()
+        prompt.edit.side_effect = RuntimeError("Discord edit failed")
+        await view.yes.callback(self.click())
+        with self.assertLogs("golurk_agent", "ERROR"):
+            self.assertEqual(await pending, folder_decision("no"))
+
+    async def test_callback_rejects_wrong_requester_or_conversation(self):
+        send = mock.AsyncMock()
+        approve = hac.make_folder_approval(send, "discord:50", str(THEA), folder_decision)
+        self.assertEqual(await approve(folder_request(cid="discord:51")), folder_decision("no"))
+        self.assertEqual(await approve(folder_request(user_id=THEA + 1)), folder_decision("no"))
+        self.assertEqual(await approve(folder_request(approver_ids=())), folder_decision("no"))
+        send.assert_not_awaited()
+
+    async def test_agent_waits_for_ask_in_the_originating_thread(self):
+        class RequestAgent(FakeAgent):
+            async def chat(self, cid, text, confirm, speaker, think=None, *, approve_folder=None):
+                self.decision = await approve_folder(folder_request(cid=cid, approver_ids=(str(THEA + 1),)))
+                return reply("I received your question.")
+
+        shown = asyncio.get_running_loop().create_future()
+        prompt = types.SimpleNamespace(edit=mock.AsyncMock())
+        thread = Place(50, parent_id=42)
+
+        async def send(content, *, view=None, embed=None, allowed_mentions=None):
+            if embed is not None:
+                shown.set_result(view)
+                return prompt
+            return await Place.send(thread, content, view=view, allowed_mentions=allowed_mentions)
+
+        thread.send = send
+        msg = chat_message(Place(42), thread=thread)
+        agent = RequestAgent()
+        cog = hac.GolurkAgent(types.SimpleNamespace(user=BOT), settings(show_steps=False), agent=agent)
+        with mock.patch.object(hac, "ha_agent", types.SimpleNamespace(FolderGrantDecision=folder_decision)):
+            pending = asyncio.create_task(cog.on_message(msg))
+            try:
+                view = await asyncio.wait_for(shown, 1)
+                self.assertFalse(await view.interaction_check(self.click()))
+                ask = self.click(THEA + 1)
+                self.assertTrue(await view.interaction_check(ask))
+                await view.ask.callback(ask)
+                self.assertFalse(pending.done())
+                modal = ask.response.send_modal.await_args.args[0]
+                modal.comment._value = "What files would that include?"
+                await modal.on_submit(self.click(THEA + 1))
+                await asyncio.wait_for(pending, 1)
+            finally:
+                if not pending.done():
+                    pending.cancel()
+                    await asyncio.gather(pending, return_exceptions=True)
+        self.assertEqual(agent.decision, folder_decision("ask", str(THEA + 1), "What files would that include?"))
+        self.assertTrue(thread.sent[0].startswith("I received your question."))
+        self.assertEqual(msg.replies, [])
+
+    def test_live_step_does_not_echo_the_modal_answer(self):
+        event = {"type": "tool", "name": "request_folder_access", "result": "private revision"}
+        self.assertEqual(hac.step_messages(event), [])
 
 
 class Place:
@@ -416,7 +614,7 @@ def chat_message(channel, content="turn off the fan\nplease", thread=None, threa
 
 class ThreadTests(unittest.IsolatedAsyncioTestCase):
     def cog(self, agent):
-        cog = hac.HomeAssistant(types.SimpleNamespace(user=BOT), settings(), agent=agent)
+        cog = hac.GolurkAgent(types.SimpleNamespace(user=BOT), settings(), agent=agent)
         cog.started = True
         return cog
 
@@ -441,8 +639,8 @@ class ThreadTests(unittest.IsolatedAsyncioTestCase):
 
     def test_history_turns_setting(self):
         self.assertEqual(hac.load_settings({}, env={})["history_turns"], 6)
-        self.assertEqual(hac.load_settings({"homeassistant": {"history_turns": "20"}}, env={})["history_turns"], 20)
-        self.assertEqual(hac.load_settings({"homeassistant": {"history_turns": "x"}}, env={})["history_turns"], 6)
+        self.assertEqual(hac.load_settings({"golurk_agent": {"history_turns": "20"}}, env={})["history_turns"], 20)
+        self.assertEqual(hac.load_settings({"golurk_agent": {"history_turns": "x"}}, env={})["history_turns"], 6)
 
     async def test_a_channel_message_opens_a_thread_and_answers_there(self):
         agent, channel, thread = FakeAgent(), Place(42), Place(50, parent_id=42)
@@ -467,7 +665,7 @@ class ThreadTests(unittest.IsolatedAsyncioTestCase):
         denied = hac.discord.Forbidden(types.SimpleNamespace(status=403, reason="Forbidden"),
                                        "Missing Permissions")
         msg = chat_message(channel, thread_error=denied)
-        with self.assertLogs("homeassistant", "WARNING"):
+        with self.assertLogs("golurk_agent", "WARNING"):
             await self.cog(agent).on_message(msg)
         self.assertEqual(agent.calls[0][0], "discord:42")
         self.assertEqual(len(msg.replies), 1)
@@ -552,7 +750,7 @@ class RestoreTests(unittest.IsolatedAsyncioTestCase):
             ("assistant", "Timer set for 10 minutes.")])
 
     def cog(self, agent):
-        cog = hac.HomeAssistant(types.SimpleNamespace(user=BOT), settings(), agent=agent)
+        cog = hac.GolurkAgent(types.SimpleNamespace(user=BOT), settings(), agent=agent)
         cog.started = True
         return cog
 
@@ -575,7 +773,7 @@ class RestoreTests(unittest.IsolatedAsyncioTestCase):
         agent = HistoryAgent()
         err = hac.discord.Forbidden(types.SimpleNamespace(status=403, reason="no"), "Missing Access")
         thread = FakeThread([], error=err)
-        with self.assertLogs("homeassistant", "WARNING"):
+        with self.assertLogs("golurk_agent", "WARNING"):
             await self.cog(agent).on_message(chat_message(thread, content="hi"))
         self.assertEqual(agent.remembered, [])
         self.assertEqual(len(agent.calls), 1)
@@ -589,8 +787,143 @@ class RestoreTests(unittest.IsolatedAsyncioTestCase):
         cog = self.cog(FakeAgent())
         inter = interaction(THEA)
         inter.channel = types.SimpleNamespace(id=7, guild=object())
-        await hac.HomeAssistant.think.callback(cog, inter, None)
+        await hac.GolurkAgent.think.callback(cog, inter, None)
         self.assertEqual(inter.response.send_message.call_args.args[0], "I only answer in <#42>.")
+
+
+class UpgradeAgent(HistoryAgent):
+    def __init__(self, response=None):
+        super().__init__()
+        self.response = response or reply()
+        self.metadata = []
+        self.conversations = types.SimpleNamespace(seen=mock.Mock(return_value=False))
+
+    async def chat(self, cid, text, confirm, speaker, think=None, on_step=None, *,
+                   user_id=None, message_id=None, is_dm=False, attachments=()):
+        self.metadata.append((user_id, message_id, is_dm, attachments))
+        self.calls.append((cid, text, speaker))
+        return self.response
+
+
+class UpgradeTests(unittest.IsolatedAsyncioTestCase):
+    def cog(self, agent, **bot_options):
+        cog = hac.GolurkAgent(types.SimpleNamespace(user=BOT, **bot_options),
+                              settings(show_steps=False), agent=agent)
+        cog.started = True
+        return cog
+
+    async def test_attachment_only_is_routed_with_trusted_dm_metadata(self):
+        agent = UpgradeAgent()
+        dm = Place(42)
+        dm.guild = None
+        msg = chat_message(dm, content="<@999>")
+        msg.attachments = [object()]
+        accepted = [object()]
+        reader = mock.AsyncMock(return_value=accepted)
+        with mock.patch.object(hac, "ha_agent", types.SimpleNamespace(read_discord_attachments=reader)):
+            await self.cog(agent).on_message(msg)
+        reader.assert_awaited_once_with(msg.attachments)
+        self.assertEqual(agent.calls, [(f"discord:dm:{THEA}", "", "Thea")])
+        self.assertEqual(agent.metadata, [(str(THEA), str(msg.id), True, accepted)])
+        self.assertEqual(len(msg.replies), 1)
+
+    async def test_unauthorized_upload_is_never_downloaded(self):
+        agent = UpgradeAgent()
+        msg = chat_message(Place(7))
+        msg.attachments = [object()]
+        reader = mock.AsyncMock()
+        with mock.patch.object(hac, "ha_agent", types.SimpleNamespace(read_discord_attachments=reader)):
+            await self.cog(agent).on_message(msg)
+        reader.assert_not_awaited()
+        self.assertEqual(agent.calls, [])
+        self.assertEqual(msg.replies, [])
+
+    async def test_file_replies_and_notices_stay_in_the_thread(self):
+        result = reply()
+        result.attachment_errors = ["bad.png: media unsupported"]
+        result.files = [types.SimpleNamespace(filename="failed.txt", data=b"no"),
+                        types.SimpleNamespace(filename="updated.txt", data=b"edited")]
+        agent = UpgradeAgent(result)
+        thread = Place(50, parent_id=42)
+        uploads = []
+
+        async def send(content=None, *, allowed_mentions, file=None):
+            self.assertIs(allowed_mentions, hac.NO_PINGS)
+            if file is not None:
+                if file.filename == "failed.txt":
+                    raise OSError("upload unavailable")
+                uploads.append((file.filename, file.fp.read()))
+            else:
+                thread.sent.append(content)
+
+        thread.send = send
+        msg = chat_message(Place(42), thread=thread)
+        with self.assertLogs("golurk_agent", "WARNING"):
+            await self.cog(agent).on_message(msg)
+        self.assertEqual(agent.metadata, [(str(THEA), str(msg.id), False, ())])
+        self.assertTrue(thread.sent[0].startswith("Done it."))
+        self.assertIn("bad.png: media unsupported", thread.sent[1])
+        self.assertIn("Could not upload failed.txt", thread.sent[2])
+        self.assertEqual(uploads, [("updated.txt", b"edited")])
+        self.assertEqual(msg.replies, [])
+
+    async def test_replayed_starter_recovers_existing_thread_and_suppresses_reply(self):
+        result = reply("")
+        result.duplicate = True
+        agent = UpgradeAgent(result)
+        channel = Place(42)
+        already_exists = hac.discord.HTTPException(
+            types.SimpleNamespace(status=400, reason="Bad Request"), "Thread already exists")
+        msg = chat_message(channel, thread_error=already_exists)
+        thread = mock.Mock(spec=hac.discord.Thread, id=msg.id, parent_id=channel.id)
+        thread.send = mock.AsyncMock()
+        thread.typing = Place(msg.id).typing
+        fetch = mock.AsyncMock(return_value=thread)
+        await self.cog(agent, fetch_channel=fetch).on_message(msg)
+        fetch.assert_awaited_once_with(msg.id)
+        self.assertEqual(agent.calls[0][0], f"discord:{msg.id}")
+        thread.send.assert_not_awaited()
+        self.assertEqual(msg.replies, [])
+
+    async def test_durable_ids_prevent_reseeding_discarded_history(self):
+        agent = UpgradeAgent()
+        agent.conversations.seen.side_effect = lambda cid, ident: cid == "discord:50" and ident == "50"
+        thread = FakeThread([said(BOT.id, "Old private file excerpt.", id=2)],
+                            starter=said(THEA, "Old prompt", id=50))
+        await self.cog(agent).on_message(chat_message(thread, content="new prompt"))
+        self.assertEqual(agent.remembered, [])
+        self.assertEqual(agent.calls[0][:2], ("discord:50", "new prompt"))
+
+    async def test_legacy_agent_answers_text_with_an_upload_upgrade_notice(self):
+        agent = FakeAgent()
+        dm = Place(7)
+        dm.guild = None
+        msg = chat_message(dm, content="hello")
+        msg.attachments = [object()]
+        await self.cog(agent).on_message(msg)
+        self.assertEqual(agent.calls, [(f"discord:dm:{THEA}", "hello", "Thea")])
+        self.assertTrue(msg.replies[0].startswith("Done it."))
+        self.assertIn("Uploads need the updated Golurk-Agent package", dm.sent[0])
+
+    async def test_slash_chat_supplies_discord_metadata(self):
+        agent = UpgradeAgent()
+        inter = interaction(THEA)
+        inter.id = 543
+        inter.channel = Place(42)
+        inter.followup = types.SimpleNamespace(send=mock.AsyncMock())
+        await hac.GolurkAgent.ask.callback(self.cog(agent), inter, "hello")
+        self.assertEqual(agent.metadata, [(str(THEA), "543", False, ())])
+        inter.followup.send.assert_awaited_once()
+
+    def test_legacy_history_seed_excludes_upload_exchange_and_notices(self):
+        upload = said(THEA, "Edit this", id=1)
+        upload.attachments = [object()]
+        messages = [upload, said(BOT.id, "private excerpt", id=2),
+                    said(THEA, "hello", id=3),
+                    said(BOT.id, "Attachment notice: failed upload", id=4),
+                    said(BOT.id, "hi", id=5)]
+        self.assertEqual(hac.thread_turns(messages, BOT.id, {THEA}),
+                         [("user", "Thea: hello"), ("assistant", "hi")])
 
 
 class ModeAgent(FakeAgent):
@@ -619,6 +952,14 @@ class ModeTests(unittest.IsolatedAsyncioTestCase):
         r.mode, r.tool_calls = "general", 3
         self.assertEqual(hac.footer_bits(r)[:2], ["\U0001f4ac general", "\U0001f50e 3 tools"])
 
+    def test_footer_shows_routes_that_skip_the_model(self):
+        for routed_by in ("fast", "learned"):
+            with self.subTest(routed_by=routed_by):
+                r = reply(actions=[act("fan.turn_off", ["Fan"], {})])
+                r.mode, r.routed_by = "general", routed_by
+                self.assertEqual(hac.action_footer(r).splitlines()[-1],
+                                 f"-# 💬 general · ⚡ {routed_by} · 2.3 s")
+
     def test_no_mode_on_older_agents(self):
         self.assertEqual(hac.footer_bits(reply()), ["\U0001f50e 1 tool", "2.3 s"])
 
@@ -643,7 +984,7 @@ class ModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(p.count("x") for p in parts), 5000)
 
     def cog(self, agent):
-        return hac.HomeAssistant(types.SimpleNamespace(user=BOT), settings(), agent=agent)
+        return hac.GolurkAgent(types.SimpleNamespace(user=BOT), settings(), agent=agent)
 
     def inter(self):
         inter = interaction(THEA)
@@ -656,23 +997,23 @@ class ModeTests(unittest.IsolatedAsyncioTestCase):
         agent = ModeAgent()
         cog = self.cog(agent)
         inter = self.inter()
-        await hac.HomeAssistant.mode.callback(cog, inter, None)
+        await hac.GolurkAgent.mode.callback(cog, inter, None)
         self.assertIn("General", inter.response.send_message.call_args.args[0])
-        await hac.HomeAssistant.mode.callback(cog, inter, "code")
+        await hac.GolurkAgent.mode.callback(cog, inter, "code")
         self.assertIn("Code", inter.response.send_message.call_args.args[0])
         self.assertEqual(agent.current, {"discord:42": "code"})
 
     async def test_an_unknown_mode_lists_the_names(self):
         cog = self.cog(ModeAgent())
         inter = self.inter()
-        await hac.HomeAssistant.mode.callback(cog, inter, "chef")
+        await hac.GolurkAgent.mode.callback(cog, inter, "chef")
         self.assertIn(", ".join(hac.MODE_NAMES), inter.response.send_message.call_args.args[0])
 
     async def test_code_command_uses_code_mode_once(self):
         agent = ModeAgent()
         cog = self.cog(agent)
         cog.started = True
-        await hac.HomeAssistant.code.callback(cog, self.inter(), "reverse a list")
+        await hac.GolurkAgent.code.callback(cog, self.inter(), "reverse a list")
         self.assertEqual(agent.modes_used, ["code"])
         self.assertEqual(agent.current, {})
 
@@ -731,7 +1072,7 @@ def sendable(ident):
 
 class TimerDeliveryTests(unittest.IsolatedAsyncioTestCase):
     def cog(self, bot):
-        return hac.HomeAssistant(bot=bot, settings=settings(), agent=FakeAgent())
+        return hac.GolurkAgent(bot=bot, settings=settings(), agent=FakeAgent())
 
     async def test_a_thread_timer_lands_in_the_thread_without_pings(self):
         thread = sendable(77)
@@ -753,22 +1094,22 @@ class TimerDeliveryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_a_deleted_thread_falls_back_to_the_owners_dms(self):
         thea = sendable(THEA)
-        with self.assertLogs("homeassistant", "WARNING"):
+        with self.assertLogs("golurk_agent", "WARNING"):
             await self.cog(TimerBot(users=[thea])).deliver_timer("discord:77", "done")
         thea.send.assert_awaited_once_with("done", allowed_mentions=hac.NO_PINGS)
 
     async def test_nowhere_at_all_is_logged_not_raised(self):
-        with self.assertLogs("homeassistant", "WARNING"):
+        with self.assertLogs("golurk_agent", "WARNING"):
             await self.cog(TimerBot()).deliver_timer("discord:77", "done")
 
     async def test_an_unknown_id_is_logged_not_sent(self):
-        with self.assertLogs("homeassistant", "WARNING"):
+        with self.assertLogs("golurk_agent", "WARNING"):
             await self.cog(TimerBot()).deliver_timer("terminal:1", "done")
 
     async def test_a_failed_send_never_raises(self):
         thread = sendable(77)
         thread.send.side_effect = RuntimeError("discord down")
-        with self.assertLogs("homeassistant", "ERROR"):
+        with self.assertLogs("golurk_agent", "ERROR"):
             await self.cog(TimerBot(channels=[thread])).deliver_timer("discord:77", "done")
 
     def test_the_built_agent_reports_timers_to_the_cog(self):
@@ -776,7 +1117,7 @@ class TimerDeliveryTests(unittest.IsolatedAsyncioTestCase):
             def __init__(self, **kwargs):
                 self.kwargs = kwargs
         with mock.patch.object(hac, "HAAgent", Built):
-            cog = hac.HomeAssistant(bot=None, settings=settings(ha_token="t", llm_url="http://x/v1"))
+            cog = hac.GolurkAgent(bot=None, settings=settings(ha_token="t", llm_url="http://x/v1"))
             agent = cog._build_agent()
         self.assertEqual(agent.on_timer, cog.deliver_timer)
         self.assertEqual(agent.kwargs["llm_url"], "http://x/v1")
@@ -786,7 +1127,7 @@ class TimerDeliveryTests(unittest.IsolatedAsyncioTestCase):
             def __init__(self, **kwargs):
                 self.kwargs = kwargs
         with mock.patch.object(hac, "HAAgent", Built):
-            agent = hac.HomeAssistant(bot=None, settings=settings(ha_token="t"))._build_agent()
+            agent = hac.GolurkAgent(bot=None, settings=settings(ha_token="t"))._build_agent()
         self.assertNotIn("llm_url", agent.kwargs)
 
 
@@ -795,7 +1136,7 @@ class ReloadTests(unittest.IsolatedAsyncioTestCase):
     """/ha reload reloads the extension (and so ha_agent), not just the action list."""
 
     def cog(self, agent, **over):
-        return hac.HomeAssistant(bot=None, settings=settings(**over), agent=agent)
+        return hac.GolurkAgent(bot=None, settings=settings(**over), agent=agent)
 
     def started_cog(self, entries=3):
         agent = FakeAgent()
@@ -828,20 +1169,20 @@ class ReloadTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "config.json")
             with open(path, "w", encoding="utf-8") as f:
-                json.dump({"homeassistant": {"llm_url": "http://old/v1"}}, f)
-            self.assertEqual(hac.read_config(path)["homeassistant"]["llm_url"], "http://old/v1")
+                json.dump({"golurk_agent": {"llm_url": "http://old/v1"}}, f)
+            self.assertEqual(hac.read_config(path)["golurk_agent"]["llm_url"], "http://old/v1")
             with open(path, "w", encoding="utf-8") as f:
-                json.dump({"homeassistant": {"llm_url": "http://new/v1"}}, f)
-            self.assertEqual(hac.read_config(path)["homeassistant"]["llm_url"], "http://new/v1")
+                json.dump({"golurk_agent": {"llm_url": "http://new/v1"}}, f)
+            self.assertEqual(hac.read_config(path)["golurk_agent"]["llm_url"], "http://new/v1")
             with open(path, "w", encoding="utf-8") as f:
                 f.write("{ half written")
             with self.assertRaises(ValueError):
                 hac.read_config(path)
 
     def test_a_new_cog_takes_its_settings_from_read_config(self):
-        fresh = {"homeassistant": {"llm_url": "http://new/v1"}}
+        fresh = {"golurk_agent": {"llm_url": "http://new/v1"}}
         with mock.patch.object(hac, "read_config", return_value=fresh) as read:
-            cog = hac.HomeAssistant(bot=None, agent=FakeAgent())
+            cog = hac.GolurkAgent(bot=None, agent=FakeAgent())
         read.assert_called_once_with()
         self.assertEqual(cog.settings["llm_url"], "http://new/v1")
 
@@ -849,27 +1190,27 @@ class ReloadTests(unittest.IsolatedAsyncioTestCase):
         new = self.started_cog(7)
         bot = types.SimpleNamespace(reload_extension=mock.AsyncMock(),
                                     get_cog=mock.Mock(return_value=new))
-        old = hac.HomeAssistant(bot=bot, settings=settings(), agent=FakeAgent())
+        old = hac.GolurkAgent(bot=bot, settings=settings(), agent=FakeAgent())
         inter = self.inter()
-        await hac.HomeAssistant.reload.callback(old, inter)
-        bot.reload_extension.assert_awaited_once_with("cogs.homeassistant")
+        await hac.GolurkAgent.reload.callback(old, inter)
+        bot.reload_extension.assert_awaited_once_with("cogs.golurk_agent")
         bot.get_cog.assert_called_once_with(old.qualified_name)
         self.assertIn("7 Home Assistant actions", inter.followup.send.call_args.args[0])
 
     async def test_reload_works_while_the_agent_is_off(self):
         bot = types.SimpleNamespace(reload_extension=mock.AsyncMock(),
                                     get_cog=mock.Mock(return_value=self.started_cog()))
-        old = hac.HomeAssistant(bot=bot, settings=settings(), agent=None)
-        await hac.HomeAssistant.reload.callback(old, self.inter())
+        old = hac.GolurkAgent(bot=bot, settings=settings(), agent=None)
+        await hac.GolurkAgent.reload.callback(old, self.inter())
         bot.reload_extension.assert_awaited_once()
 
     async def test_a_failed_reload_says_the_old_code_still_runs(self):
         bot = types.SimpleNamespace(reload_extension=mock.AsyncMock(side_effect=RuntimeError("x")),
                                     get_cog=mock.Mock())
-        old = hac.HomeAssistant(bot=bot, settings=settings(), agent=FakeAgent())
+        old = hac.GolurkAgent(bot=bot, settings=settings(), agent=FakeAgent())
         inter = self.inter()
-        with self.assertLogs("homeassistant", "ERROR"):
-            await hac.HomeAssistant.reload.callback(old, inter)
+        with self.assertLogs("golurk_agent", "ERROR"):
+            await hac.GolurkAgent.reload.callback(old, inter)
         self.assertIn("old code is still running", inter.followup.send.call_args.args[0])
         bot.get_cog.assert_not_called()
 
@@ -951,13 +1292,13 @@ class StepMessageTests(unittest.TestCase):
             async def chat(self, cid, text, on_step=None):
                 pass
 
-        self.assertTrue(hac.accepts_steps(New()))
-        self.assertFalse(hac.accepts_steps(FakeAgent()))   # **kw is not enough
-        self.assertFalse(hac.accepts_steps(None))
+        self.assertIn("on_step", hac.chat_parameters(New()))
+        self.assertNotIn("on_step", hac.chat_parameters(FakeAgent()))   # **kw is not enough
+        self.assertEqual(hac.chat_parameters(None), {})
 
     def test_show_steps_setting(self):
         self.assertTrue(hac.load_settings({}, env={})["show_steps"])
-        off = {"homeassistant": {"show_steps": False}}
+        off = {"golurk_agent": {"show_steps": False}}
         self.assertFalse(hac.load_settings(off, env={})["show_steps"])
 
     def test_no_step_message_is_read_back_as_an_answer(self):
@@ -1041,7 +1382,7 @@ class StepFeedTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_failed_post_is_dropped_and_keeps_the_spoiler(self):
         box = Outbox(failures=1)
         feed = hac.StepFeed(box)
-        with self.assertLogs("homeassistant", "WARNING"):
+        with self.assertLogs("golurk_agent", "WARNING"):
             feed.add(thought_call())
             await feed.close()
         self.assertEqual(box.messages, ["\U0001f527 Calling: **status**",
@@ -1050,7 +1391,7 @@ class StepFeedTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_a_bad_event_is_logged_not_raised(self):
         feed = hac.StepFeed(Outbox())
-        with self.assertLogs("homeassistant", "ERROR"):
+        with self.assertLogs("golurk_agent", "ERROR"):
             feed.add(None)
         await feed.close()
 
@@ -1094,7 +1435,7 @@ class StepPlace(Place):
 
 class StepAnswerTests(unittest.IsolatedAsyncioTestCase):
     def cog(self, agent, **over):
-        cog = hac.HomeAssistant(types.SimpleNamespace(user=BOT), settings(**over), agent=agent)
+        cog = hac.GolurkAgent(types.SimpleNamespace(user=BOT), settings(**over), agent=agent)
         cog.started = True
         return cog
 
@@ -1112,7 +1453,7 @@ class StepAnswerTests(unittest.IsolatedAsyncioTestCase):
         agent = StepAgent([thought_call()])
         cog = self.cog(agent, show_steps=False)
         self.assertIsNone(cog._step_feed(Outbox()))
-        parts = await cog.answer("c", "hi", message().author, no_confirm)
+        parts = (await cog.answer("c", "hi", message().author, no_confirm)).parts
         self.assertIn("Reasoning (tap to show)", parts[-1])
         self.assertEqual(agent.on_step_seen, [None])
 
@@ -1124,17 +1465,17 @@ class StepAnswerTests(unittest.IsolatedAsyncioTestCase):
 
         agent, box = FakeAgent(chat=old), Outbox()
         cog = self.cog(agent)
-        parts = await cog.answer("c", "hi", message().author, no_confirm,
-                                 steps=cog._step_feed(box))
+        parts = (await cog.answer("c", "hi", message().author, no_confirm,
+                                 steps=cog._step_feed(box))).parts
         self.assertIn("Reasoning (tap to show)", parts[-1])
         self.assertEqual(box.messages, [])
 
     async def test_steps_are_posted_even_when_the_answer_fails(self):
         box = Outbox()
         cog = self.cog(StepAgent([thought_call()], error=asyncio.TimeoutError()))
-        with self.assertLogs("homeassistant", "ERROR"):
-            parts = await cog.answer("c", "hi", message().author, no_confirm,
-                                     steps=cog._step_feed(box))
+        with self.assertLogs("golurk_agent", "ERROR"):
+            parts = (await cog.answer("c", "hi", message().author, no_confirm,
+                                     steps=cog._step_feed(box))).parts
         self.assertEqual(parts, ["That took too long, try again."])
         self.assertTrue(box.messages[-1].startswith("❌ **`status`** not run"))
 

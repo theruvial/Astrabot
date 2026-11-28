@@ -8,6 +8,7 @@ import random
 from pathlib import Path
 from config import config
 from cogs.owner import fetch_owner, owner_id
+from startup_cogs import cog_extension_name
 
 # astra_console.py writes a cog name here to reload it in the running
 # bot. A file rather than an HTTP route: the audiobook site binds
@@ -117,7 +118,7 @@ class Moderation(commands.Cog):
             return
         cog_name = RELOAD_FLAG.read_text(encoding="utf-8").strip()
         RELOAD_FLAG.unlink()
-        await self.bot.reload_extension(f"cogs.{cog_name}")
+        await self.bot.reload_extension(cog_extension_name(cog_name))
         print(f"{cog_name} reloaded from the console")
 
     @app_commands.command(name="reloadcog", description="Reload a cog extension")
@@ -125,8 +126,9 @@ class Moderation(commands.Cog):
         role = discord.utils.get(interaction.guild.roles, name="Admin")
         if role in interaction.user.roles:
             try:
-                await self.bot.unload_extension(f"cogs.{cog_name}")
-                await self.bot.load_extension(f"cogs.{cog_name}")
+                extension = cog_extension_name(cog_name)
+                await self.bot.unload_extension(extension)
+                await self.bot.load_extension(extension)
                 await self.bot.tree.sync()
                 print(f"{cog_name} successfully reloaded!")
                 await interaction.response.send_message(f"{cog_name} successfully reloaded!")

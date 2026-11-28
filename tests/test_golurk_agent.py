@@ -1122,6 +1122,18 @@ class TimerDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(agent.on_timer, cog.deliver_timer)
         self.assertEqual(agent.kwargs["llm_url"], "http://x/v1")
 
+    def test_configured_folder_approvers_reach_a_compatible_agent(self):
+        class Built:
+            def __init__(self, *, folder_approver_ids=None, **kwargs):
+                self.approvers = folder_approver_ids
+
+        cfg = {"homeassistant": {"ha_token": "test", "folder_approver_ids": [123, "456", 123, "bad"]}}
+        with mock.patch.object(hac, "HAAgent", Built):
+            agent = hac.GolurkAgent(bot=None, settings=hac.load_settings(cfg, env={}))._build_agent()
+            no_approvers = hac.GolurkAgent(bot=None, settings=settings(ha_token="test"))._build_agent()
+        self.assertEqual(agent.approvers, ("123", "456"))
+        self.assertIsNone(no_approvers.approvers)
+
     def test_llm_url_left_out_when_blank(self):
         class Built:
             def __init__(self, **kwargs):

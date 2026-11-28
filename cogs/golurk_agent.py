@@ -95,6 +95,8 @@ Configuration uses ``config.json``’s ``"golurk_agent"`` object (``"homeassista
   A long-lived Home Assistant token; never commit it or log it.
 - ``ha_url``, ``ollama_url``, ``model``: blank = the agent's own defaults or its
   ``HA_URL`` / ``OLLAMA_URL`` / ``HA_AGENT_MODEL`` environment variables.
+- ``folder_approver_ids``: Discord IDs that can approve folder access. An
+  empty list uses the agent's ``HA_AGENT_FOLDER_APPROVER_IDS`` environment setting.
 - ``llm_url``: blank = the agent's default (Strata, ``HA_AGENT_LLM_URL``). A
   URL ending in ``/v1`` is spoken to as OpenAI-compatible.
 - ``timeout_seconds`` (default 180): safety net around one answer.
@@ -209,6 +211,12 @@ def load_settings(cfg, env=None) -> dict:
     def text(key):
         return str(raw.get(key) or "").strip() or None
 
+    approvers = raw.get("folder_approver_ids")
+    folder_approver_ids = tuple(dict.fromkeys(
+        value for item in approvers
+        if (value := str(item).strip()).isascii() and value.isdecimal()
+    )) if isinstance(approvers, list) else ()
+
     return {
         "allowed": allowed,
         "channel_id": channel_id,
@@ -220,6 +228,7 @@ def load_settings(cfg, env=None) -> dict:
         "timeout": timeout,
         "history_turns": history_turns,
         "dm_users": dm_users,
+        "folder_approver_ids": folder_approver_ids,
         "show_steps": bool(raw.get("show_steps", True)),
         "fake_ha": bool(raw.get("fake_ha", False)),
         "fake_ha_path": text("fake_ha_path"),
@@ -953,10 +962,13 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
         if not token:
             self.problem = "No Home Assistant token: set HA_TOKEN on Golurk."
             return None
-        urls = {"llm_url": s["llm_url"]} if s.get("llm_url") else {}  # older agents: no llm_url
+        options = {"llm_url": s["llm_url"]} if s.get("llm_url") else {}  # older agents: no llm_url
+        approvers = s.get("folder_approver_ids")
+        if approvers and "folder_approver_ids" in inspect.signature(HAAgent).parameters:
+            options["folder_approver_ids"] = approvers
         agent = HAAgent(ha_url=s["ha_url"], ha_token=token,
                         ollama_url=s["ollama_url"], model=s["model"],
-                        history_turns=s.get("history_turns", 6), **urls)
+                        history_turns=s.get("history_turns", 6), **options)
         # Set after creation, not as a constructor argument, so agents from before
         # timers still build. The agent looks it up each time a timer ends.
         agent.on_timer = self.deliver_timer

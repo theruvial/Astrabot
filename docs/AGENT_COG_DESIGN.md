@@ -385,8 +385,10 @@ For example, an owner can make a manuals folder available for searching and read
 
 ### Ask for folder approval in Discord
 
-Set `HA_AGENT_FOLDER_APPROVER_IDS` on the agent host to the comma-separated Discord IDs
-of the people allowed to approve access to local folders. Pass the optional
+Set `folder_approver_ids` in Astrabot's agent settings to the Discord IDs of the
+people allowed to approve access to local folders. An empty or absent list uses the
+agent host's comma-separated `HA_AGENT_FOLDER_APPROVER_IDS` environment variable.
+Astrabot passes the optional
 `approve_folder` callback to `chat()` separately from the existing Home Assistant
 `confirm` callback. The agent discovers `request_folder_access` through
 `search_file_tools` and calls the callback when the user mentions an absolute local

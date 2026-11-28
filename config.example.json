@@ -64,6 +64,7 @@
         "timeout_seconds": 180,
         "history_turns": 6,
         "show_steps": true,
-        "fake_ha": false
+        "fake_ha": false,
+        "folder_approver_ids": []
     }
 }

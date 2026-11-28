@@ -180,7 +180,7 @@ All settings are in the host's `config.json` (untracked; `config.example.json` s
 | `portfolio` | portfolio | object: `web_host` (0.0.0.0), `web_port` (13384), `cv_watch`, `cv_repo`, `cv_path`, `cv_branch`, `cv_poll_minutes` (10), `cv_auto_publish` (false), `data_dir`, `owner_id` |
 | `tasks` | tasks | optional object overriding classifier/wiki URLs and paths |
 | `selfupdate` | selfupdate | object: `enabled`, `interval_minutes` |
-| `golurk_agent` | golurk_agent | `homeassistant` is a fallback when the new key is absent. Object: `allowed_user_ids` (default Thea), `channel_id`, `ha_token` (blank = env `HA_TOKEN`), `ha_url`, `ollama_url`, `llm_url` (Strata/OpenAI-style URL ending in `/v1`; passed only when set), `model`, `timeout_seconds` (180), `show_steps` (default true: post thinking and tool calls live, §7.10), `fake_ha` (dev mode), `fake_ha_path` (§7.10) |
+| `golurk_agent` | golurk_agent | `homeassistant` is a fallback when the new key is absent. Object: `folder_approver_ids` (Discord folder approvers), `allowed_user_ids` (default Thea), `channel_id`, `ha_token` (blank = env `HA_TOKEN`), `ha_url`, `ollama_url`, `llm_url` (Strata/OpenAI-style URL ending in `/v1`; passed only when set), `model`, `timeout_seconds` (180), `show_steps` (default true: post thinking and tool calls live, §7.10), `fake_ha` (dev mode), `fake_ha_path` (§7.10) |
 | `roles`, `crewmate`, `updates`, `rolesMessageID`, `updatesEmojiID`, `welcomeChannel` | legacy roles | ids |
 | `botShop`, `workChannel` | legacy shop | ids |
 | `be_webhook`, `bl_webhook`, `gd_webhook` | legacy house | webhook URLs (secrets) |
@@ -346,7 +346,7 @@ Carries messages between Discord and Thea's local Home Assistant agent. The agen
 
 The attached guide from the agent's `file-tools-attachments` worktree is the reference for the next cog upgrade. Its “Cog upgrade” section describes Discord attachments and file replies, stable author and message IDs, agent-side folder grants, and persistent memory. Astrabot detects the upgraded chat interface and passes verified Discord IDs and attachments. The agent handles folder grants, deduplication and persistent memory. Thread restore can seed pre-upgrade history. The earlier agent package still handles plain text, with an upgrade notice for uploads.
 
-The optional `approve_folder` chat callback displays the requested path, requester, access and scope. The agent configures eligible approvers through `HA_AGENT_FOLDER_APPROVER_IDS`. Yes or No resolves the proposal. Ask opens a Discord modal and returns the approver's question or revision within the original deadline. The agent defaults to read/write and validates and applies grants.
+The optional `approve_folder` chat callback displays the requested path, requester, access and scope. Set eligible approvers with `folder_approver_ids` in the agent config. An empty or absent list uses `HA_AGENT_FOLDER_APPROVER_IDS`. Yes or No resolves the proposal. Ask opens a Discord modal and returns the approver's question or revision within the original deadline. The agent defaults to read/write and validates and applies grants.
 - **Must run on Golurk:** Ollama listens only on 127.0.0.1, on purpose. Moving the bot needs an HTTP wrapper and a network-exposure decision first; ask Thea.
 - **Install:** `py -3.14 -m pip install -e C:\codingShit\ha-agent` (editable, so agent fixes apply at the next cog reload, which `/ha reload` does since 2026-11-25: `cog_unload` drops `ha_agent`, `ha_agent.*` and the dev-mode `ha_agent_fake_ha` from `sys.modules`, so reloading `cogs.golurk_agent` re-imports the agent; since 2026-11-24, before that it needed a bot restart). Done on the host 2026-11-24. Off until `"golurk_agent"` (or its legacy alias `"homeassistant"`) is in `"cogs"`; the token goes in the `HA_TOKEN` user environment variable (Thea sets it; never in config.json on the Drive if avoidable, never in docs).
 - **Who and where:** `allowed_user_ids` (default Thea) in `channel_id` and the threads under it; DMs only from `dm_user_ids` (default: the bot's `owner_id`, Thea; a separate list on purpose). ID lists, never roles. Everything else is ignored silently, including @mentions in other channels; slash commands answer "I only answer in #channel" (allowed users) or "Not allowed." ephemerally. With `channel_id` unset only the DMs work. Changed 2026-11-24 at Thea's request (before: DMs and mentions anywhere for allowed users).
@@ -457,6 +457,12 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 ## 14. Change log
 
 Newest first. One dated entry per change (finished or in progress; say which, and which branch), by the agent that did the work. Entries before 2026-11-17 were written one per working day.
+
+### 2026-11-27 — Codex (GPT-6), Golurk-Agent approvers in config.json
+
+- Added `folder_approver_ids` to the example and the cog. The cog passes configured IDs to agent versions that support the setting. A blank list preserves the environment fallback.
+- Added the blank list to the ignored live config's existing agent block for Thea to fill in. Verified all other config values stayed the same. The 120 cog tests pass. An offline check with the upgraded agent verified JSON precedence and the blank-list environment fallback.
+- All 514 Astrabot tests passed across two processes. Fast-forwarded the config reader into local master at Thea's request.
 
 ### 2026-11-27 — Codex (GPT-6), Golurk-Agent merged locally
 

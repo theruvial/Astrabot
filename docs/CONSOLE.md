@@ -62,6 +62,19 @@ with one pane of live output for each.
   hidden: they only act on this PC's Strata. **Monitor** reopens the tunnel if it
   dropped; ssh's error goes to the header note and `logs/strata_tunnel.log`.
 
+## If the console is force-closed or crashes
+
+Ending the console from Task Manager, `Stop-Process` or a crash runs none of its
+shutdown code. Its built-in programs (bot, wiki, absLogin, classifier, the
+Librarian's `ssh` log tail) and the Strata SSH tunnel still end with it: Windows
+does that through a job object (`console_job.py`). So the bot goes offline too,
+until you open the console again.
+
+Two kinds of thing are left alone: the Strata server, and services you added (so
+a game server is never ended without its stop commands). An added service can
+therefore still be running after a force-close. Check Task Manager before you
+start it again.
+
 ## Remote feed (phone)
 
 The console can serve a watch-only feed of every pane for the phone app (no buttons:
@@ -96,7 +109,7 @@ Press **Settings**, then **+ Add service**. For each one set:
 Each added service pane has **Start**, **Restart**, **Stop** and **Remove**.
 Stop leaves it stopped (it is not restarted behind your back). A service that
 crashes restarts after 10 seconds and gives up after 5 crashes in a row, like the
-built-in ones. Closing the console stops everything it started.
+built-in ones. Closing the console stops all of these services.
 
 Added services are saved in `console.json` next to the console. That file is not
 committed. `console.example.json` shows the format, including a RuneScape:

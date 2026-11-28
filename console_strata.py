@@ -45,6 +45,8 @@ import threading
 import time
 from pathlib import Path
 
+import console_job
+
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 STARTUP_WAIT = 600
 # Longest a single CLI call may take: a restart can wait STARTUP_WAIT for the
@@ -124,9 +126,11 @@ class Tunnel:
 
     ``ensure()`` blocks (call it from a worker thread) until the local port
     accepts connections, or raises RuntimeError with ssh's reason. If the
-    port already answers before this Tunnel opened anything (an ssh left by
-    a console that crashed), that one is used. ``popen``, ``probe`` and
-    ``sleep`` are replaceable for the tests."""
+    port already answers before this Tunnel opened anything (an ssh opened
+    by hand, or left by an older console), that one is used. The ssh this
+    one opens ends with the console process, however that ends
+    (console_job.py). ``popen``, ``probe`` and ``sleep`` are replaceable for
+    the tests."""
 
     def __init__(self, host, port, tunnel_port, log_path=None, wait=10.0,
                  popen=subprocess.Popen, probe=port_open, sleep=time.sleep):
@@ -175,6 +179,7 @@ class Tunnel:
             finally:
                 if log is not None:
                     log.close()  # the child keeps its own handle
+            console_job.tie(self.proc)  # best effort; stop() is the usual way
             waited = 0.0
             while waited < self.wait:
                 if self.proc.poll() is not None:

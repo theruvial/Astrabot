@@ -67,6 +67,7 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+import console_job
 import console_remote
 import console_strata
 import console_terminal
@@ -153,6 +154,10 @@ def python_exe():
 
 class Supervisor:
     """Runs one program, restarts it, and hands each output line to emit."""
+
+    # The program ends with the console process even when shutdown() never
+    # runs (force-killed or crashed console, console_job.py).
+    ends_with_console = True
 
     def __init__(self, emit, name, cwd, command, log_dir,
                  restart_delay=RESTART_DELAY, stable_seconds=STABLE_SECONDS,
@@ -292,6 +297,11 @@ class Supervisor:
             self._say(self.name, f"Could not start {self.title}: {exc}")
             self._record(f"{self.name} could not start: {exc}")
             return 1
+        if self.ends_with_console:
+            problem = console_job.tie(proc)
+            if problem:
+                self._say(self.name, f"{self.title} may keep running if the console "
+                                     f"is force-closed: {problem}")
         with self._lock:
             # shutdown() may have run between the spawn and here: it saw no
             # process to stop, so this one would be orphaned. Checked under
@@ -432,6 +442,9 @@ class CustomSupervisor(Supervisor):
     stopped, and can stop cleanly by typing commands into the program."""
 
     stop_pause = 2  # seconds between typed stop commands
+    # Ending one with the console would skip its stop commands, and what it
+    # starts may be meant to stay (Strata must).
+    ends_with_console = False
 
     def __init__(self, emit, spec, log_dir=None):
         self._title = ""
@@ -1121,8 +1134,9 @@ def main():
     strata_title = (f"Strata ({strata_remote['host']})" if strata_remote
                     else BUILTIN_TITLES[STRATA_KEY])
     if tunnel is not None:
-        # Also when the console ends some other way than on_close; a tunnel
-        # left by a hard crash is reused by the next console (Tunnel.ensure).
+        # Also when the console ends some other way than on_close. A console
+        # that is killed outright runs no exit handlers; the tunnel's job
+        # object ends it then (console_job.py).
         atexit.register(tunnel.stop)
 
     def make_monitor(rows, cols):
@@ -1610,6 +1624,10 @@ def main():
         if feed is not None:
             feed.stop()
 
+    def every_service():
+        """Everything the console runs: what each way out of it must stop."""
+        return [supervisor, wiki, abs_login, classifier, librarian, *custom.values()]
+
     def restart_console(lost):
         """Stop whatever can still be found, close this window, open a new one."""
         names = ", ".join(lost)
@@ -1636,7 +1654,7 @@ def main():
                              "restarting the console\n")
         except OSError:
             pass
-        for service in (*all_services, *custom.values()):
+        for service in every_service():
             try:
                 service.shutdown()
             except Exception:
@@ -1703,9 +1721,9 @@ def main():
             for view in (popout["view"], strata_state["view"]):
                 if view is not None:
                     view.stop()  # the monitor only; Strata keeps running
-            everything = [supervisor, wiki, abs_login, classifier, librarian, *custom.values()]
             # In parallel: a service with a clean-stop command can take a while.
-            stoppers = [threading.Thread(target=s.shutdown, daemon=True) for s in everything]
+            stoppers = [threading.Thread(target=s.shutdown, daemon=True)
+                        for s in every_service()]
             for stopper in stoppers:
                 stopper.start()
             for stopper in stoppers:

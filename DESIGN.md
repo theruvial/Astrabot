@@ -471,7 +471,7 @@ Newest first. One dated entry per change (finished or in progress; say which, an
 - **Fix:** one `every_service()` list for both ways out; new `console_job.py` ties the built-in programs and the tunnel to the console process (§8). Behaviour change: a killed or crashed console now takes the bot and the other built-ins down at once; before, they ran on unread until the next console cleared their ports.
 - **Tested:** `test_console_orphans` (5 tests): four failed on the old code, all pass now. Undoing only the list fix fails the Watchdog test; turning off only the supervisors' tie fails the force-kill tests. One-off stand-ins on the host: the real `ssh.exe` (to a silent listener on 127.0.0.1), and the classifier venv's launcher with its child process, ended with a force-killed host. Full suite: §11. **Not tested:** the real running console (left alone), a real force-kill of it, or a live Strata start/stop (only a stand-in for the CLI's detached host).
 - **Not done:** the eight leftover processes were not touched (Thea's call). Added services can still be orphaned by a killed console.
-- **State:** merged into local master 2026-11-28 at Thea's request; not pushed. Takes effect after the console is restarted.
+- **State:** merged into master and pushed 2026-11-28 at Thea's request. Takes effect after the console is restarted.
 
 ### 2026-11-28 — Claude Code, Golurk-Agent console pane (branch `feature/console-agent-pane`)
 

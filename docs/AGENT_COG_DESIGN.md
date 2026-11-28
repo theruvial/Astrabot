@@ -148,7 +148,8 @@ order, all before `chat()` returns or raises:
 
 - `fn` is called, not awaited, on the event loop: buffer and return at once; post to Discord from your own task.
 - If `fn` raises, the agent logs it and carries on. With or without `on_step`, the model gets the same requests.
-- A call in `model.calls` with no `tool` event never ran (the tool-call limit refused it).
+- A call in `model.calls` with no `tool` event never ran. The agent has no default tool-call
+  cap. Hosts can opt in with `HAAgent(max_tool_calls=...)`.
 - `ok` is False for bad arguments, an unknown tool, a declined confirmation and a tool's own `error: ...` result.
 - Fast-path and learned answers use no model and send nothing. Ignore types and keys you don't know;
   more may be added. Check `"on_step" in inspect.signature(agent.chat).parameters` to support older agents.
@@ -241,7 +242,8 @@ Thinking makes Qwen reason before answering: smarter on hard requests, but about
 - As a slash command: `/think` with an optional `message` argument covers both cases.
 - When `reply.thought` is true, mark the reply (e.g. a 🧠 in the footer). Optionally show
   `reply.thinking` in a collapsed `||spoiler||` or a "Show reasoning" button. Truncate it, since it
-  can run past 2000 characters.
+  can run past 2000 characters. Astrabot sends both streamed progress and fallback reasoning
+  to the configured Discord `channel_id` for requests from DMs and server conversations.
 - The toggle lives in the agent's memory, so it resets to off when the bot restarts.
 
 ### 9. Modes (required)
@@ -274,6 +276,7 @@ Search matches are available for the current request. Remove any calls to the ol
   can't make the agent reach Home Assistant, Ollama or the router. The cog doesn't need to filter links.
 
 ### 10. Slash commands (nice to have)
+- `/stop` cancels your active Golurk-Agent requests. See [Stopping an active turn](#stopping-an-active-turn).
 - `/ha reset`: `agent.forget(conversation_id)`.
 - `/ha reload`: `await agent.reload_catalog()`, then reply with the count.
 - `/ha learned`: list `agent.learned()` (pattern → action, ✅ when promoted).
@@ -281,6 +284,25 @@ Search matches are available for the current request. Remove any calls to the ol
   `agent.learned()`.
 - `/ha ask <text>`: same as a normal message, for servers where message content is off.
 All of these are restricted to the same allowlist.
+
+### Stopping an active turn
+
+Handle `/stop` directly in the cog so the command can run while the agent is busy.
+For each of the requester's active turns, use the conversation ID from `chat()` and
+pass the verified Discord author ID from the slash interaction.
+
+```python
+stopped = await agent.stop(conversation_id, user_id=str(interaction.user.id))
+```
+
+- A `True` result means the active turn was cancelled and its lock was released.
+  A `False` result means this requester has no active turn to stop in this conversation.
+- When the original `chat()` call returns with `reply.stopped`, close its progress
+  UI, dismiss any pending confirmation view, and skip the usual reply and file sends.
+  Use the slash interaction to acknowledge the stop.
+- Cancellation applies to the current turn. Requests queued behind it can still run.
+  Actions already sent to Home Assistant and file operations already started can
+  complete. The agent does not archive a stopped turn as a completed exchange.
 
 ## Testing without touching the real house
 `tests/fake_ha.py` in the agent repo swaps in a fake Home Assistant (`agent.ha = FakeHA()`

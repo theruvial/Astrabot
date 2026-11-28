@@ -1,4 +1,5 @@
 import discord
+from discord import app_commands
 from discord.ext import commands
 import asyncio
 import logging
@@ -13,6 +14,19 @@ os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 # Which cogs load is decided by the "cogs" list in config.json (see
 # startup_cogs.py), so enabling one never needs a code change.
 startup_extensions = extensions_from_config(config)
+
+@app_commands.command(name="stop", description="Stop your Golurk-Agent requests or stop music.")
+async def stop(interaction: discord.Interaction):
+    bot = interaction.client
+    agent = bot.get_cog("Golurk-Agent")
+    if agent is not None and await agent.stop_here(interaction):
+        return
+    music = bot.get_cog("Music")
+    if music is not None and interaction.guild is not None:
+        await music.stop(interaction)
+        return
+    await interaction.response.send_message("Stop is unavailable here.", ephemeral=True)
+
 
 class Astrabot(commands.Bot):
     def __init__(self):
@@ -117,6 +131,9 @@ class Astrabot(commands.Bot):
                 print(f"Loaded extension {extension}")
             except Exception as e:
                 print(f"Failed to load extension {extension}\n{type(e).__name__}: {e}")
+
+        if self.get_cog("Golurk-Agent") is not None or self.get_cog("Music") is not None:
+            self.tree.add_command(stop)
 
     async def _sync_commands(self):
         """Publish commands with the scope each cog gave them.

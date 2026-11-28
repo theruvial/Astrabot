@@ -1250,7 +1250,6 @@ class Music(commands.Cog):
         else:
             await interaction.response.send_message("Music Not Paused")
 
-    @app_commands.command(name="stop", description="Stop playing audio and clear the queue")
     async def stop(self, interaction: discord.Interaction):
         voice = get(self.bot.voice_clients, guild=interaction.guild)
 

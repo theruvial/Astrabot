@@ -44,20 +44,21 @@ Thinking (Qwen reasons first: smarter, about 3x slower, off by default) is
 per conversation and lives in the agent, so it resets to off on restart.
 ``/think`` flips it, ``/think on`` / ``/think off`` set it, and ``/think <message>``
 thinks for that one message without touching the setting. A reply that was
-thought about gets a brain in its footer and its reasoning, cut short, as a
-spoiler in a last message.
+thought about gets a brain in its footer. When live steps lack its reasoning,
+a spoiler with the reasoning goes to the configured progress channel.
 
 Steps (``show_steps``, on by default): while the agent works, the cog shows its
-thought process and tool calls the way Justin's LangChat Discord bot does, each
-as its own message in the same thread, as it happens (``StepFeed``):
+thought process and tool calls as they happen, one message per step in the
+configured ``channel_id`` for all requests, including DMs and threads (``StepFeed``):
 "💭 **Thinking**" with the reasoning (only when thinking is on; there is
 none otherwise), "🔧 Calling: **names**", then a card per result with the
 arguments and the first 500 characters of what came back ("\u274c ... failed" on an
 error), plus the agent's own notes (mode handoff, retries). After 20 s with
 nothing new it posts "\u23f3 Still working…", then at most every 120 s. Unlike
 LangChat they are sent silently, with no pings or link previews, and thread
-restore skips them (``STEP_PREFIXES``). When the reasoning was posted, the
-reasoning spoiler is left off. All but "Still working" needs an agent whose
+restore skips older feeds (``STEP_PREFIXES``). When live reasoning was missing
+or failed to post, the spoiler uses the same configured channel. Live tool
+events and thinking events need an agent whose
 ``chat()`` takes ``on_step`` (``docs/AGENT_STEPS_DESIGN.md``). Tool results
 (notes, documents, device states) show to everyone who can read the channel.
 
@@ -90,7 +91,8 @@ Configuration uses ``config.json``’s ``"golurk_agent"`` object (``"homeassista
   new message there opens a thread.
 - ``history_turns`` (default 6): exchanges the agent remembers per
   conversation (per thread).
-- ``show_steps`` (default true): post reasoning, tool calls and "still working".
+- ``show_steps`` (default true): post reasoning, tool calls and "still working"
+  in ``channel_id``. An unset or unavailable channel suppresses progress posts.
 - ``ha_token``: blank = the ``HA_TOKEN`` environment variable (recommended).
   A long-lived Home Assistant token; never commit it or log it.
 - ``ha_url``, ``ollama_url``, ``model``: blank = the agent's own defaults or its
@@ -157,6 +159,7 @@ THREAD_ARCHIVE_MINUTES = 1440  # Discord's choices: 60, 1440, 4320, 10080
 CONFIRM_SECONDS = 60
 CONFIRM_EDIT_RETRY_SECONDS = 0.5
 CONFIRM_NOTICE_SECONDS = 2
+AGENT_STOP_WAIT_SECONDS = 10
 REASONING_LIMIT = 1800  # leaves room for the label and spoiler bars
 BRAIN = "\U0001f9e0"
 NO_PINGS = discord.AllowedMentions.none()
@@ -278,7 +281,7 @@ def _bot_noise(text: str) -> bool:
                              "Something went wrong talking", "The house agent",
                              "Golurk-Agent is off", "Golurk-Agent couldn't be created",
                              "The ha_agent package", "No Home Assistant token",
-                             "⏰ Timer done", ATTACHMENT_NOTICE, FOLDER_APPROVAL_STATUS)))
+                             "⏰ Timer done", ATTACHMENT_NOTICE, FOLDER_APPROVAL_STATUS, "Request stopped.")))
 
 
 def thread_turns(messages, bot_id: int, allowed) -> list[tuple[str, str]]:
@@ -450,15 +453,9 @@ def reasoning_message(thinking: str, limit: int = REASONING_LIMIT) -> str | None
     return f"-# {BRAIN} Reasoning (tap to show)\n||{thinking}||"
 
 
-def reply_messages(reply, spoiler: bool = True) -> list[str]:
-    """The Discord messages for one agent reply: text and footer, then reasoning.
-
-    ``spoiler`` False leaves the reasoning off (it was already shown live)."""
-    parts = split_message(f"{reply.text.strip() or 'Done.'}\n{action_footer(reply)}")
-    reasoning = None
-    if spoiler and getattr(reply, "thought", False):
-        reasoning = reasoning_message(getattr(reply, "thinking", ""))
-    return parts + [reasoning] if reasoning else parts
+def reply_messages(reply) -> list[str]:
+    """Format the answer and its footer. Progress uses a separate destination."""
+    return split_message(f"{reply.text.strip() or 'Done.'}\n{action_footer(reply)}")
 
 
 @dataclass
@@ -467,6 +464,7 @@ class DiscordAnswer:
 
     parts: list[str] = field(default_factory=list)
     files: list = field(default_factory=list)
+    stopped: bool = False
 
 
 def chat_parameters(agent):
@@ -562,6 +560,7 @@ class StepFeed:
         self.pending: dict = {}      # tool call id -> (name, args), until its result
         self.failed = False          # some message didn't reach Discord
         self._thought = False
+        self._cancelled = False
         self._paused = False         # waiting for a person (confirm buttons)
         self._activity = 0           # counts events; a change restarts the quiet clock
         self._sender: asyncio.Task | None = None
@@ -573,6 +572,8 @@ class StepFeed:
             self._beat = asyncio.get_running_loop().create_task(self._heartbeats())
 
     def add(self, event: dict) -> None:
+        if self._cancelled:
+            return
         try:
             kind, args = event.get("type"), None
             self._activity += 1
@@ -613,8 +614,21 @@ class StepFeed:
         self._paused = True
         await self.flush()
 
-    async def close(self) -> None:
-        """The answer is done (or failed): mark calls that never ran, post the rest."""
+    def cancel(self) -> None:
+        """Drop unsent progress and stop the sender and heartbeat."""
+        self._cancelled = True
+        self.queue.clear()
+        self.pending.clear()
+        for task in (self._sender, self._beat):
+            if task is not None:
+                task.cancel()
+
+    async def close(self, reply=None) -> None:
+        """Flush the last steps and post a reasoning spoiler if needed."""
+        if self._cancelled:
+            await asyncio.gather(*(task for task in (self._sender, self._beat) if task is not None),
+                                 return_exceptions=True)
+            return
         if self._beat is not None:
             self._beat.cancel()
             await asyncio.gather(self._beat, return_exceptions=True)
@@ -623,6 +637,11 @@ class StepFeed:
             self._post(_card_head("\u274c", name, " not run", args))
         self.pending.clear()
         await self.flush()
+        if getattr(reply, "thought", False) and not self.showed_thinking():
+            spoiler = reasoning_message(getattr(reply, "thinking", ""))
+            if spoiler:
+                self._post(spoiler)
+                await self.flush()
 
     async def _heartbeats(self) -> None:
         loop = asyncio.get_running_loop()
@@ -640,6 +659,16 @@ class StepFeed:
     def showed_thinking(self) -> bool:
         """The reasoning was posted, so the spoiler would only repeat it."""
         return self._thought and not self.failed and not self.queue
+
+
+@dataclass
+class ActiveRequest:
+    cid: str
+    user_id: int
+    steps: StepFeed | None
+    lock: asyncio.Lock
+    running: bool = False
+    stopped: bool = False
 
 
 def mode_title(name: str) -> str:
@@ -738,6 +767,20 @@ class ConfirmView(discord.ui.View):
         await self._answer(interaction, False, "\u274c Denied.")
 
 
+async def _cancel_prompt(prompt, view: discord.ui.View, content: str) -> None:
+    for button in view.children:
+        button.disabled = True
+    view.stop()
+    if prompt is not None:
+        try:
+            await asyncio.wait_for(
+                prompt.edit(content=content, view=view, allowed_mentions=NO_PINGS),
+                timeout=CONFIRM_NOTICE_SECONDS,
+            )
+        except Exception:  # keep cancellation moving even if the UI can't be edited
+            log.warning("Could not update a cancelled prompt", exc_info=True)
+
+
 async def _edit_confirm_prompt(prompt, content: str, view: discord.ui.View) -> None:
     """Retry transient message-edit failures until the caller's deadline."""
     while True:
@@ -763,10 +806,11 @@ def make_confirm(send, owner_id: int, timeout: float = CONFIRM_SECONDS):
             # View's own timer once a real send registers it.
             view = ConfirmView(owner_id, timeout=None)
             question = f"Allow **{discord.utils.escape_markdown(str(summary))}**?"
-            prompt = await send(question, view)
+            prompt = None
             clicked = False
             confirmation_window = asyncio.timeout(timeout)
             try:
+                prompt = await send(question, view)
                 async with confirmation_window:
                     interaction, allowed, outcome = await view.decision
                     clicked = True
@@ -776,6 +820,9 @@ def make_confirm(send, owner_id: int, timeout: float = CONFIRM_SECONDS):
                     await interaction.response.defer()
                     await _edit_confirm_prompt(prompt, f"{question}\n{outcome}", view)
                     return allowed
+            except asyncio.CancelledError:
+                await _cancel_prompt(prompt, view, f"{question}\nRequest stopped.")
+                raise
             except TimeoutError:
                 if not confirmation_window.expired():
                     raise
@@ -889,6 +936,9 @@ def make_folder_approval(send, cid: str, user_id: str, decision_type, timeout: f
                 status = {"yes": "Approved.", "no": "Declined.", "ask": "Question or revision sent."}
                 await _edit_confirm_prompt(prompt, FOLDER_APPROVAL_STATUS + status[action], view)
                 return decision_type(action, str(interaction.user.id), text)
+        except asyncio.CancelledError:
+            await _cancel_prompt(prompt, view, FOLDER_APPROVAL_STATUS + "Request stopped.")
+            raise
         except TimeoutError:
             if prompt is not None:
                 for button in view.children:
@@ -950,6 +1000,7 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
         self.agent = agent
         self.problem = None  # why there is no agent, for allowed users
         self.started = False
+        self._active_requests: dict[asyncio.Task, ActiveRequest] = {}
 
     # -- lifecycle --
 
@@ -993,6 +1044,7 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
         await self._ensure_started()
 
     async def cog_unload(self):
+        await self._stop_requests()
         if self.agent is not None:
             try:
                 await self.agent.close()
@@ -1061,6 +1113,10 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
         if kind == "dm":
             user = self.bot.get_user(ident)
             return user or await self.bot.fetch_user(ident)
+        return await self._find_channel(ident)
+
+    async def _find_channel(self, ident: int):
+        """Find a channel or thread, including one missing from the cache."""
         channel = self.bot.get_channel(ident)
         if channel is None:  # archived threads aren't cached
             try:
@@ -1071,9 +1127,82 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
 
     # -- one answer --
 
-    def _step_feed(self, send) -> StepFeed | None:
-        """A StepFeed posting with ``send``, or None when ``show_steps`` is off."""
-        return StepFeed(send) if self.settings.get("show_steps", True) else None
+    async def _stop_requests(self, user_id: int | None = None) -> int:
+        requests = {
+            task: request for task, request in self._active_requests.items()
+            if not task.done() and (user_id is None or (
+                request.running and request.user_id == user_id and not request.stopped
+            ))
+        }
+        if not requests:
+            return 0
+        for task, request in requests.items():
+            request.stopped = True
+            if request.steps is not None:
+                request.steps.cancel()
+            if not request.running:  # shutdown also removes waiters
+                task.cancel()
+        stop = getattr(self.agent, "stop", None)
+        contexts = {(request.cid, str(request.user_id)) for request in requests.values() if request.running}
+        if callable(stop) and contexts:
+            try:
+                outcomes = await asyncio.wait_for(
+                    asyncio.gather(*(stop(cid, user_id=caller) for cid, caller in contexts),
+                                   return_exceptions=True),
+                    timeout=AGENT_STOP_WAIT_SECONDS,
+                )
+                for outcome in outcomes:
+                    if isinstance(outcome, Exception):
+                        log.warning("Golurk-Agent stop API failed (%s)", type(outcome).__name__)
+            except TimeoutError:
+                log.warning("Golurk-Agent did not finish stopping in time")
+        # Older agents and requests still downloading uploads need local cancellation.
+        for task in requests:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*requests, return_exceptions=True)
+        return len(requests)
+
+    async def stop_here(self, interaction: discord.Interaction) -> bool:
+        """Handle the shared /stop in the configured agent channel, threads or DMs."""
+        if not usable_here(interaction.channel, interaction.user, self.settings):
+            return False
+        if not any(request.running and not task.done() and not request.stopped
+                   and request.user_id == interaction.user.id
+                   for task, request in self._active_requests.items()):
+            await interaction.response.send_message("You have no active Golurk-Agent requests.", ephemeral=True)
+            return True
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        count = await self._stop_requests(interaction.user.id)
+        text = (f"Stopped {count} Golurk-Agent request{'s' if count != 1 else ''}."
+                if count else "Your Golurk-Agent requests already finished.")
+        await interaction.edit_original_response(content=text)
+        return True
+
+    def _step_feed(self) -> StepFeed | None:
+        """Post progress exclusively in the configured server channel."""
+        channel_id = self.settings["channel_id"]
+        if not channel_id or not self.settings.get("show_steps", True):
+            return None
+        channel = None
+        resolved = False
+
+        async def post_step(content):
+            nonlocal channel, resolved
+            if not resolved:
+                candidate = await self._find_channel(channel_id)
+                if (getattr(candidate, "id", None) == channel_id
+                        and getattr(candidate, "guild", None) is not None
+                        and callable(getattr(candidate, "send", None))):
+                    channel = candidate
+                else:
+                    log.warning("Golurk-Agent progress channel %s is unavailable", channel_id)
+                resolved = True
+            if channel is not None:
+                await channel.send(content, allowed_mentions=NO_PINGS, silent=True,
+                                   suppress_embeds=True)
+
+        return StepFeed(post_step)
 
     async def answer(self, cid: str, text: str, author, confirm,
                      think: bool | None = None, mode: str | None = None,
@@ -1105,24 +1234,48 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
             steps.start()
             if "on_step" in parameters:
                 extra["on_step"] = steps.add
-        try:
+        # Keep the active host request distinct from turns queued in the same conversation.
+        lock = next((turn.lock for turn in self._active_requests.values() if turn.cid == cid), None)
+        request = ActiveRequest(cid, author.id, steps, lock or asyncio.Lock())
+
+        async def run():
             async with asyncio.timeout(self.settings["timeout"]):
-                if uploads and not notices:
-                    extra["attachments"] = await read_uploads(uploads)
-                reply = await self.agent.chat(cid, text, confirm=confirm, speaker=author.display_name,
-                                              think=think, **extra)
+                async with request.lock:
+                    request.running = True
+                    if uploads and not notices:
+                        extra["attachments"] = await read_uploads(uploads)
+                    return await self.agent.chat(cid, text, confirm=confirm, speaker=author.display_name,
+                                                 think=think, **extra)
+
+        task = asyncio.create_task(run())
+        self._active_requests[task] = request
+        reply = None
+        try:
+            reply = await task
+        except asyncio.CancelledError:
+            if not request.stopped or asyncio.current_task().cancelling():
+                if steps is not None:
+                    steps.cancel()
+                raise
         except Exception as exc:  # noqa: BLE001
-            log.exception("Golurk-Agent failed (%s)", cid)
-            return DiscordAnswer([error_text(exc), *notices])
+            if not request.stopped:
+                log.exception("Golurk-Agent failed (%s)", cid)
+                return DiscordAnswer([error_text(exc), *notices])
         finally:
-            if steps is not None:  # all steps are posted before the answer
-                await steps.close()
+            self._active_requests.pop(task, None)
+            request.stopped = request.stopped or getattr(reply, "stopped", False)
+            if steps is not None:
+                if request.stopped:
+                    steps.cancel()
+                await steps.close(reply)
+        if request.stopped:
+            return DiscordAnswer(stopped=True)
         if getattr(reply, "duplicate", False):
             return DiscordAnswer()
 
         log.info("HA %s: %d tool calls, %d actions, %.1f s", cid, reply.tool_calls,
                  len(reply.actions), reply.seconds)
-        parts = reply_messages(reply, spoiler=not (steps and steps.showed_thinking()))
+        parts = reply_messages(reply)
         for error in getattr(reply, "attachment_errors", ()):
             notices.extend(split_message(ATTACHMENT_NOTICE + discord.utils.escape_markdown(error)))
         return DiscordAnswer(parts + notices, getattr(reply, "files", []))
@@ -1171,11 +1324,7 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
             thread = await self._open_thread(message, text)
         where = thread or message.channel
 
-        async def post_step(content):
-            return await where.send(content, allowed_mentions=NO_PINGS, silent=True,
-                                    suppress_embeds=True)
-
-        steps = self._step_feed(post_step)
+        steps = self._step_feed()
 
         async def send(content, view, **kwargs):
             if steps is not None:
@@ -1277,11 +1426,7 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
         """One request from a slash command (the caller checked the allowlist)."""
         await interaction.response.defer(thinking=True)
 
-        async def post_step(content):
-            return await interaction.followup.send(content, wait=True, allowed_mentions=NO_PINGS,
-                                                   silent=True, suppress_embeds=True)
-
-        steps = self._step_feed(post_step)
+        steps = self._step_feed()
 
         async def send(content, view, **kwargs):
             if steps is not None:
@@ -1296,6 +1441,14 @@ class GolurkAgent(commands.Cog, name="Golurk-Agent"):
                                    make_confirm(send, interaction.user.id), think=think,
                                    mode=mode, steps=steps,
                                    message_id=getattr(interaction, "id", None), send_approval=send)
+        if answer.stopped:
+            try:
+                await interaction.delete_original_response()
+            except discord.NotFound:
+                pass
+            except discord.HTTPException:
+                log.warning("Could not clear a stopped slash request", exc_info=True)
+            return
         await self._send_answer(answer, interaction.followup.send, interaction.followup.send)
 
     @ha.command(name="ask", description="Send a request to Golurk-Agent.")

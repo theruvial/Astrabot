@@ -264,21 +264,20 @@ class ThinkingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(hac.think_choice("off"), ("set", False))
         self.assertEqual(hac.think_choice(" is it going to rain? "), ("once", "is it going to rain?"))
 
-    def test_a_thought_reply_gets_a_brain_and_a_spoiler(self):
+    def test_a_thought_reply_gets_a_brain_in_its_footer(self):
         r = reply(seconds=13.04)
-        r.thought, r.thinking = True, "The user wants || rain || info."
-        parts = hac.reply_messages(r)
-        r.tool_calls = 0
-        self.assertIn(f"-# {hac.BRAIN} · 13.0 s", hac.reply_messages(r)[0])
-        self.assertEqual(parts[-1], f"-# {hac.BRAIN} Reasoning (tap to show)\n"
-                                    "||The user wants | | rain | | info.||")
-
-    def test_no_brain_or_spoiler_without_thinking(self):
-        r = reply()
-        r.thought, r.thinking = False, "stale"
+        r.thought, r.thinking, r.tool_calls = True, "The user wants || rain || info.", 0
         parts = hac.reply_messages(r)
         self.assertEqual(len(parts), 1)
-        self.assertNotIn(hac.BRAIN, parts[0])
+        self.assertIn(f"-# {hac.BRAIN} · 13.0 s", parts[0])
+        self.assertEqual(hac.reasoning_message(r.thinking),
+                         f"-# {hac.BRAIN} Reasoning (tap to show)\n"
+                         "||The user wants | | rain | | info.||")
+
+    def test_no_brain_without_thinking(self):
+        r = reply()
+        r.thought, r.thinking = False, "stale"
+        self.assertNotIn(hac.BRAIN, hac.reply_messages(r)[0])
 
     def test_long_reasoning_is_cut_to_fit_one_message(self):
         msg = hac.reasoning_message("x" * 9000)
@@ -1446,67 +1445,247 @@ class StepPlace(Place):
 
 
 class StepAnswerTests(unittest.IsolatedAsyncioTestCase):
-    def cog(self, agent, **over):
-        cog = hac.GolurkAgent(types.SimpleNamespace(user=BOT), settings(**over), agent=agent)
+    def cog(self, agent, progress=None, fetched=None, **over):
+        bot = types.SimpleNamespace(user=BOT, get_channel=mock.Mock(return_value=progress),
+                                    fetch_channel=mock.AsyncMock(return_value=fetched))
+        cog = hac.GolurkAgent(bot, settings(**over), agent=agent)
         cog.started = True
         return cog
 
-    async def test_steps_come_before_the_answer_in_the_thread_without_pinging(self):
+    async def test_server_request_posts_steps_only_to_configured_channel(self):
         agent = StepAgent([thought_call(), result()])
-        thread = StepPlace(50, parent_id=42)
-        await self.cog(agent).on_message(chat_message(Place(42), thread=thread))
-        self.assertEqual(len(thread.sent), 4, thread.sent)
-        self.assertTrue(thread.sent[0].startswith(hac.THINKING_HEADER))
-        self.assertTrue(thread.sent[3].startswith("Done it."))
-        self.assertEqual(thread.flags[:3], [{"silent": True, "suppress_embeds": True}] * 3)
-        self.assertNotIn("Reasoning (tap to show)", "".join(thread.sent))
+        progress, thread = StepPlace(42), StepPlace(50, parent_id=42)
+        cog = self.cog(agent, progress=progress)
+        await cog.on_message(chat_message(Place(42), thread=thread))
+        self.assertEqual(len(progress.sent), 3)
+        self.assertTrue(progress.sent[0].startswith(hac.THINKING_HEADER))
+        self.assertEqual(progress.flags, [{"silent": True, "suppress_embeds": True}] * 3)
+        self.assertEqual(len(thread.sent), 1)
+        self.assertTrue(thread.sent[0].startswith("Done it."))
+        cog.bot.get_channel.assert_called_once_with(42)
 
-    async def test_turned_off_keeps_the_spoiler_and_asks_for_no_steps(self):
-        agent = StepAgent([thought_call()])
-        cog = self.cog(agent, show_steps=False)
-        self.assertIsNone(cog._step_feed(Outbox()))
-        parts = (await cog.answer("c", "hi", message().author, no_confirm)).parts
-        self.assertIn("Reasoning (tap to show)", parts[-1])
-        self.assertEqual(agent.on_step_seen, [None])
+    async def test_dm_routes_steps_to_fetched_server_channel_and_keeps_the_reply(self):
+        agent = StepAgent([thought_call(), result()])
+        progress, dm = StepPlace(42), StepPlace(7)
+        dm.guild = None
+        cog = self.cog(agent, fetched=progress)
+        msg = chat_message(dm)
+        await cog.on_message(msg)
+        self.assertEqual(len(progress.sent), 3)
+        self.assertIn("Bed Fan: on 40%", progress.sent[-1])
+        self.assertEqual(dm.sent, [])
+        self.assertEqual(len(msg.replies), 1)
+        self.assertTrue(msg.replies[0].startswith("Done it."))
+        cog.bot.fetch_channel.assert_awaited_once_with(42)
 
-    async def test_an_older_agent_gets_no_on_step_and_keeps_the_spoiler(self):
+    async def test_slash_command_in_dm_uses_the_same_progress_channel(self):
+        progress, dm = StepPlace(42), StepPlace(7)
+        dm.guild = None
+        inter = interaction(THEA)
+        inter.channel = dm
+        inter.followup = types.SimpleNamespace(send=mock.AsyncMock())
+        cog = self.cog(StepAgent([thought_call(), result()]), progress=progress)
+        await hac.GolurkAgent.ask.callback(cog, inter, "how is the fan?")
+        self.assertEqual(len(progress.sent), 3)
+        self.assertEqual(dm.sent, [])
+        inter.followup.send.assert_awaited_once()
+        self.assertTrue(inter.followup.send.await_args.args[0].startswith("Done it."))
+
+    async def test_no_configured_channel_and_disabled_progress_leave_the_chat_clean(self):
+        for flags in ({"channel_id": 0}, {"show_steps": False}):
+            with self.subTest(flags=flags):
+                agent = StepAgent([thought_call()])
+                cog = self.cog(agent, **flags)
+                dm = StepPlace(7)
+                dm.guild = None
+                msg = chat_message(dm)
+                await cog.on_message(msg)
+                self.assertIsNone(cog._step_feed())
+                self.assertEqual(agent.on_step_seen, [None])
+                self.assertEqual(dm.sent, [])
+                self.assertEqual(len(msg.replies), 1)
+                cog.bot.get_channel.assert_not_called()
+
+    async def test_unavailable_progress_channel_does_not_fall_back_to_the_dm(self):
+        agent = StepAgent([thought_call(), result()])
+        dm = StepPlace(7)
+        dm.guild = None
+        msg = chat_message(dm)
+        cog = self.cog(agent)
+        with self.assertLogs("golurk_agent", "WARNING"):
+            await cog.on_message(msg)
+        self.assertEqual(dm.sent, [])
+        self.assertEqual(len(msg.replies), 1)
+        self.assertTrue(msg.replies[0].startswith("Done it."))
+        cog.bot.fetch_channel.assert_awaited_once_with(42)
+
+    async def test_older_agent_posts_the_reasoning_spoiler_to_progress_channel(self):
         def old(*_):
             out = reply()
             out.thought, out.thinking = True, "hmm"
             return out
 
-        agent, box = FakeAgent(chat=old), Outbox()
-        cog = self.cog(agent)
-        parts = (await cog.answer("c", "hi", message().author, no_confirm,
-                                 steps=cog._step_feed(box))).parts
-        self.assertIn("Reasoning (tap to show)", parts[-1])
-        self.assertEqual(box.messages, [])
+        progress = StepPlace(42)
+        cog = self.cog(FakeAgent(chat=old), progress=progress)
+        parts = (await cog.answer("c", "hi", message().author, no_confirm, steps=cog._step_feed())).parts
+        self.assertNotIn("Reasoning (tap to show)", "".join(parts))
+        self.assertEqual(progress.sent, [hac.reasoning_message("hmm")])
 
     async def test_steps_are_posted_even_when_the_answer_fails(self):
-        box = Outbox()
-        cog = self.cog(StepAgent([thought_call()], error=asyncio.TimeoutError()))
+        progress = StepPlace(42)
+        cog = self.cog(StepAgent([thought_call()], error=asyncio.TimeoutError()), progress=progress)
         with self.assertLogs("golurk_agent", "ERROR"):
             parts = (await cog.answer("c", "hi", message().author, no_confirm,
-                                     steps=cog._step_feed(box))).parts
+                                     steps=cog._step_feed())).parts
         self.assertEqual(parts, ["That took too long, try again."])
-        self.assertTrue(box.messages[-1].startswith("❌ **`status`** not run"))
+        self.assertTrue(progress.sent[-1].startswith("❌ **`status`** not run"))
 
-    async def test_a_confirm_prompt_sits_between_the_steps(self):
+    async def test_confirmation_stays_in_the_request_thread(self):
         agent = StepAgent([thought_call(), result()], ask=True)
-        thread = StepPlace(50, parent_id=42)
+        progress, thread = StepPlace(42), StepPlace(50, parent_id=42)
 
         def quick_confirm(send, owner_id):
             async def confirm(summary):
                 await send(f"Allow {summary}?", None)
+                self.assertEqual(len(progress.sent), 3)
                 return False
             return confirm
 
         with mock.patch.object(hac, "make_confirm", quick_confirm):
-            await self.cog(agent).on_message(chat_message(Place(42), thread=thread))
-        self.assertEqual(len(thread.sent), 6, thread.sent)
-        self.assertTrue(thread.sent[3].startswith("Allow "))
-        self.assertIn("after the prompt", thread.sent[4])
-        self.assertTrue(thread.sent[5].startswith("Done it."))
+            await self.cog(agent, progress=progress).on_message(chat_message(Place(42), thread=thread))
+        self.assertEqual(len(thread.sent), 2, thread.sent)
+        self.assertTrue(thread.sent[0].startswith("Allow "))
+        self.assertTrue(thread.sent[1].startswith("Done it."))
+        self.assertIn("after the prompt", progress.sent[-1])
+
+
+class StopTests(unittest.IsolatedAsyncioTestCase):
+    def cog(self, agent, **options):
+        cog = hac.GolurkAgent(types.SimpleNamespace(user=BOT), settings(**options), agent=agent)
+        cog.started = True
+        return cog
+
+    def command(self, user_id=THEA):
+        inter = interaction(user_id)
+        inter.channel = Place(42)
+        inter.guild = inter.channel.guild
+        inter.edit_original_response = mock.AsyncMock()
+        return inter
+
+    async def test_stop_calls_the_scoped_agent_api_and_drops_progress_and_reply(self):
+        entered, released = asyncio.Event(), asyncio.Event()
+
+        class NativeStopAgent(FakeAgent):
+            async def chat(self, cid, text, confirm, speaker, think=None, on_step=None, *,
+                           user_id=None, message_id=None, is_dm=False):
+                entered.set()
+                await released.wait()
+                if on_step:
+                    on_step(thought_call("late reasoning"))
+                response = reply("late reply")
+                response.stopped = True
+                response.files = [object()]
+                return response
+
+            async def stop(self, cid, *, user_id):
+                self.stop_args = (cid, user_id)
+                released.set()
+                return True
+
+        agent = NativeStopAgent()
+        cog = self.cog(agent)
+        box = Outbox()
+        feed = hac.StepFeed(box)
+        author = message().author
+        pending = asyncio.create_task(cog.answer(f"discord:dm:{THEA}", "slow", author,
+                                                no_confirm, steps=feed))
+        await asyncio.wait_for(entered.wait(), 1)
+        inter = self.command()
+        self.assertTrue(await cog.stop_here(inter))
+        answer = await pending
+        self.assertTrue(answer.stopped)
+        self.assertEqual(answer.parts, [])
+        self.assertEqual(answer.files, [])
+        self.assertEqual(box.messages, [])
+        self.assertEqual(agent.stop_args, (f"discord:dm:{THEA}", str(THEA)))
+        inter.edit_original_response.assert_awaited_once_with(content="Stopped 1 Golurk-Agent request.")
+
+    async def test_legacy_agent_stop_keeps_other_users_and_queued_turns_intact(self):
+        entered = asyncio.Event()
+        author = message().author
+        other = types.SimpleNamespace(id=THEA + 1, display_name="Other")
+
+        async def respond(cid, text, confirm, speaker):
+            if text == "slow":
+                entered.set()
+                await asyncio.Future()
+            return reply(text=text)
+
+        cog = self.cog(FakeAgent(chat=respond), allowed=frozenset({THEA, other.id}))
+        current = asyncio.create_task(cog.answer("discord:42", "slow", author, no_confirm))
+        await asyncio.wait_for(entered.wait(), 1)
+        queued = asyncio.create_task(cog.answer("discord:42", "next", author, no_confirm))
+        await asyncio.sleep(0)
+        unauthorized = self.command(other.id)
+        self.assertTrue(await cog.stop_here(unauthorized))
+        unauthorized.response.send_message.assert_awaited_once_with(
+            "You have no active Golurk-Agent requests.", ephemeral=True)
+        self.assertFalse(current.done())
+        self.assertTrue(await cog.stop_here(self.command()))
+        self.assertTrue((await current).stopped)
+        self.assertTrue((await queued).parts[0].startswith("next"))
+        self.assertEqual(cog._active_requests, {})
+
+    async def test_stopping_retires_an_open_home_confirmation(self):
+        shown = asyncio.get_running_loop().create_future()
+        prompt = types.SimpleNamespace(edit=mock.AsyncMock())
+
+        async def send(content, view):
+            shown.set_result(view)
+            return prompt
+
+        async def respond(cid, text, confirm, speaker):
+            await confirm("test operation")
+            self.fail("The cancelled turn continued after confirmation")
+
+        cog = self.cog(FakeAgent(chat=respond))
+        task = asyncio.create_task(cog.answer("discord:42", "slow", message().author,
+                                             hac.make_confirm(send, THEA)))
+        view = await asyncio.wait_for(shown, 1)
+        self.assertTrue(await cog.stop_here(self.command()))
+        self.assertTrue((await task).stopped)
+        self.assertTrue(all(button.disabled for button in view.children))
+        self.assertIn("Request stopped.", prompt.edit.await_args.kwargs["content"])
+
+    async def test_stop_clears_the_original_slash_deferral_without_sending_an_answer(self):
+        entered = asyncio.Event()
+
+        async def respond(*_):
+            entered.set()
+            await asyncio.Future()
+
+        cog = self.cog(FakeAgent(chat=respond), show_steps=False)
+        original = self.command()
+        original.followup = types.SimpleNamespace(send=mock.AsyncMock())
+        original.delete_original_response = mock.AsyncMock()
+        pending = asyncio.create_task(hac.GolurkAgent.ask.callback(cog, original, "wait"))
+        await asyncio.wait_for(entered.wait(), 1)
+        self.assertTrue(await cog.stop_here(self.command()))
+        await pending
+        original.delete_original_response.assert_awaited_once_with()
+        original.followup.send.assert_not_awaited()
+
+    async def test_shared_slash_command_routes_to_agent_or_music(self):
+        from bot import stop
+
+        agent = types.SimpleNamespace(stop_here=mock.AsyncMock(side_effect=[True, False]))
+        music = types.SimpleNamespace(stop=mock.AsyncMock())
+        inter = self.command()
+        inter.client = types.SimpleNamespace(get_cog={"Golurk-Agent": agent, "Music": music}.get)
+        await stop.callback(inter)
+        music.stop.assert_not_awaited()
+        await stop.callback(inter)
+        music.stop.assert_awaited_once_with(inter)
 
 
 if __name__ == "__main__":

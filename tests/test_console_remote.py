@@ -77,8 +77,10 @@ class PureTests(unittest.TestCase):
     def test_states_and_follows(self):
         panes = statuses()
         self.assertEqual([p["key"] for p in panes],
-                         ["bot", "site", "portfolio", "absLogin", "wiki", "classifier",
-                          "librarian", "dragonwilds"])
+                         ["bot", "site", "agent", "portfolio", "absLogin", "wiki",
+                          "classifier", "librarian", "dragonwilds"])
+        self.assertEqual({p["key"] for p in panes if p.get("follows") == "bot"},
+                         {"site", "agent", "portfolio"})
         by = {p["key"]: p for p in panes}
         self.assertEqual(by["site"], {"key": "site", "title": "Site (13380)", "state": "running",
                                       "status": "Running (PID 1)", "follows": "bot"})

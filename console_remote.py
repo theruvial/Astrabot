@@ -66,10 +66,11 @@ CLOSE_TRY_AGAIN = 1013
 SCREEN_SECONDS = 1          # screens are sampled at most this often
 SCREEN = "__screen__"       # Client.items marker: the item is a whole screen frame
 
-# Built-in panes in protocol order. Site and portfolio are cogs inside the bot:
-# they show the bot's state and clients do not alert on them.
-BUILTIN_ORDER = ("bot", "site", "portfolio", "absLogin", "wiki", "classifier", "librarian")
-FOLLOWS = {"site": "bot", "portfolio": "bot"}
+# Built-in panes in protocol order. Site, agent and portfolio are cogs inside
+# the bot: they show the bot's state and clients do not alert on them.
+BUILTIN_ORDER = ("bot", "site", "agent", "portfolio", "absLogin", "wiki", "classifier",
+                 "librarian")
+FOLLOWS = {"site": "bot", "agent": "bot", "portfolio": "bot"}
 # The strata stream only carries header notes; "__" streams are console internals.
 HIDDEN_STREAMS = frozenset({"strata"})
 

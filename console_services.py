@@ -36,20 +36,23 @@ STARTUP_NAME = "Golurk Console.bat"
 IS_WINDOWS = os.name == "nt"
 
 # The windows that are part of the console and cannot be removed.
-BUILTIN_PANES = ("bot", "site", "absLogin", "wiki", "classifier", "portfolio", "librarian",
-                 "strata")
-BUILTIN_TITLES = {"bot": "Bot", "site": "Site (13380)", "absLogin": "absLogin (13381)",
+BUILTIN_PANES = ("bot", "site", "agent", "absLogin", "wiki", "classifier", "portfolio",
+                 "librarian", "strata")
+BUILTIN_TITLES = {"bot": "Bot", "site": "Site (13380)", "agent": "Golurk-Agent",
+                  "absLogin": "absLogin (13381)",
                   "wiki": "Wiki (13382)", "classifier": "Classifier (13383)",
                   "portfolio": "Portfolio (13384)",
                   "librarian": "Automated Librarian (Ubuntu server)",
                   "strata": "Strata (8080)"}
-# The seven built-in windows live together in one collapsible group.
+# The eight built-in windows live together in one collapsible group.
 GROUP_KEY = "astrabot"
 GROUP_TITLE = "Astrabot"
 # Where a built-in pane sits inside that group's grid: (row, column, columnspan).
-BUILTIN_CELLS = {"bot": (0, 0, 1), "site": (0, 1, 1), "absLogin": (1, 0, 1),
-                 "wiki": (1, 1, 1), "classifier": (2, 0, 1), "portfolio": (2, 1, 1),
-                 "librarian": (3, 0, 2)}
+# The agent's lines are long (model and search requests), so it gets a full
+# row under the bot, which they came out of.
+BUILTIN_CELLS = {"bot": (0, 0, 1), "site": (0, 1, 1), "agent": (1, 0, 2),
+                 "absLogin": (2, 0, 1), "wiki": (2, 1, 1), "classifier": (3, 0, 1),
+                 "portfolio": (3, 1, 1), "librarian": (4, 0, 2)}
 # Shorter rows inside the group (the rest get 3).
 SHORT_ROWS = {BUILTIN_CELLS["classifier"][0], BUILTIN_CELLS["librarian"][0]}
 # The Strata pane (an embedded terminal running the Strata monitor, see

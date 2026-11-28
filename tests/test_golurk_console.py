@@ -104,9 +104,10 @@ class LayoutTests(unittest.TestCase):
     def test_built_in_panes_keep_their_places(self):
         cells = cs.pane_cells([])
         self.assertEqual(cells["bot"], (0, 0, 1))
-        self.assertEqual(cells["classifier"], (2, 0, 1))
-        self.assertEqual(cells["portfolio"], (2, 1, 1))
-        self.assertEqual(cells["librarian"], (3, 0, 2))  # full width, last row
+        self.assertEqual(cells["agent"], (1, 0, 2))      # full width, under the bot
+        self.assertEqual(cells["classifier"], (3, 0, 1))
+        self.assertEqual(cells["portfolio"], (3, 1, 1))
+        self.assertEqual(cells["librarian"], (4, 0, 2))  # full width, last row
 
     def test_added_services_fill_two_per_row_underneath(self):
         cells = cs.pane_cells(["a", "b", "c"])
@@ -117,27 +118,29 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(cells["c"], (3, 0, 1))
 
     def test_a_row_of_collapsed_panes_gives_its_room_back(self):
-        self.assertEqual(cs.inner_row_weights({}), {0: 3, 1: 3, 2: 2, 3: 2})
-        self.assertEqual(cs.inner_row_weights({"librarian": True})[3], 0)
+        self.assertEqual(cs.inner_row_weights({}), {0: 3, 1: 3, 2: 3, 3: 2, 4: 2})
+        self.assertEqual(cs.inner_row_weights({"librarian": True})[4], 0)
+        self.assertEqual(cs.inner_row_weights({"agent": True})[1], 0)
         collapsed = {"absLogin": True, "wiki": True}
-        self.assertEqual(cs.inner_row_weights(collapsed)[1], 0)
-        self.assertEqual(cs.inner_row_weights({"absLogin": True})[1], 3)
+        self.assertEqual(cs.inner_row_weights(collapsed)[2], 0)
+        self.assertEqual(cs.inner_row_weights({"absLogin": True})[2], 3)
 
     def test_the_astrabot_group_collapses_as_one(self):
-        self.assertEqual(cs.outer_row_weights([], {})[0], 10)
+        self.assertEqual(cs.outer_row_weights([], {})[0], 13)
         self.assertEqual(cs.outer_row_weights([], {"astrabot": True})[0], 0)
         # Collapsing some panes inside the group shrinks the group's share.
-        self.assertEqual(cs.outer_row_weights([], {"wiki": True, "absLogin": True})[0], 7)
+        self.assertEqual(cs.outer_row_weights([], {"wiki": True, "absLogin": True})[0], 10)
 
     def test_added_services_sit_below_the_group(self):
         weights = cs.outer_row_weights(["a", "b", "c"], {"a": True, "b": True})
-        self.assertEqual(weights, {0: 10, 1: 10, 2: 0, 3: 3})
+        self.assertEqual(weights, {0: 13, 1: 10, 2: 0, 3: 3})
         self.assertEqual(cs.outer_row_weights(["a"], {"astrabot": True}), {0: 0, 1: 10, 2: 3})
 
     def test_open_rows_keep_a_minimum_height_so_the_page_scrolls(self):
         self.assertEqual(cs.inner_row_minsizes({}),
                          {0: cs.PANE_MIN_HEIGHT, 1: cs.PANE_MIN_HEIGHT,
-                          2: cs.SHORT_MIN_HEIGHT, 3: cs.SHORT_MIN_HEIGHT})
+                          2: cs.PANE_MIN_HEIGHT, 3: cs.SHORT_MIN_HEIGHT,
+                          4: cs.SHORT_MIN_HEIGHT})
         self.assertEqual(cs.inner_row_minsizes({"bot": True, "site": True})[0], 0)
         self.assertEqual(cs.outer_row_minsizes(["a"], {}),
                          {0: 0, 1: cs.STRATA_MIN_HEIGHT, 2: cs.PANE_MIN_HEIGHT})
@@ -145,12 +148,13 @@ class LayoutTests(unittest.TestCase):
                          {0: 0, 1: 0, 2: 0})
 
     def test_the_strata_pane_gives_its_room_back_when_collapsed(self):
-        self.assertEqual(cs.outer_row_weights([], {"strata": True}), {0: 10, 1: 0})
+        self.assertEqual(cs.outer_row_weights([], {"strata": True}), {0: 13, 1: 0})
 
-    def test_the_built_in_windows_are_the_eight_we_ship(self):
+    def test_the_built_in_windows_are_the_nine_we_ship(self):
         self.assertEqual(set(cs.BUILTIN_PANES),
-                         {"bot", "site", "absLogin", "wiki", "classifier", "portfolio",
-                          "librarian", "strata"})
+                         {"bot", "site", "agent", "absLogin", "wiki", "classifier",
+                          "portfolio", "librarian", "strata"})
+        self.assertEqual(cs.service_name({"name": "agent"}), "svc_agent")
         # A service called "strata" must not take the Strata pane's place.
         self.assertEqual(cs.service_name({"name": "strata"}), "svc_strata")
 

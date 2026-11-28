@@ -6,9 +6,9 @@ with one pane of live output for each.
 
 ## Layout
 
-- The seven Astrabot windows (**Bot**, **Site**, **absLogin**, **Wiki**,
-  **Classifier**, **Portfolio**, **Automated Librarian**) sit together in one
-  **Astrabot** group. The arrow on the group header collapses all seven at once; the arrow on each window's header collapses
+- The eight Astrabot windows (**Bot**, **Site**, **Golurk-Agent**, **absLogin**,
+  **Wiki**, **Classifier**, **Portfolio**, **Automated Librarian**) sit together in one
+  **Astrabot** group. The arrow on the group header collapses all eight at once; the arrow on each window's header collapses
   just that window. Collapsed windows give their room back to the others.
 - The **Decisions** panel on the right collapses the same way.
 - Services you add appear below the Astrabot group, each with its own pane.
@@ -16,13 +16,19 @@ with one pane of live output for each.
 - **Site** and **Portfolio** show the log lines of the audiobooks and portfolio
   cogs, which run inside the bot. The **Restart** buttons on Site and Portfolio
   reload just that cog; Bot's **Restart** restarts both.
+- **Golurk-Agent** (full width under Bot and Site) has the agent's chatter, which
+  used to fill the Bot pane: the `golurk_agent` cog, the `ha_agent` package, and the
+  request lines for the model server and web searches (`httpx`, `httpx2`, `ddgs`,
+  `primp`), tracebacks included. Its **Restart** reloads the agent cog in the
+  running bot, which also reloads the agent's code (like `/ha reload`); the bot
+  reports the result in the Bot pane. `logs/bot.log` still has everything.
 - **Automated Librarian** shows the librarian that runs on the Ubuntu server. It
   connects with `ssh thea-server` (key login, no password prompt), prints whether
   the `automated-librarian` service is active, then follows its journal live.
   Its **Restart** reconnects; it does not restart the librarian itself. To use
   another host or unit, or to turn the pane off (blank host), add to `console.json`:
   `"librarian": {"host": "thea-server", "unit": "automated-librarian"}`.
-- The seven built-in windows can never be removed. Only services you added have a
+- The eight built-in windows can never be removed. Only services you added have a
   **Remove** button (and Settings only enables Remove for those).
 
 ## Restart buttons and scrolling

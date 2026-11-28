@@ -23,8 +23,9 @@ first).
 
 ## Panes
 
-Pane keys are the console's stream names: `bot`, `site`, `portfolio`, `absLogin`, `wiki`,
-`classifier`, `librarian`, and each custom service's `name`. Streams starting with `__`
+Pane keys are the console's stream names: `bot`, `site`, `agent` (since 2026-11-28),
+`portfolio`, `absLogin`, `wiki`, `classifier`, `librarian`, and each custom service's
+`name`. Streams starting with `__`
 and the `strata` stream (header notes only) are internal and never sent.
 
 A pane status object:
@@ -38,7 +39,7 @@ A pane status object:
   from `Supervisor.status()`: `Running (PID n)`, `Waiting to restart`, `Stopped`.
 - `status`: the console's own text, for display.
 - `follows` (optional): the pane has no supervisor of its own and shows another pane's
-  state (`site` and `portfolio` follow `bot`). Clients do not alert on these.
+  state (`site`, `agent` and `portfolio` follow `bot`). Clients do not alert on these.
 - Order: built-ins in the order above, then custom services in the console's order. The
   list is rebuilt for every message (custom services come and go).
 

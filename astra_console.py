@@ -1,6 +1,6 @@
-"""Golurk Console (the Astrabot console): run the bot, site, wiki, absLogin,
-classifier, portfolio, the Automated Librarian's journal and the Strata
-monitor, plus any services you add, and watch their output.
+"""Golurk Console (the Astrabot console): run the bot, site, Golurk-Agent,
+wiki, absLogin, classifier, portfolio, the Automated Librarian's journal and
+the Strata monitor, plus any services you add, and watch their output.
 
 Every window has an arrow on its header that collapses it, and its own
 Restart button. The page scrolls when the window is too short for the
@@ -22,7 +22,11 @@ Restart reloads that cog in the running bot (through logs/reload_cog.flag, see
 cogs/moderation.py) and, like any load of that cog, rebuilds the
 requests channel. The portfolio site (13384) is hosted by the portfolio cog
 the same way: its pane shows that cog's log lines, and its Restart
-reloads just that cog.
+reloads just that cog. Golurk-Agent is a third cog inside the bot: its pane
+takes the agent's chatter out of the Bot pane (the cog's and the ha_agent
+package's log lines, and the HTTP request lines of its model server and web
+searches), and its Restart reloads that cog, which re-imports ha_agent.
+logs/bot.log still has every line.
 
 The Strata pane embeds the interactive Strata monitor in a pseudo-console
 (console_terminal.py) with Start/Stop/Restart through plan-guarded runtime
@@ -113,7 +117,17 @@ CRASH_LOG_LOCK = threading.Lock()
 LOG_LINE = re.compile(r"^\[[^\]]*\] \[[A-Z]+\s*\] ")
 SITE_LINE = re.compile(r"^\[[^\]]*\] \[[A-Z]+\s*\] (aiohttp|audiobooks)\b")
 PORTFOLIO_LINE = re.compile(r"^\[[^\]]*\] \[[A-Z]+\s*\] portfolio\b")
-CONTINUATION = re.compile(r"^(\s|Traceback |\w+(\.\w+)*(Error|Exception)\b)")
+# The agent: the cog (golurk_agent; homeassistant before its rename), the
+# ha_agent package, and the HTTP clients only it uses in the bot: httpx/httpx2
+# (model server calls) and ddgs with primp (web searches).
+AGENT_LINE = re.compile(
+    r"^\[[^\]]*\] \[[A-Z]+\s*\] (golurk_agent|ha_agent|homeassistant|httpx2?|primp|ddgs)\b")
+# Lines without a log header that belong to the line above: a traceback,
+# including its blank lines, the sentences that chain two, and a last line
+# naming the exception ("RuntimeError: boom", "discord.errors.NotFound: ...").
+CONTINUATION = re.compile(
+    r"^(\s|$|Traceback |The above exception |During handling of the above "
+    r"|\w+(\.\w+)*(Error|Exception)\b|(\w+\.)+[A-Z]\w*(:|$))")
 
 
 def route_line(line, previous="bot"):
@@ -122,6 +136,8 @@ def route_line(line, previous="bot"):
         return "site"
     if PORTFOLIO_LINE.match(line):
         return "portfolio"
+    if AGENT_LINE.match(line):
+        return "agent"
     if LOG_LINE.match(line):
         return "bot"
     return previous if CONTINUATION.match(line) else "bot"
@@ -378,6 +394,10 @@ class BotSupervisor(Supervisor):
 
     def reload_portfolio(self):
         return self._reload_cog("portfolio", "portfolio", "portfolio")
+
+    def reload_agent(self):
+        """Reload Golurk-Agent: its cog and the ha_agent package (like /ha reload)."""
+        return self._reload_cog("golurk_agent", "agent", "agent")
 
     def pull_latest(self):
         """Fast-forward every repo. Never merges, so it cannot make a mess."""
@@ -1059,6 +1079,7 @@ def main():
     restart_actions = {
         "bot": lambda: in_background(supervisor.restart),
         "site": supervisor.reload_site,
+        "agent": supervisor.reload_agent,
         "absLogin": lambda: in_background(abs_login.restart),
         "wiki": lambda: in_background(wiki.restart),
         "classifier": lambda: in_background(classifier.restart),

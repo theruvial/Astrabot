@@ -26,6 +26,62 @@ class RouteLineTests(unittest.TestCase):
         self.assertEqual(route_line("[2026-11-05 21:00:00] [WARNING ] audiobooks.web: x"), "site")
         self.assertEqual(route_line("[2026-11-05 21:00:00] [INFO    ] portfolio: CV check: unchanged"), "portfolio")
 
+    def test_agent_chatter_goes_to_the_agent_pane(self):
+        head = "[2026-11-28 11:56:34] [INFO    ] "
+        for line in ("golurk_agent: HA discord:1: 2 tool calls, 0 actions, 4.0 s",
+                     "ha_agent.agent: claimed a device action", "ha_agent.timers: fired",
+                     "homeassistant: Home Assistant agent ready",
+                     'httpx2: HTTP Request: POST http://192.168.4.29:8080/v1/chat/completions',
+                     'httpx: HTTP Request: POST http://127.0.0.1:11434/api/chat',
+                     "primp: response: https://html.duckduckgo.com/html/ 200",
+                     "ddgs.ddgs: searching"):
+            self.assertEqual(route_line(head + line), "agent", line)
+
+    def test_names_that_only_look_like_the_agent_stay_in_the_bot_pane(self):
+        head = "[2026-11-28 11:56:34] [INFO    ] "
+        for line in ("discord.app_commands.tree: Ignoring exception in command 'ha reload'",
+                     "golurk_agents: x", "httpxyz: x", "selfupdate: golurk_agent changed"):
+            self.assertNotEqual(route_line(head + line), "agent", line)
+        self.assertEqual(route_line("Loaded extension cogs.golurk_agent", "agent"), "bot")
+        self.assertEqual(route_line("golurk_agent reloaded from the console", "agent"), "bot")
+
+    def test_a_chained_agent_traceback_stays_in_one_pane(self):
+        trace = ["[2026-11-28 11:00:00] [ERROR   ] golurk_agent: Golurk-Agent failed (c)",
+                 "Traceback (most recent call last):",
+                 '  File "agent.py", line 1, in chat',
+                 "    raise TimeoutError",
+                 "TimeoutError",
+                 "",
+                 "The above exception was the direct cause of the following exception:",
+                 "",
+                 "Traceback (most recent call last):",
+                 '  File "agent.py", line 2, in chat',
+                 "ha_agent.agent.LLMError: Model server isn't reachable",
+                 "",
+                 "During handling of the above exception, another exception occurred:",
+                 "",
+                 "discord.errors.NotFound: 404 Not Found",
+                 "asyncio.exceptions.CancelledError"]
+        pane, panes = "bot", []
+        for line in trace:
+            pane = route_line(line, pane)
+            panes.append(pane)
+        self.assertEqual(panes, ["agent"] * len(trace))
+
+    def test_the_agent_panes_restart_reloads_the_agent_cog(self):
+        said, tmp = [], tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        bot = BotSupervisor(lambda pane, line: said.append((pane, line)), root=tmp.name,
+                            command=[sys.executable, "-c", "pass"])
+        self.assertFalse(bot.reload_agent())             # no bot running
+        self.assertEqual(said[-1][0], "agent")
+        bot.flag.parent.mkdir(parents=True, exist_ok=True)
+        bot._proc = object()
+        self.assertTrue(bot.reload_agent())
+        self.assertEqual(bot.flag.read_text(encoding="utf-8"), "golurk_agent")
+        self.assertIn("Agent reload requested.", said[-1][1])
+        bot._proc = None
+
     def test_other_loggers_and_prints_go_to_bot(self):
         self.assertEqual(route_line("[2026-11-05 21:00:00] [INFO    ] discord.client: x", "site"), "bot")
         self.assertEqual(route_line("Logged in as Astrabot", "site"), "bot")

@@ -418,7 +418,7 @@ The sites are public and get constant scanner traffic (visible in `logs/bot.log`
 
 ## 11. Testing
 
-- Run from the repo root: `py -3.14 -m unittest discover -s tests` (526 tests on `feature/console-agent-pane`, 2026-11-28: 525 pass; `test_golurk_agent.StopTests.test_shared_slash_command_routes_to_agent_or_music` fails, as it does on master 31ea6f7 without that branch). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
+- Run from the repo root: `py -3.14 -m unittest discover -s tests` (526 tests on master after merging `feature/console-agent-pane`, 2026-11-28: 525 pass; `test_golurk_agent.StopTests.test_shared_slash_command_routes_to_agent_or_music` fails, as it did on 31ea6f7 before that merge). Modules importing `config` need a `config.json` in the working directory: in a fresh worktree, copy `config.example.json` to `config.json` (git-ignored).
 - Suites: `test_audiobooks`, `test_audiobooks_security`, `test_audiobook_torrents`, `test_audiobook_library`, `test_tasks`, `test_wiki`, `test_selfupdate`, `test_guild_commands`, `test_portfolio_cv`, `test_portfolio_render`, `test_portfolio_cog`, `test_astra_console`, `test_golurk_console`, `test_startup_cogs`, `test_export_youtube_cookies`, `test_golurk_agent`, `test_console_terminal`, `test_console_remote`.
 - The Automated Librarian has its own suites: `cd automated-librarian && python3 -m unittest discover -s tests` (46 tests, all passing on the Ubuntu server with Python 3.12 on 2026-11-21). The root run above does not collect them, and they have not been run on the Windows host.
 - No tests yet for `music.py`, `clip.py` (beyond imports), `moderation.py` or the legacy cogs.
@@ -464,7 +464,7 @@ Newest first. One dated entry per change (finished or in progress; say which, an
 
 - **What:** the agent's log lines moved out of the Bot pane into their own **Golurk-Agent** pane (key `agent`, full width under Bot and Site) with a Restart that reloads the `golurk_agent` cog (§8). The phone feed gets a new pane `agent` that follows `bot` (`docs/CONSOLE_REMOTE.md`; still protocol 1). `CONTINUATION` also keeps blank lines, chained-traceback sentences and dotted exception names with their traceback, which used to fall back to the Bot pane.
 - **Checked:** replaying the host's `logs/bot.log` through `route_line` (counts only) moved 1023 lines to the new pane; the only headerless lines going from it to Bot were the bot's `Loaded …`/`Logged …` prints. The real console, with other services stubbed and a stand-in bot printing made-up lines, showed them in the right panes (screenshot checked) and the pane's Restart wrote `golurk_agent` to a temporary reload flag. Not done: a reload against the live bot. Tests: §11.
-- **State:** committed on the branch, not merged. The running console shows the pane only after it is restarted.
+- **State:** merged into master and pushed 2026-11-28 at Thea's request. The running console shows the pane only after it is restarted.
 
 ### 2026-11-27 — Codex (GPT-6), progress routing and stop merged locally
 
